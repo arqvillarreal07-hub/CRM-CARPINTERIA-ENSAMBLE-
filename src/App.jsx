@@ -325,9 +325,9 @@ export default function App(){
 
   // ═══ DESKTOP LAYOUT: Sidebar + Content ═══
   if(isDesk)return (<div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",fontSize:13}}>
-    <Sidebar/>
-    <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"100vh",overflowY:"auto"}}><Content/></div>
-    <Modals/>
+    {Sidebar()}
+    <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:"100vh",overflowY:"auto"}}>{Content()}</div>
+    {Modals()}
     {toast&&<div style={{position:"fixed",top:20,right:20,background:"#1a3a1a",color:T.green,padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,zIndex:2000}}>{toast}</div>}
   </div>);
 
@@ -335,8 +335,8 @@ export default function App(){
   return (<div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",flexDirection:"column",fontSize:13}}>
     <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}>{pendAuth>0&&can("auth")&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendAuth}</div>}{lowStock.length>0&&can("inv")&&<div onClick={()=>go("inv")} style={{background:T.red,color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>⚠{lowStock.length}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
     <div style={{padding:"3px 16px 6px",display:"flex",alignItems:"center",gap:6,background:"#111"}}><span style={{fontSize:11}}>{role.icon}</span><span style={{fontSize:10,color:role.color,fontWeight:700}}>{role.nombre}</span></div>
-    <Content/>
-    <Modals/>
+    {Content()}
+    {Modals()}
     {toast&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:"#1a3a1a",color:T.green,padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,zIndex:2000}}>{toast}</div>}
     {moreOpen&&<div style={{position:"fixed",bottom:56,left:0,right:0,zIndex:200,display:"flex",justifyContent:"center"}} onClick={()=>setMoreOpen(false)}><div onClick={e=>e.stopPropagation()} style={{background:"#1a1a1a",border:"1px solid "+T.border,borderRadius:14,padding:6,maxWidth:360,width:"90%",boxShadow:"0 -4px 20px rgba(0,0,0,.5)",maxHeight:"50vh",overflowY:"auto"}}>{allNav.slice(4).map(i=> <button key={i.key} onClick={()=>{go(i.key);setMoreOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",background:sec===i.key?"#252525":"transparent",border:"none",color:sec===i.key?T.gold:"#bbb",cursor:"pointer",fontSize:13,fontWeight:sec===i.key?700:400,textAlign:"left",borderRadius:8}}><span style={{fontSize:15}}>{i.icon}</span>{i.label}</button>)}<div style={{borderTop:"1px solid "+T.border,marginTop:4,paddingTop:4}}><button onClick={()=>{setUser(null);setMoreOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:13,borderRadius:8}}>🚪 Cerrar sesión</button></div></div></div>}
     <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"#111",borderTop:"1px solid "+T.border,display:"flex",justifyContent:"center"}}><div style={{display:"flex",maxWidth:900,width:"100%"}}>{mobTabs.map(t=> <button key={t.key} onClick={()=>{if(t.key==="_more"){setMoreOpen(!moreOpen);return;}go(t.key);setMoreOpen(false);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"8px 0 6px",background:"none",border:"none",cursor:"pointer",color:(t.key==="_more"?moreOpen:sec===t.key)?T.gold:T.dim}}><span style={{fontSize:18}}>{t.icon}</span><span style={{fontSize:isTab?10:8,fontWeight:600}}>{t.label}</span></button>)}</div></div>
