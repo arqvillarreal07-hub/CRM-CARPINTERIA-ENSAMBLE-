@@ -1,8 +1,24 @@
 import { useState, useEffect } from "react";
 
 /* ═══════════════════════════════════════════════════════════
-   ENSAMBLE VILLARREAL — CRM v5.1 RESPONSIVE
+   ENSAMBLE VILLARREAL — CRM v6.0 NUBE + MULTIUSUARIO
    ═══════════════════════════════════════════════════════════ */
+
+// ═══ CONFIGURACIÓN NUBE (Supabase) ═══
+// Pega aquí tu URL y Key de Supabase (ver instrucciones)
+const SUPA_URL='___TU_URL___';
+const SUPA_KEY='___TU_KEY___';
+const CLOUD=SUPA_URL!=='___TU_URL___';
+const DB={
+  get:async(k,def)=>{
+    if(CLOUD){try{const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});const j=await r.json();if(Array.isArray(j)&&j.length>0)return j[0].value;}catch{}}
+    try{const v=localStorage.getItem('ev_'+k);return v?JSON.parse(v):def;}catch{return def;}
+  },
+  set:(k,v)=>{
+    try{localStorage.setItem('ev_'+k,JSON.stringify(v));}catch{}
+    if(CLOUD)fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},body:JSON.stringify({key:k,value:v})}).catch(()=>{});
+  }
+};
 
 const T={bg:"#0b0b0b",card:"#141414",border:"#1e1e1e",gold:"#c9956b",green:"#4CAF50",red:"#ef5350",blue:"#42A5F5",orange:"#FF9800",purple:"#AB47BC",teal:"#26A69A",yellow:"#FFD54F",text:"#e8e0d8",muted:"#777",dim:"#444"};
 const Logo=({size=32,color="#c9956b"})=> <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="94" height="94" rx="2" stroke={color} strokeWidth="3.5"/><line x1="8" y1="92" x2="50" y2="8" stroke={color} strokeWidth="3"/><line x1="8" y1="50" x2="50" y2="50" stroke={color} strokeWidth="3"/><path d="M50 8 L50 50 L92 50" stroke={color} strokeWidth="3" fill="none"/><path d="M50 8 A42 42 0 0 1 92 50" stroke={color} strokeWidth="3" fill="none"/><line x1="29" y1="50" x2="29" y2="92" stroke={color} strokeWidth="3"/></svg>;
@@ -31,7 +47,7 @@ function Fl({l,children}){return <div style={{marginBottom:10}}><label style={{d
 function ReciboView({data}){return <div style={{background:"#fefcf9",color:"#222",borderRadius:8,padding:20,fontFamily:"Georgia,serif"}}><div style={{display:"flex",justifyContent:"space-between",borderBottom:"3px solid #1B5E20",paddingBottom:12,marginBottom:14}}><div><div style={{fontSize:16,fontWeight:800,color:"#1B5E20"}}>ENSAMBLE VILLARREAL</div><div style={{fontSize:9,color:"#888"}}>CARPINTERÍA ARQUITECTÓNICA</div><div style={{fontSize:9,color:"#bbb"}}>Circuito Los Sauces 136 · 449 181 4651</div></div><div style={{textAlign:"right"}}><div style={{fontSize:14,fontWeight:700,color:"#1B5E20"}}>RECIBO</div><div style={{fontSize:16,fontWeight:800,color:"#1B5E20"}}>{data.recibo||data.id}</div></div></div><div style={{background:"#E8F5E9",borderRadius:8,padding:"14px 18px",textAlign:"center"}}><div style={{fontSize:10,color:"#2E7D32",textTransform:"uppercase"}}>Monto Recibido</div><div style={{fontSize:28,fontWeight:800,color:"#1B5E20"}}>{$(data.monto||data.ing||0)}</div></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginTop:20,paddingTop:14,borderTop:"1px dashed #ccc"}}><div style={{textAlign:"center",borderTop:"1px solid #999",paddingTop:6,fontSize:10,color:"#999"}}>Firma cliente</div><div style={{textAlign:"center",borderTop:"1px solid #999",paddingTop:6,fontSize:10,color:"#999"}}>Firma Villarreal</div></div></div>;}
 function ObraForm({onSave,clientes}){const[f,sf]=useState({nombre:"",cliente:"",cotizado:"",inicio:td(),entrega:"",fase:"cotizacion"});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Cliente"><select style={sI} value={f.cliente} onChange={e=>sf({...f,cliente:e.target.value})}><option value="">Seleccionar</option>{clientes.map(c=> <option key={c.id} value={c.nombre}>{c.nombre}</option>)}</select></Fl><Fl l="Monto"><input type="number" style={sI} value={f.cotizado} onChange={e=>sf({...f,cotizado:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Inicio"><input type="date" style={sI} value={f.inicio} onChange={e=>sf({...f,inicio:e.target.value})}/></Fl><Fl l="Entrega"><input type="date" style={sI} value={f.entrega} onChange={e=>sf({...f,entrega:e.target.value})}/></Fl></div><button style={sB} onClick={()=>f.nombre&&onSave({...f,cotizado:Number(f.cotizado)||0,status:"cotizado",avance:0})}>Guardar</button></div>;}
 function IngForm({obras,onSave}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",ing:"",obra:""});return <div><Fl l="Recibido de"><input style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})}/></Fl><Fl l="Concepto"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.ing} onChange={e=>sf({...f,ing:e.target.value})}/></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><button style={{...sB,background:T.green}} onClick={()=>{const m=Number(f.ing);if(f.desc&&m>0)onSave({...f,ing:m,egr:0});}}>Registrar + Recibo</button></div>;}
-function EgrForm({obras,provs,onSave}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});return <div><Fl l="Proveedor"><select style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})}><option value="">Seleccionar</option>{provs.map(p=> <option key={p.id} value={p.nombre}>{p.nombre}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})}/></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">General</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><button style={{...sB,background:T.red,color:"#fff"}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0)onSave({...f,egr:m,ing:0});}}>Registrar Egreso</button></div>;}
+function EgrForm({obras,provs,onSave,onNewProv}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});const exists=provs.some(p=>p.nombre.toLowerCase()===f.prov.toLowerCase());return <div><Fl l="Proveedor"><input list="prov-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="prov-list">{provs.map(p=> <option key={p.id} value={p.nombre}/>)}</datalist>{f.prov&&!exists&&<div style={{fontSize:10,color:T.orange,marginTop:3}}>⚡ Nuevo proveedor — se creará automáticamente</div>}</Fl><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})}/></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">General</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><button style={{...sB,background:T.red,color:"#fff"}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0){if(f.prov&&!exists&&onNewProv)onNewProv(f.prov);onSave({...f,egr:m,ing:0});}}}>Registrar Egreso</button></div>;}
 function CajaForm({onSave,users}){const[f,sf]=useState({fecha:td(),concepto:"",monto:"",resp:"Taller",obra:"General"});return <div><Fl l="Concepto"><input style={sI} value={f.concepto} onChange={e=>sf({...f,concepto:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Responsable"><select style={sI} value={f.resp} onChange={e=>sf({...f,resp:e.target.value})}>{users.map(u=> <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></Fl><Fl l="Obra"><input style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}/></Fl><button style={sB} onClick={()=>{if(f.concepto&&Number(f.monto)>0)onSave({...f,monto:Number(f.monto)});}}>Guardar</button></div>;}
 function ExtraForm({onSave}){const[f,sf]=useState({desc:"",monto:""});return <div><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><button style={{...sB,background:T.orange}} onClick={()=>{const m=Number(f.monto);if(f.desc&&m>0)onSave({desc:f.desc,monto:m});}}>Enviar</button></div>;}
 function ClienteForm({onSave}){const[f,sf]=useState({nombre:"",tel:"",email:"",dir:""});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Teléfono"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><Fl l="Email"><input style={sI} value={f.email} onChange={e=>sf({...f,email:e.target.value})}/></Fl></div><Fl l="Dirección"><input style={sI} value={f.dir} onChange={e=>sf({...f,dir:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave(f)}>Guardar</button></div>;}
@@ -52,18 +68,19 @@ export default function App(){
   const[modal,setModal]=useState(null);
   const[md,setMd]=useState(null);
   const[moreOpen,setMoreOpen]=useState(false);
-  const LS={get:(k,d)=>{try{const v=localStorage.getItem("ev_"+k);return v?JSON.parse(v):d;}catch{return d;}},set:(k,v)=>{try{localStorage.setItem("ev_"+k,JSON.stringify(v));}catch{}}};
-  const[obras,setObrasR]=useState(()=>LS.get("obras",[]));
-  const[movs,setMovsR]=useState(()=>LS.get("movs",[]));
-  const[caja,setCajaR]=useState(()=>LS.get("caja",[]));
-  const[auts,setAutsR]=useState(()=>LS.get("auts",[]));
-  const[recibos,setRecR]=useState(()=>LS.get("rec",[]));
-  const[inv,setInvR]=useState(()=>LS.get("inv",INV_INIT));
-  const[clis,setClisR]=useState(()=>LS.get("clis",[]));
-  const[cont,setContR]=useState(()=>LS.get("cont",[]));
-  const[provs,setProvsR]=useState(()=>LS.get("provs",PROVS_INIT));
-  const[users,setUsersR]=useState(()=>LS.get("users",USERS_SEED));
-  const wrap=(raw,set,key)=>v=>{const n=typeof v==="function"?v(raw):v;set(n);LS.set(key,n);};
+  const[loading,setLoading]=useState(true);
+  const[obras,setObrasR]=useState([]);
+  const[movs,setMovsR]=useState([]);
+  const[caja,setCajaR]=useState([]);
+  const[auts,setAutsR]=useState([]);
+  const[recibos,setRecR]=useState([]);
+  const[inv,setInvR]=useState(INV_INIT);
+  const[clis,setClisR]=useState([]);
+  const[cont,setContR]=useState([]);
+  const[provs,setProvsR]=useState(PROVS_INIT);
+  const[users,setUsersR]=useState(USERS_SEED);
+  useEffect(()=>{(async()=>{const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED)};setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setLoading(false);})();},[]);
+  const wrap=(raw,set,key)=>v=>{const n=typeof v==="function"?v(raw):v;set(n);DB.set(key,n);};
   const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users");
   const[toast,setToast]=useState(null);
   const[cliTab,setCliTab]=useState("resumen");
@@ -109,10 +126,13 @@ export default function App(){
   if(can("usuarios"))allNav.push({key:"usuarios",icon:"👥",label:"Usuarios"});
   const mobT=allNav.slice(0,4);if(allNav.length>4)mobT.push({key:"_more",icon:"☰",label:"Más"});
 
+  // ═══ LOADING ═══
+  if(loading)return <div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{marginTop:20,fontSize:13,color:T.muted}}>Cargando{CLOUD?" desde la nube":""}...</div><div style={{width:40,height:4,background:"#222",borderRadius:2,margin:"12px auto",overflow:"hidden"}}><div style={{width:"60%",height:"100%",background:T.gold,borderRadius:2,animation:"load 1s infinite alternate"}}></div></div></div></div>;
+
   // ═══ LOGIN ═══
   if(!user)return <div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div style={{width:"100%",maxWidth:D?500:420}}>
-      <div style={{textAlign:"center",marginBottom:28,display:"flex",flexDirection:"column",alignItems:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{fontSize:9,color:T.dim,marginTop:8,fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div></div>
+      <div style={{textAlign:"center",marginBottom:28,display:"flex",flexDirection:"column",alignItems:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{fontSize:9,color:T.dim,marginTop:8,fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div>{CLOUD&&<div style={{marginTop:6,fontSize:10,color:T.green}}>☁️ Conectado a la nube</div>}</div>
       {users.filter(u=>u.rol!=="cliente").length>0&&<div><div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:8}}>Equipo</div>
       <div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{users.filter(u=>u.rol!=="cliente").map(u=> <button key={u.id} onClick={()=>{setUser(u);setSec(ROLES[u.rol].permisos[0]);}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"12px 14px",background:T.card,border:"1px solid "+T.border,borderRadius:10,cursor:"pointer",textAlign:"left"}}><div style={{width:40,height:40,borderRadius:20,background:ROLES[u.rol].color+"22",color:ROLES[u.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{u.avatar}</div><div style={{flex:1}}><div style={{fontWeight:700,fontSize:14,color:T.text}}>{u.nombre}</div><div style={{fontSize:10,color:T.muted}}>{ROLES[u.rol].icon} {ROLES[u.rol].nombre}</div></div></button>)}</div></div>}
       {users.filter(u=>u.rol==="cliente").length>0&&<div><div style={{fontSize:11,color:T.teal,fontWeight:700,textTransform:"uppercase",marginBottom:8,marginTop:18,paddingTop:14,borderTop:"1px solid "+T.border}}>Portal Clientes</div>
@@ -217,7 +237,7 @@ export default function App(){
     {modal==="cat"&&<ModalW title="Catálogo" onClose={cm}>{cats.map(cat=> <div key={cat} style={{marginBottom:12}}><div style={{fontSize:11,color:T.gold,fontWeight:700,borderBottom:"1px solid "+T.border,paddingBottom:3,marginBottom:4}}>{cat}</div>{CATALOGO.filter(c=>c.cat===cat).map(item=> <div key={item.id} onClick={()=>{addCotP(item);show(item.id+" +");}} style={{display:"flex",justifyContent:"space-between",padding:"10px 8px",borderBottom:"1px solid "+T.border,cursor:"pointer"}}><span><b style={{color:T.gold}}>{item.id}</b> {item.desc}</span><span style={{color:T.muted}}>{$(item.precio)} <span style={{color:T.green}}>+</span></span></div>)}</div>)}</ModalW>}
     {modal==="addOb"&&<ModalW title="Nueva Obra" onClose={cm}><ObraForm clientes={clis} onSave={o=>{setObras(prev=>[...prev,{...o,id:"OB"+String(prev.length+1).padStart(2,"0"),egreso:0,extras:[],pagos:[],docs:[],bitacora:[]}]);cm();show("Obra ✓");}}/></ModalW>}
     {modal==="addIng"&&<ModalW title="Ingreso + Recibo" onClose={cm}><IngForm obras={obras} onSave={m=>{const rid=genRec(m);setMovs(prev=>[...prev,{...m,id:prev.length+1,user:user.nombre}]);cm();show("Recibo "+rid);}}/></ModalW>}
-    {modal==="addEgr"&&<ModalW title="Egreso" onClose={cm}><EgrForm obras={obras} provs={provs} onSave={m=>{setMovs(prev=>[...prev,{...m,id:prev.length+1,user:user.nombre}]);cm();show("Egreso ✓");}}/></ModalW>}
+    {modal==="addEgr"&&<ModalW title="Egreso" onClose={cm}><EgrForm obras={obras} provs={provs} onNewProv={nombre=>{setProvs(prev=>[...prev,{id:"P"+String(prev.length+1).padStart(2,"0"),nombre,contacto:"",tel:"",material:"",credito:0,total:0,calif:3}]);}} onSave={m=>{setMovs(prev=>[...prev,{...m,id:prev.length+1,user:user.nombre}]);cm();show("Egreso ✓");}}/></ModalW>}
     {modal==="addCj"&&<ModalW title="Caja Chica" onClose={cm}><CajaForm users={users} onSave={c=>{setCaja(prev=>[...prev,{...c,id:prev.length+1}]);cm();show("✓");}}/></ModalW>}
     {modal==="addDoc"&&sub&&<ModalW title="Documento" onClose={cm}><DocForm onSave={d=>{const up={...sub,docs:[...(sub.docs||[]),{...d,id:(sub.docs?.length||0)+1,fecha:td(),size:"—"}]};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);cm();show("✓");}}/></ModalW>}
     {modal==="addCli"&&<ModalW title="Cliente" onClose={cm}><ClienteForm onSave={c=>{setClis(prev=>[...prev,{...c,id:"C"+String(prev.length+1)}]);cm();show("✓");}}/></ModalW>}
@@ -254,7 +274,7 @@ export default function App(){
   if(D) return <div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",fontSize:13}}>
     <div style={{width:220,minWidth:220,background:"#111",borderRight:"1px solid "+T.border,display:"flex",flexDirection:"column",height:"100vh",position:"sticky",top:0}}>
       <div style={{padding:"16px 14px 10px"}}><BrandFull size="small" color={T.gold}/></div>
-      <div style={{padding:"3px 14px 10px"}}><span style={{fontSize:10,color:role.color,fontWeight:700}}>{role.icon} {role.nombre}</span></div>
+      <div style={{padding:"3px 14px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:10,color:role.color,fontWeight:700}}>{role.icon} {role.nombre}</span>{CLOUD&&<span style={{fontSize:9,color:T.green}} title="Nube conectada">☁️</span>}</div>
       <div style={{flex:1,overflowY:"auto",padding:"0 6px"}}>{allNav.map(n=> <button key={n.key} onClick={()=>go(n.key)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",background:sec===n.key?"#1a1a1a":"transparent",border:"none",color:sec===n.key?T.gold:"#999",cursor:"pointer",fontSize:13,fontWeight:sec===n.key?700:400,textAlign:"left",borderRadius:8,marginBottom:1}}><span style={{fontSize:14,width:20,textAlign:"center"}}>{n.icon}</span><span>{n.label}</span></button>)}</div>
       <div style={{padding:10,borderTop:"1px solid "+T.border}}><button onClick={()=>setUser(null)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:13,borderRadius:8}}>🚪 Cerrar sesión</button></div>
     </div>
@@ -265,7 +285,7 @@ export default function App(){
 
   // ═══ MOBILE: Header + Content + Bottom Nav ═══
   return <div style={{fontFamily:"'Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",fontSize:13}}>
-    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}>{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
+    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}>{CLOUD&&<span onClick={()=>{setLoading(true);location.reload();}} style={{fontSize:11,color:T.green,cursor:"pointer"}} title="Nube conectada - tocar para actualizar">☁️</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
     {content}
     {modals}
     {toast&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:"#1a3a1a",color:T.green,padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,zIndex:2000}}>{toast}</div>}
