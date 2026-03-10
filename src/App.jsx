@@ -11,8 +11,8 @@ if(typeof document!=='undefined' && !document.querySelector('link[href*="DM+Sans
 
 // ═══ CONFIGURACIÓN NUBE (Supabase) ═══
 // Pega aquí tu URL y Key de Supabase (ver instrucciones)
-const SUPA_URL='___TU_URL___';
-const SUPA_KEY='___TU_KEY___';
+const SUPA_URL='https://zzxabnvjooosgqviucct.supabase.co';
+const SUPA_KEY='sb_publishable_PCODW5jcJmizLVAXhMgvFA_4QDNuXEa';
 const CLOUD=SUPA_URL!=='___TU_URL___';
 const DB={
   get:async(k,def)=>{
