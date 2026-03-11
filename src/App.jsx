@@ -160,6 +160,7 @@ export default function App(){
   const pendA=auts.filter(a=>a.status==="pendiente").length;
   const lowS=inv.filter(i=>i.stock<=i.minimo);
   const oAct=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
+  const cotsPend=obras.filter(o=>o.fase==="cotizacion").length;
   const subCot=cotP.reduce((s,p)=>s+p.precio*p.cant,0);
   const totCot=conIva?subCot*1.16:subCot;
   const addCotP=item=>{const ex=cotP.find(p=>p.id===item.id);if(ex)setCotP(cotP.map(p=>p.id===item.id?{...p,cant:p.cant+1}:p));else setCotP([...cotP,{...item,cant:1}]);};
@@ -167,8 +168,9 @@ export default function App(){
   const scanFile=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});const isPdf=file.type==="application/pdf";const content=[isPdf?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Analiza este documento/imagen de cotización de carpintería. Extrae TODOS los conceptos con su precio unitario y cantidad. Responde SOLO JSON array sin markdown: [{"desc":"descripción completa del concepto","precio":12345,"cant":1}]. Si un concepto tiene cantidad mayor a 1, ponla. Si no encuentras nada: []'}];const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content}]})});const data=await resp.json();const text=data.content?.map(i=>i.text||"").join("")||"[]";const items=JSON.parse(text.replace(/```json|```/g,"").trim());if(Array.isArray(items)&&items.length>0){setCotP(prev=>[...prev,...items.map((it,i)=>({id:"S-"+Date.now()+"-"+i,cat:"Escaneado",desc:it.desc||"Concepto",precio:Number(it.precio)||0,cant:Number(it.cant)||1}))]);show(items.length+" conceptos extraídos");}else show("Sin conceptos");}catch(e){show("Error al analizar");}setScanning(false);};
   const[subTab,setSubTab]=useState("");
   const allNav=[];
-  if(can("dash"))allNav.push({key:"dash",icon:"📊",label:"Inicio",grp:"neg"});
+  if(can("dash"))allNav.push({key:"dash",icon:"🏠",label:"Inicio",grp:"neg"});
   if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
+  if(can("cot")||can("obras")||can("obras_ver"))allNav.push({key:"cotizaciones",icon:"📋",label:"Cotizaciones",grp:"neg"});
   if(can("obras")||can("obras_ver"))allNav.push({key:"obras",icon:"🏗️",label:"Obras",grp:"neg"});
   if(can("money")||can("caja")||can("recibos")||can("anal"))allNav.push({key:"finanzas",icon:"💰",label:"Finanzas",grp:"fin"});
   if(can("inv")||can("provs"))allNav.push({key:"taller",icon:"🔨",label:"Taller",grp:"tal"});
@@ -235,10 +237,10 @@ export default function App(){
     {sec==="dash"&&<div>
       <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Dashboard</div>
       <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
+        <Card onClick={()=>go("cotizaciones")} style={{cursor:"pointer"}}><Stat label="Cotizaciones" value={cotsPend} color={cotsPend>0?T.yellow:T.muted}/></Card>
         <Card onClick={()=>go("obras")} style={{cursor:"pointer"}}><Stat label="Obras Activas" value={oAct.length} color={T.green}/></Card>
         <Card><Stat label="Cotizado Total" value={$(tCot)} color={T.gold}/></Card>
         <Card><Stat label="Balance" value={$(tIng-tEgr)} color={tIng-tEgr>=0?T.green:T.red}/></Card>
-        <Card onClick={()=>{go("finanzas");setSubTab("caja");}} style={{cursor:"pointer"}}><Stat label="Caja x Aprobar" value={cajaPend} color={cajaPend>0?T.yellow:T.green}/></Card>
       </div>
       {pendA>0&&<Card onClick={()=>{go("finanzas");setSubTab("auth");}} style={{borderColor:T.yellow+"33",cursor:"pointer"}}><span style={{fontWeight:700,color:T.yellow}}>🔔 {pendA} autorización(es) pendiente(s)</span></Card>}
       {lowS.length>0&&<Card onClick={()=>{go("taller");setSubTab("inv");}} style={{borderColor:T.red+"33",cursor:"pointer"}}><span style={{fontWeight:700,color:T.red}}>📦 Stock bajo: {lowS.map(i=>i.nombre).join(", ")}</span></Card>}
@@ -266,7 +268,29 @@ export default function App(){
       </Card>}
     </div>}
 
-    {sec==="obras"&&!sub&&<div>{can("obras")&&<button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addOb")}>+ Nueva Obra</button>}{obras.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin obras</div></Card>}{Object.entries(FASES).map(([k,label])=>{const list=obras.filter(o=>o.fase===k);if(!list.length)return null;return <div key={k}><div style={{fontSize:10,color:FCC[k],fontWeight:700,textTransform:"uppercase",margin:"10px 0 4px"}}>{label} ({list.length})</div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{list.map(o=> <Card key={o.id} onClick={()=>setSub(o)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontWeight:700,color:T.gold}}>{$(o.cotizado)}</span></div><div style={{fontSize:11,color:T.muted,marginBottom:3}}>{o.cliente} · {o.avance}%</div><Bar v={o.avance} mx={100} c={FCC[o.fase]}/></Card>)}</div></div>;})}</div>}
+    {sec==="cotizaciones"&&!sub&&<div>
+      <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Cotizaciones</div>
+      {(()=>{const cots=obras.filter(o=>o.fase==="cotizacion");return cots.length>0?<div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{cots.map(o=> <Card key={o.id} onClick={()=>{setSec("cotizaciones");setSub(o);}} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontWeight:700,color:T.gold}}>{$(o.cotizado)}</span></div><div style={{fontSize:11,color:T.muted,marginBottom:6}}>{o.cliente||"Sin cliente"}</div><div style={{display:"flex",gap:6}}>{user.rol==="admin"&&<button onClick={e=>{e.stopPropagation();const up={...o,fase:"autorizada",status:"en_proceso"};setObras(obras.map(x=>x.id===o.id?up:x));show(o.nombre+" → Autorizada ✓");}} style={{padding:"6px 12px",borderRadius:8,border:"none",background:"#0a1a3a",color:T.blue,fontWeight:700,fontSize:11,cursor:"pointer"}}>✓ Autorizar</button>}<button onClick={e=>{e.stopPropagation();om("pdfCot",o);}} style={{padding:"6px 12px",borderRadius:8,border:"none",background:"#0a2e0a",color:T.green,fontWeight:700,fontSize:11,cursor:"pointer"}}>📄 PDF</button></div></Card>)}</div>:<Card style={{textAlign:"center",padding:24}}><div style={{color:T.muted}}>Sin cotizaciones pendientes. Usa "Cotizar" para crear una.</div></Card>;})()}
+    </div>}
+
+    {sec==="cotizaciones"&&sub&&<div style={{maxWidth:800}}>
+      <button onClick={()=>setSub(null)} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:13,padding:0,marginBottom:8}}>← Cotizaciones</button>
+      {(()=>{const s=sub;return <div>
+        <Card><div style={{fontSize:22,fontWeight:800,marginBottom:4}}>{s.nombre}</div><div style={{fontSize:12,color:T.muted,marginBottom:8}}>{s.cliente||"Sin cliente"} · {fd(s.inicio)}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Stat label="Subtotal" value={$(s.subtotal||0)} color={T.gold}/><Stat label="Total" value={$(s.cotizado)} color={T.gold}/></div></Card>
+        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr":"1fr",gap:6,marginBottom:8}}>
+          {user.rol==="admin"&&<button style={{...sB,background:"#0a1a3a",color:T.blue,border:"1px solid "+T.blue+"44",marginTop:0}} onClick={()=>{const up={...s,fase:"autorizada",status:"en_proceso"};setObras(obras.map(o=>o.id===s.id?up:o));setSub(null);go("obras");show(s.nombre+" → Obras ✓");}}>✓ Autorizar y Pasar a Obras</button>}
+          <button style={{...sB,background:"#1a1510",color:T.gold,border:"1px solid "+T.gold+"44",marginTop:0}} onClick={()=>{setCotP(s.partidas||[]);setCotNom(s.cliente||"");setCotEmp(s.nombre||"");setConIva(s.conIva!==false);setEditObraId(s.id);setSub(null);go("cot");}}>📝 Editar</button>
+          <button style={{...sB,background:"#0a1a0a",color:T.green,border:"1px solid "+T.green+"44",marginTop:0}} onClick={()=>om("pdfCot",s)}>📄 PDF</button>
+        </div>
+        {(s.partidas||[]).length>0&&<Card><div style={{fontSize:10,color:T.gold,fontWeight:700,marginBottom:8}}>PARTIDAS ({s.partidas.length})</div>{s.partidas.map((p,i)=> <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.border,fontSize:12}}><div style={{flex:1}}>{p.id&&<b style={{color:T.gold}}>{p.id} </b>}{p.desc}{p.cant>1&&<span style={{color:T.muted}}> ×{p.cant}</span>}</div><span style={{fontWeight:700}}>{$(p.precio*p.cant)}</span></div>)}<div style={{borderTop:"2px solid "+T.border,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between",fontWeight:800,color:T.gold}}><span>TOTAL{s.conIva!==false?" (IVA incl.)":""}</span><span>{$(s.cotizado)}</span></div></Card>}
+      </div>;})()}
+    </div>}
+
+    {sec==="obras"&&!sub&&<div>
+      <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Obras en Proceso</div>
+      {can("obras")&&<button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addOb")}>+ Nueva Obra</button>}
+      {(()=>{const obrasAut=obras.filter(o=>o.fase&&o.fase!=="cotizacion");return obrasAut.length===0?<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin obras autorizadas. Autoriza cotizaciones para verlas aquí.</div></Card>:Object.entries(FASES).filter(([k])=>k!=="cotizacion").map(([k,label])=>{const list=obrasAut.filter(o=>o.fase===k);if(!list.length)return null;return <div key={k}><div style={{fontSize:10,color:FCC[k],fontWeight:700,textTransform:"uppercase",margin:"10px 0 4px"}}>{label} ({list.length})</div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{list.map(o=> <Card key={o.id} onClick={()=>setSub(o)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontWeight:700,color:T.gold}}>{$(o.cotizado)}</span></div><div style={{fontSize:11,color:T.muted,marginBottom:3}}>{o.cliente} · {o.avance}%</div><Bar v={o.avance} mx={100} c={FCC[o.fase]}/></Card>)}</div></div>;});})()}
+    </div>}
 
     {sec==="obras"&&sub&&<div style={{maxWidth:800}}>
       <button onClick={()=>setSub(null)} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:13,padding:0,marginBottom:8}}>← Obras</button>
