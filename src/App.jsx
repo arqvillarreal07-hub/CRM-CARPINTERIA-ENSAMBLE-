@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const GFONT_LINK = document.createElement('link');
 GFONT_LINK.rel = 'stylesheet';
@@ -12,16 +12,35 @@ if(typeof document!=='undefined' && !document.querySelector('link[href*="DM+Sans
 // ═══ CONFIGURACIÓN NUBE (Supabase) ═══
 // Pega aquí tu URL y Key de Supabase (ver instrucciones)
 const SUPA_URL='https://zzxabnvjooosgqviucct.supabase.co';
-const SUPA_KEY='sb_publishable_PCODW5jcJmizLVAXhMgvFA_4QDNuXEa';
+const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6eGFibnZqb29vc2dxdml1Y2N0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1Njg4NzIsImV4cCI6MjA4ODE0NDg3Mn0.um2zAO9liOBuQ-YbBxL4CR9S1eKw7t34F3MLERaUdpc';
 const CLOUD=SUPA_URL!=='___TU_URL___';
+let _syncOk=false;
 const DB={
   get:async(k,def)=>{
-    if(CLOUD){try{const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});const j=await r.json();if(Array.isArray(j)&&j.length>0)return j[0].value;}catch{}}
-    try{const v=localStorage.getItem('ev_'+k);if(v){const parsed=JSON.parse(v);if(CLOUD&&parsed&&(Array.isArray(parsed)?parsed.length>0:true)){DB.set(k,parsed);}return parsed;}return def;}catch{return def;}
+    // 1. Intentar nube primero (es la verdad)
+    if(CLOUD){
+      try{
+        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
+        if(r.ok){
+          const j=await r.json();
+          if(Array.isArray(j)&&j.length>0){
+            _syncOk=true;
+            // Guardar en local como caché
+            try{localStorage.setItem('ev_'+k,JSON.stringify(j[0].value));}catch{}
+            return j[0].value;
+          }
+          _syncOk=true;
+          // Nube vacía: si local tiene datos, subirlos
+          try{const v=localStorage.getItem('ev_'+k);if(v){const p=JSON.parse(v);if(p&&(Array.isArray(p)?p.length>0:true)){DB.set(k,p);return p;}}}catch{}
+        }else{console.warn('DB.get error:',r.status,await r.text());}
+      }catch(e){console.warn('DB.get offline:',e);}
+    }
+    // 2. Fallback a localStorage
+    try{const v=localStorage.getItem('ev_'+k);return v?JSON.parse(v):def;}catch{return def;}
   },
   set:(k,v)=>{
     try{localStorage.setItem('ev_'+k,JSON.stringify(v));}catch{}
-    if(CLOUD)fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},body:JSON.stringify({key:k,value:v})}).catch(()=>{});
+    if(CLOUD)fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},body:JSON.stringify({key:k,value:v})}).catch(e=>console.warn('DB.set error:',e));
   }
 };
 
@@ -41,9 +60,10 @@ const fd=d=>{if(!d)return "—";try{return new Date(d+"T12:00:00").toLocaleDateS
 const pc=(a,b)=>b?Math.round((a/b)*100):0;
 const td=()=>new Date().toISOString().slice(0,10);
 const DOC_IC={plano:"📐",render:"🖼️",contrato:"📄",avance:"📸",otro:"📎"};
-const FASES={cotizacion:"Cotización",diseno:"Diseño",produccion:"Producción",instalacion:"Instalación",entregado:"Entregado"};
-const FCC={cotizacion:"#FFB74D",diseno:"#64B5F6",produccion:"#FF9800",instalacion:"#66BB6A",entregado:"#78909C"};
-const Badge=({s})=>{const m={cotizado:["Cotizado","#332200","#FFB74D"],en_proceso:["En Proceso","#0a2e0a","#66BB6A"],completado:["Completado","#0a1a33","#64B5F6"],pendiente:["Pendiente","#332b00","#FFD54F"],aprobado:["Aprobado","#0a2e0a","#66BB6A"],aprobada:["Aprobada","#0a2e0a","#66BB6A"],rechazada:["Rechazada","#330a0a","#ef5350"],rechazado:["Rechazado","#330a0a","#ef5350"],vigente:["Vigente","#0a2e0a","#66BB6A"]};const[l,bg,c]=m[s]||[s,"#222","#999"];return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:bg,color:c}}>{l}</span>;};
+const FASES={cotizacion:"Cotización",autorizada:"Autorizada",anticipo:"Anticipo Recibido",diseno:"Diseño",produccion:"Producción",instalacion:"Instalación",entregado:"Entregado",cancelado:"Cancelado"};
+const FCC={cotizacion:"#FFB74D",autorizada:"#5dade2",anticipo:"#26A69A",diseno:"#AB47BC",produccion:"#FF9800",instalacion:"#66BB6A",entregado:"#78909C",cancelado:"#ef5350"};
+const FASE_ORD=["cotizacion","autorizada","anticipo","diseno","produccion","instalacion","entregado"];
+const Badge=({s})=>{const m={cotizado:["Cotizado","#332200","#FFB74D"],en_proceso:["En Proceso","#0a2e0a","#66BB6A"],completado:["Completado","#0a1a33","#64B5F6"],pendiente:["Pendiente","#332b00","#FFD54F"],aprobado:["Aprobado","#0a2e0a","#66BB6A"],aprobada:["Aprobada","#0a2e0a","#66BB6A"],rechazada:["Rechazada","#330a0a","#ef5350"],rechazado:["Rechazado","#330a0a","#ef5350"],cancelado:["Cancelado","#330a0a","#ef5350"],autorizada:["Autorizada","#0a1a33","#5dade2"],vigente:["Vigente","#0a2e0a","#66BB6A"]};const[l,bg,c]=m[s]||[s,"#222","#999"];return <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:bg,color:c}}>{l}</span>;};
 const Bar=({v,mx,c=T.gold,h=5})=> <div style={{background:"#222",borderRadius:3,height:h,width:"100%"}}><div style={{width:Math.min(100,pc(v,mx||1))+"%",height:"100%",background:c,borderRadius:3,transition:"width .3s"}}/></div>;
 const Card=({children,style,onClick})=> <div onClick={onClick} style={{background:"rgba(255,255,255,.025)",border:"1px solid rgba(255,255,255,.06)",backdropFilter:"blur(4px)",borderRadius:12,padding:14,marginBottom:8,cursor:onClick?"pointer":"default",...style}}>{children}</div>;
 const Stat=({label,value,color,small})=> <div><div style={{fontSize:small?8:9,color:T.muted,textTransform:"uppercase",letterSpacing:.5}}>{label}</div><div style={{fontSize:small?14:18,fontWeight:800,color:color||T.text}}>{value}</div></div>;
@@ -76,6 +96,7 @@ export default function App(){
   const[md,setMd]=useState(null);
   const[moreOpen,setMoreOpen]=useState(false);
   const[loading,setLoading]=useState(true);
+  const[syncStatus,setSyncStatus]=useState("");
   const[obras,setObrasR]=useState([]);
   const[movs,setMovsR]=useState([]);
   const[caja,setCajaR]=useState([]);
@@ -87,7 +108,10 @@ export default function App(){
   const[provs,setProvsR]=useState(PROVS_INIT);
   const[users,setUsersR]=useState(USERS_SEED);
   const[catalogo,setCatalogoR]=useState(CATALOGO_INIT);
-  useEffect(()=>{(async()=>{const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT)};
+  useEffect(()=>{(async()=>{
+    if(CLOUD)setSyncStatus("Conectando a la nube...");
+    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT)};
+    if(CLOUD)setSyncStatus(_syncOk?"☁️ Nube sincronizada":"⚠️ Usando datos locales");
     // Crear Tamarindos si no existe
     const TAM_PARTIDAS=[{id:"T01",cat:"Puertas",desc:"Puertas de interior chapa encino 90x2.40 c/marco, barniz, herrajes",precio:7600,cant:9},{id:"T02",cat:"Puertas",desc:"Puerta acceso lambrín dos caras c/bastidor",precio:28000,cant:1},{id:"T03",cat:"Closets",desc:"Closet entrada",precio:14500,cant:1},{id:"T04",cat:"Closets",desc:"Closet de blancos PB",precio:9800,cant:1},{id:"T05",cat:"Closets",desc:"Closet 03 con escritorio",precio:19200,cant:1},{id:"T06",cat:"Closets",desc:"Closet 04",precio:19200,cant:1},{id:"T07",cat:"Closets",desc:"Closet 05",precio:19200,cant:1},{id:"T08",cat:"Closets",desc:"Closet en área de TV",precio:17600,cant:1},{id:"T09",cat:"Vestidores",desc:"Vestidor",precio:46800,cant:1},{id:"T10",cat:"Baño",desc:"Mueble de baño 01",precio:4200,cant:1},{id:"T11",cat:"Baño",desc:"Mueble de baño 02",precio:4800,cant:1},{id:"T12",cat:"Baño",desc:"Mueble de baño 03",precio:4800,cant:1},{id:"T13",cat:"Baño",desc:"Mueble de baño 04",precio:6200,cant:1},{id:"T14",cat:"Escritorios",desc:"Escritorio en sala de TV",precio:12400,cant:1},{id:"T15",cat:"Lavado",desc:"Cuarto de lavado",precio:12500,cant:1},{id:"T16",cat:"Libreros",desc:"Mueble librero en área de TV",precio:29600,cant:1},{id:"T17",cat:"Muebles",desc:"Mueble bajo en área de TV",precio:8900,cant:1},{id:"T18",cat:"Puertas",desc:"Puerta cochera bodega lambrín igual a principal",precio:16500,cant:1}];
     if(!d.obras.some(o=>o.nombre?.includes("TAMARINDOS"))){d.obras.push({id:"OB-TAM",nombre:"TAMARINDOS #1",cliente:"RICARDO VELAZCO",status:"cotizado",cotizado:397416,subtotal:342600,conIva:true,egreso:0,fase:"cotizacion",avance:0,partidas:TAM_PARTIDAS,extras:[],pagos:[],docs:[],bitacora:[]});DB.set('obras',d.obras);}
@@ -111,6 +135,10 @@ export default function App(){
   const[conIva,setConIva]=useState(true);
   const[editObraId,setEditObraId]=useState(null);
   const[confirmDel,setConfirmDel]=useState(null);
+  const[chatMsgs,setChatMsgs]=useState([{role:"assistant",content:"¡Hola! Soy el asistente de Ensamble Villarreal. Puedo ayudarte con cotizaciones, consultar datos de obras, calcular materiales, redactar mensajes para clientes y más. ¿En qué te ayudo?"}]);
+  const[chatIn,setChatIn]=useState("");const[chatLoading,setChatLoading]=useState(false);
+  const chatRef=useRef(null);
+  const sendChat=async()=>{if(!chatIn.trim()||chatLoading)return;const msg=chatIn.trim();setChatIn("");const newMsgs=[...chatMsgs,{role:"user",content:msg}];setChatMsgs(newMsgs);setChatLoading(true);try{const ctx="Eres el asistente IA de Ensamble Villarreal, carpintería arquitectónica en Aguascalientes. Datos actuales: "+obras.length+" obras ("+obras.map(o=>o.nombre+": "+$(o.cotizado)).join(", ")+"), "+clis.length+" clientes, "+provs.length+" proveedores, balance: "+$(tIng-tEgr)+", caja chica: "+$(tCaja)+". Responde en español, breve y útil. Si te piden redactar algo, hazlo profesional.";const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:ctx,messages:newMsgs.filter(m=>m.role!=="assistant"||newMsgs.indexOf(m)>0).map(m=>({role:m.role,content:m.content}))})});const data=await resp.json();const reply=data.content?.map(i=>i.text||"").join("")||"No pude procesar tu mensaje.";setChatMsgs(prev=>[...prev,{role:"assistant",content:reply}]);}catch{setChatMsgs(prev=>[...prev,{role:"assistant",content:"Error de conexión. Intenta de nuevo."}]);}setChatLoading(false);setTimeout(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},100);};
   const show=msg=>{setToast(msg);setTimeout(()=>setToast(null),2500);};
   const can=p=>user&&ROLES[user.rol].permisos.includes(p);
   const om=(t,d)=>{setModal(t);setMd(d||null);};
@@ -124,7 +152,7 @@ export default function App(){
   const tEgrO=obras.reduce((s,o)=>s+o.egreso,0);
   const pendA=auts.filter(a=>a.status==="pendiente").length;
   const lowS=inv.filter(i=>i.stock<=i.minimo);
-  const oAct=obras.filter(o=>o.status==="en_proceso");
+  const oAct=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
   const subCot=cotP.reduce((s,p)=>s+p.precio*p.cant,0);
   const totCot=conIva?subCot*1.16:subCot;
   const addCotP=item=>{const ex=cotP.find(p=>p.id===item.id);if(ex)setCotP(cotP.map(p=>p.id===item.id?{...p,cant:p.cant+1}:p));else setCotP([...cotP,{...item,cant:1}]);};
@@ -143,10 +171,11 @@ export default function App(){
   if(can("auth"))allNav.push({key:"auth",icon:"✅",label:"Autorizaciones"});
   if(can("recibos"))allNav.push({key:"recibos",icon:"🧾",label:"Recibos"});
   if(can("usuarios"))allNav.push({key:"usuarios",icon:"👥",label:"Usuarios"});
+  allNav.push({key:"ia",icon:"🤖",label:"Asistente IA"});
   const mobT=allNav.slice(0,4);if(allNav.length>4)mobT.push({key:"_more",icon:"☰",label:"Más"});
 
   // ═══ LOADING ═══
-  if(loading)return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{marginTop:20,fontSize:13,color:T.muted}}>Cargando{CLOUD?" desde la nube":""}...</div><div style={{width:40,height:4,background:"#222",borderRadius:2,margin:"12px auto",overflow:"hidden"}}><div style={{width:"60%",height:"100%",background:T.gold,borderRadius:2,animation:"load 1s infinite alternate"}}></div></div></div></div>;
+  if(loading)return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{marginTop:20,fontSize:13,color:T.muted}}>{syncStatus||"Cargando..."}</div><div style={{width:40,height:4,background:"#222",borderRadius:2,margin:"12px auto",overflow:"hidden"}}><div style={{width:"60%",height:"100%",background:T.gold,borderRadius:2,animation:"load 1s infinite alternate"}}></div></div></div></div>;
 
   // ═══ LOGIN ═══
   if(!user){
@@ -167,7 +196,7 @@ export default function App(){
     // User list
     return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div style={{width:"100%",maxWidth:D?500:420}}>
-      <div style={{textAlign:"center",marginBottom:28,display:"flex",flexDirection:"column",alignItems:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{fontSize:9,color:T.dim,marginTop:8,fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div>{CLOUD&&<div style={{marginTop:6,fontSize:10,color:T.green}}>☁️ Conectado a la nube</div>}</div>
+      <div style={{textAlign:"center",marginBottom:28,display:"flex",flexDirection:"column",alignItems:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{fontSize:9,color:T.dim,marginTop:8,fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div>{CLOUD&&<div style={{marginTop:6,fontSize:10,color:_syncOk?T.green:T.yellow}}>{_syncOk?"☁️ Nube sincronizada":"⏳ Verificando nube..."}</div>}</div>
       {users.filter(u=>u.rol!=="cliente").length>0&&<div><div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:8}}>Equipo</div>
       <div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{users.filter(u=>u.rol!=="cliente").map(u=> <button key={u.id} onClick={()=>{if(u.pin){setLoginUser(u);setPinInput("");}else{setUser(u);setSec(ROLES[u.rol].permisos[0]);}}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"12px 14px",background:"rgba(255,255,255,.025)",border:"1px solid rgba(255,255,255,.06)",backdropFilter:"blur(4px)",borderRadius:10,cursor:"pointer",textAlign:"left"}}><div style={{width:40,height:40,borderRadius:20,background:ROLES[u.rol].color+"22",color:ROLES[u.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{u.avatar}</div><div style={{flex:1}}><div style={{fontWeight:700,fontSize:14,color:T.text}}>{u.nombre}</div><div style={{fontSize:10,color:T.muted}}>{ROLES[u.rol].icon} {ROLES[u.rol].nombre}</div></div>{u.pin&&<span style={{color:T.dim,fontSize:14}}>🔒</span>}</button>)}</div></div>}
       {users.filter(u=>u.rol==="cliente").length>0&&<div><div style={{fontSize:11,color:T.teal,fontWeight:700,textTransform:"uppercase",marginBottom:8,marginTop:18,paddingTop:14,borderTop:"1px solid "+T.border}}>Portal Clientes</div>
@@ -231,7 +260,8 @@ export default function App(){
 
     {sec==="obras"&&sub&&<div style={{maxWidth:800}}>
       <button onClick={()=>setSub(null)} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:13,padding:0,marginBottom:8}}>← Obras</button>
-      <Card><div style={{fontSize:22,fontWeight:800,marginBottom:4}}>{sub.nombre}</div><div style={{display:"flex",gap:6,marginBottom:8}}><Badge s={sub.status}/><span style={{background:FCC[sub.fase]+"33",color:FCC[sub.fase],padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700}}>{FASES[sub.fase]}</span></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}><Stat label="Cotizado" value={$(sub.cotizado)} color={T.gold} small/><Stat label="Egresado" value={$(sub.egreso||0)} small/><Stat label="Margen" value={$((sub.cotizado||0)-(sub.egreso||0))} color={(sub.cotizado||0)-(sub.egreso||0)>=0?T.green:T.red} small/></div><div style={{marginTop:8}}><Bar v={sub.avance} mx={100} c={FCC[sub.fase]} h={6}/></div></Card>
+      <Card><div style={{fontSize:22,fontWeight:800,marginBottom:4}}>{sub.nombre}</div><div style={{display:"flex",gap:6,marginBottom:8}}><span style={{background:FCC[sub.fase]+"33",color:FCC[sub.fase],padding:"3px 12px",borderRadius:10,fontSize:11,fontWeight:700}}>{FASES[sub.fase]||sub.fase}</span></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}><Stat label="Cotizado" value={$(sub.cotizado)} color={T.gold} small/><Stat label="Egresado" value={$(sub.egreso||0)} small/><Stat label="Margen" value={$((sub.cotizado||0)-(sub.egreso||0))} color={(sub.cotizado||0)-(sub.egreso||0)>=0?T.green:T.red} small/></div><div style={{marginTop:8}}><Bar v={sub.avance} mx={100} c={FCC[sub.fase]} h={6}/></div></Card>
+      <Card><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Estatus del Proyecto</div><div style={{display:"flex",gap:2,marginBottom:12,overflowX:"auto"}}>{FASE_ORD.map((f,i)=>{const cur=FASE_ORD.indexOf(sub.fase);const done=i<=cur;return <div key={f} style={{flex:1,textAlign:"center",minWidth:D?0:60}}><div style={{width:"100%",height:4,borderRadius:2,background:done?FCC[f]:T.border,marginBottom:4,transition:"background .3s"}}/><div style={{fontSize:9,color:done?FCC[f]:T.dim,fontWeight:done?700:400}}>{FASES[f]}</div></div>})}</div>{user.rol==="admin"&&<div><div style={{fontSize:10,color:T.muted,marginBottom:6}}>Cambiar estatus:</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{FASE_ORD.map(f=><button key={f} onClick={()=>{const up={...sub,fase:f,status:f==="cotizacion"?"cotizado":f==="entregado"?"completado":"en_proceso"};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show(FASES[f]+" ✓");}} style={{padding:"6px 12px",borderRadius:8,border:sub.fase===f?"2px solid "+FCC[f]:"1px solid "+T.border,background:sub.fase===f?FCC[f]+"22":"transparent",color:sub.fase===f?FCC[f]:T.muted,fontSize:10,fontWeight:sub.fase===f?700:400,cursor:"pointer",transition:"all .2s"}}>{FASES[f]}</button>)}<button onClick={()=>{const up={...sub,fase:"cancelado",status:"cancelado"};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show("Cancelado");}} style={{padding:"6px 12px",borderRadius:8,border:sub.fase==="cancelado"?"2px solid "+FCC.cancelado:"1px solid "+T.border,background:sub.fase==="cancelado"?FCC.cancelado+"22":"transparent",color:sub.fase==="cancelado"?FCC.cancelado:T.dim,fontSize:10,cursor:"pointer"}}>Cancelado</button></div></div>}</Card>
       {sub.cotizado>0&&<Card>{(()=>{const tot=sub.cotizado;const pags=(sub.pagos||[]).reduce((s,p)=>s+p.monto,0);const a1=Math.round(tot*.6);const a2=Math.round(tot*.2);const a3=Math.round(tot*.2);const pagado=pags;return <div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Condiciones de Pago</div><div style={{fontSize:11,color:pagado>=tot?T.green:T.muted}}>{$(pagado)} / {$(tot)}</div></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[{l:"Anticipo 60%",v:a1,pct:60,ic:"🟡"},{l:"Avance 20%",v:a2,pct:20,ic:"🔵"},{l:"Entrega 20%",v:a3,pct:20,ic:"🟢"}].map((e,i)=>{const cumplido=pagado>=(i===0?a1:i===1?a1+a2:tot);return <div key={i} style={{background:cumplido?"rgba(76,175,80,.08)":"rgba(255,255,255,.03)",border:"1px solid "+(cumplido?"rgba(76,175,80,.2)":T.border),borderRadius:12,padding:12,textAlign:"center"}}><div style={{fontSize:16}}>{cumplido?"✅":e.ic}</div><div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginTop:4}}>{e.l}</div><div style={{fontSize:18,fontWeight:800,color:cumplido?T.green:T.text,marginTop:2}}>{$(e.v)}</div></div>})}</div><div style={{marginTop:10}}><Bar v={pagado} mx={tot} c={T.green} h={6}/><div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginTop:4}}><span style={{color:T.muted}}>Pagado: {pc(pagado,tot)}%</span><span style={{color:pagado<tot?T.yellow:T.green,fontWeight:700}}>Resta: {$(tot-pagado)}</span></div></div></div>})()}</Card>}
       <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr":"1fr",gap:6,marginBottom:8}}><button style={{...sB,background:"#1a1510",color:T.gold,border:"1px solid "+T.gold+"44",marginTop:0}} onClick={()=>{setCotP(sub.partidas||[]);setCotNom(sub.cliente||"");setCotEmp(sub.nombre||"");setConIva(sub.conIva!==false);setEditObraId(sub.id);setSub(null);go("cot");}}>📝 Editar Cotización</button><button style={{...sB,background:"#0a1a0a",color:T.green,border:"1px solid "+T.green+"44",marginTop:0}} onClick={()=>om("pdfCot",sub)}>📄 Generar PDF</button></div>
       {(sub.partidas||[]).length>0&&<Card><div style={{fontSize:10,color:T.gold,fontWeight:700,marginBottom:8}}>PARTIDAS ({sub.partidas.length})</div>{sub.partidas.map((p,i)=> <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+T.border,fontSize:12}}><div style={{flex:1}}>{p.cat!=="Personalizado"&&p.cat!=="Escaneado"&&<b style={{color:T.gold}}>{p.id} </b>}{p.desc}{p.cant>1&&<span style={{color:T.muted}}> x{p.cant}</span>}</div><span style={{fontWeight:700}}>{$(p.precio*p.cant)}</span></div>)}<div style={{borderTop:"2px solid "+T.border,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between",fontWeight:800,color:T.gold}}><span>TOTAL{sub.conIva!==false?" (IVA incl.)":""}</span><span>{$(sub.cotizado)}</span></div></Card>}
@@ -266,6 +296,20 @@ export default function App(){
       <button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addUser")}>+ Agregar Usuario</button>
       <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{users.filter(u=>u.rol!=="cliente").map(u=> <Card key={u.id} style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:40,height:40,borderRadius:20,background:ROLES[u.rol].color+"22",color:ROLES[u.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{u.avatar}</div><div style={{flex:1}}><div style={{fontWeight:700}}>{u.nombre}</div><div style={{fontSize:10,color:ROLES[u.rol].color}}>{ROLES[u.rol].icon} {ROLES[u.rol].nombre}</div><div style={{fontSize:10,color:u.pin?T.green:T.muted,marginTop:2}}>{u.pin?"🔒 PIN: ••••":"🔓 Sin PIN"}</div></div><div style={{display:"flex",gap:4}}><button onClick={()=>om("setPin",u)} style={{background:"#1a1a2a",color:T.blue,border:"1px solid #2a2a4a",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>{u.pin?"Cambiar":"+ PIN"}</button>{u.id!==1&&(confirmDel===u.id?<div style={{display:"flex",gap:4}}><button onClick={()=>{setUsers(prev=>prev.filter(x=>x.id!==u.id));setConfirmDel(null);show("Eliminado");}} style={{background:T.red,color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Sí</button><button onClick={()=>setConfirmDel(null)} style={{background:"#333",color:"#aaa",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>No</button></div>:<button onClick={()=>setConfirmDel(u.id)} style={{background:"#2a1111",color:T.red,border:"1px solid #3a1a1a",borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer"}}>🗑</button>)}</div></Card>)}</div>
       {users.filter(u=>u.rol==="cliente").length>0&&<div style={{marginTop:14}}><div style={{fontSize:10,color:T.teal,fontWeight:700,marginBottom:8}}>CLIENTES</div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{users.filter(u=>u.rol==="cliente").map(u=> <Card key={u.id} style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:40,height:40,borderRadius:20,background:T.teal+"22",color:T.teal,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{u.avatar}</div><div style={{flex:1}}><div style={{fontWeight:700}}>{u.nombre}</div><div style={{fontSize:10,color:T.teal}}>{obras.find(o=>o.id===u.proyectoId)?.nombre||"Sin proyecto"}</div><div style={{fontSize:10,color:u.pin?T.green:T.muted,marginTop:2}}>{u.pin?"🔒 PIN":"🔓 Sin PIN"}</div></div><div style={{display:"flex",gap:4}}><button onClick={()=>om("setPin",u)} style={{background:"#1a1a2a",color:T.blue,border:"1px solid #2a2a4a",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>{u.pin?"Cambiar":"+ PIN"}</button>{confirmDel===u.id?<div style={{display:"flex",gap:4}}><button onClick={()=>{setUsers(prev=>prev.filter(x=>x.id!==u.id));setConfirmDel(null);show("Eliminado");}} style={{background:T.red,color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Sí</button><button onClick={()=>setConfirmDel(null)} style={{background:"#333",color:"#aaa",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>No</button></div>:<button onClick={()=>setConfirmDel(u.id)} style={{background:"#2a1111",color:T.red,border:"1px solid #3a1a1a",borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer"}}>🗑</button>}</div></Card>)}</div></div>}
+    </div>}
+
+    {sec==="ia"&&<div style={{display:"flex",flexDirection:"column",height:D?"calc(100vh - 40px)":"calc(100vh - 130px)",maxWidth:700}}>
+      <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Asistente IA — Ensamble Villarreal</div>
+      <div ref={chatRef} style={{flex:1,overflowY:"auto",marginBottom:8,padding:4}}>
+        {chatMsgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:8}}>
+          <div style={{maxWidth:"85%",padding:"10px 14px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?"rgba(201,149,107,.15)":"rgba(255,255,255,.04)",border:"1px solid "+(m.role==="user"?"rgba(201,149,107,.2)":T.border),fontSize:13,lineHeight:1.5,whiteSpace:"pre-wrap"}}>
+            {m.role==="assistant"&&<div style={{fontSize:9,color:T.gold,fontWeight:700,marginBottom:4}}>🤖 ASISTENTE</div>}
+            {m.content}
+          </div>
+        </div>)}
+        {chatLoading&&<div style={{display:"flex",justifyContent:"flex-start",marginBottom:8}}><div style={{padding:"10px 14px",borderRadius:"14px 14px 14px 4px",background:"rgba(255,255,255,.04)",border:"1px solid "+T.border,fontSize:13,color:T.muted}}>🤖 Pensando...</div></div>}
+      </div>
+      <div style={{display:"flex",gap:8}}><input style={{...sI,flex:1}} value={chatIn} onChange={e=>setChatIn(e.target.value)} placeholder="Escribe tu mensaje..." onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat();}}}/><button onClick={sendChat} disabled={chatLoading||!chatIn.trim()} style={{padding:"12px 20px",borderRadius:10,border:"none",background:chatIn.trim()?"linear-gradient(135deg,#c9956b,#a07850)":"#222",color:chatIn.trim()?"#fff":"#555",fontWeight:700,cursor:chatIn.trim()?"pointer":"default",fontSize:16,minWidth:50}}>➤</button></div>
     </div>}
   </div>;
 
@@ -314,7 +358,7 @@ export default function App(){
   if(D) return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",fontSize:13}}>
     <div style={{width:220,minWidth:220,background:"#111",borderRight:"1px solid "+T.border,display:"flex",flexDirection:"column",height:"100vh",position:"sticky",top:0}}>
       <div style={{padding:"16px 14px 10px"}}><BrandFull size="small" color={T.gold}/></div>
-      <div style={{padding:"3px 14px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:10,color:role.color,fontWeight:700}}>{role.icon} {role.nombre}</span>{CLOUD&&<span style={{fontSize:9,color:T.green}} title="Nube conectada">☁️</span>}</div>
+      <div style={{padding:"3px 14px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:10,color:role.color,fontWeight:700}}>{role.icon} {role.nombre}</span>{CLOUD&&<span style={{fontSize:9,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} onClick={()=>location.reload()} title={_syncOk?"Nube OK - clic para actualizar":"Verificando..."}>{_syncOk?"☁️":"⏳"}</span>}</div>
       <div style={{flex:1,overflowY:"auto",padding:"0 6px"}}>{allNav.map(n=> <button key={n.key} onClick={()=>go(n.key)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 12px",background:sec===n.key?"#1a1a1a":"transparent",border:"none",color:sec===n.key?T.gold:"#999",cursor:"pointer",fontSize:13,fontWeight:sec===n.key?700:400,textAlign:"left",borderRadius:8,marginBottom:1}}><span style={{fontSize:14,width:20,textAlign:"center"}}>{n.icon}</span><span>{n.label}</span></button>)}</div>
       <div style={{padding:10,borderTop:"1px solid "+T.border}}><button onClick={()=>setUser(null)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:13,borderRadius:8}}>🚪 Cerrar sesión</button></div>
     </div>
@@ -325,7 +369,7 @@ export default function App(){
 
   // ═══ MOBILE: Header + Content + Bottom Nav ═══
   return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",fontSize:13}}>
-    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}>{CLOUD&&<span onClick={()=>{setLoading(true);location.reload();}} style={{fontSize:11,color:T.green,cursor:"pointer"}} title="Nube conectada - tocar para actualizar">☁️</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
+    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}>{CLOUD&&<span onClick={()=>location.reload()} style={{fontSize:11,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} title={_syncOk?"Nube OK":"Verificando"}>{_syncOk?"☁️":"⏳"}</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
     {content}
     {modals}
     {toast&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:"#1a3a1a",color:T.green,padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,zIndex:2000}}>{toast}</div>}
