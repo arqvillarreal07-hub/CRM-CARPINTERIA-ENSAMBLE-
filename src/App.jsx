@@ -168,7 +168,7 @@ export default function App(){
   if(can("caja"))allNav.push({key:"caja",icon:"🧾",label:"Caja Chica"});
   if(can("clis"))allNav.push({key:"clis",icon:"👤",label:"Clientes"});
   if(can("provs"))allNav.push({key:"provs",icon:"🚚",label:"Proveedores"});
-  if(can("anal"))allNav.push({key:"anal",icon:"📈",label:"Análisis"});
+  if(can("anal"))allNav.push({key:"anal",icon:"📈",label:"Tablero"});
   if(can("auth"))allNav.push({key:"auth",icon:"✅",label:"Autorizaciones"});
   if(can("recibos"))allNav.push({key:"recibos",icon:"🧾",label:"Recibos"});
   if(can("usuarios"))allNav.push({key:"usuarios",icon:"👥",label:"Usuarios"});
@@ -287,7 +287,55 @@ export default function App(){
 
     {sec==="provs"&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addProv")}>+ Proveedor</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{provs.map(p=> <Card key={p.id}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div><div style={{fontWeight:700}}>{p.nombre}</div><div style={{fontSize:11,color:T.muted}}>{p.contacto}</div></div><span style={{fontWeight:700,color:T.gold}}>{$(p.total)}</span></div><div style={{fontSize:11,color:T.muted}}>{p.material} · {[...Array(p.calif||0)].map((_,i)=> <span key={i}>⭐</span>)}</div></Card>)}</div></div>}
 
-    {sec==="anal"&&<div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{obras.filter(o=>o.cotizado>0).sort((a,b)=>(b.cotizado-b.egreso)-(a.cotizado-a.egreso)).map(o=>{const m=o.cotizado-o.egreso;return <Card key={o.id}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontWeight:800,color:m>=0?T.green:T.red}}>{m>=0?"+":""}{$(m)}</span></div><Bar v={o.egreso} mx={o.cotizado} c={o.egreso>o.cotizado?T.red:T.green}/></Card>;})}</div>{obras.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin datos</div></Card>}</div>}
+    {sec==="anal"&&<div>{(()=>{
+      // Unificar TODOS los movimientos
+      const all=[];
+      movs.forEach(m=>all.push({tipo:m.ing>0?"ingreso":"egreso",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"General",monto:m.ing>0?m.ing:m.egr,color:m.ing>0?T.green:T.red,icon:m.ing>0?"💰":"📤",user:m.user||"—",status:"aprobado",cat:m.cat||""}));
+      caja.forEach(c=>all.push({tipo:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"General",monto:c.monto,color:T.orange,icon:"🧾",user:c.resp||"—",status:c.status||"aprobado",ticket:c.ticket,cat:"Caja Chica"}));
+      all.sort((a,b)=>b.fecha>a.fecha?1:b.fecha<a.fecha?-1:0);
+      // Agrupar por semana
+      const weeks={};all.forEach(m=>{const d=new Date(m.fecha+"T12:00:00");const day=d.getDay()||7;const mon=new Date(d);mon.setDate(d.getDate()-(day-1));const wk=mon.toISOString().slice(0,10);if(!weeks[wk])weeks[wk]=[];weeks[wk].push(m);});
+      const wkKeys=Object.keys(weeks).sort().reverse();
+      const tIngAll=all.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.monto,0);
+      const tEgrAll=all.filter(m=>m.tipo!=="ingreso").reduce((s,m)=>s+m.monto,0);
+      const pendCaja=caja.filter(c=>c.status==="pendiente").length;
+      return <div>
+        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
+          <Card><Stat label="Ingresos" value={$(tIngAll)} color={T.green}/></Card>
+          <Card><Stat label="Egresos + Caja" value={$(tEgrAll)} color={T.red}/></Card>
+          <Card><Stat label="Balance" value={$(tIngAll-tEgrAll)} color={tIngAll-tEgrAll>=0?T.green:T.red}/></Card>
+          {pendCaja>0&&<Card style={{borderColor:T.yellow+"33"}}><Stat label="Caja x Aprobar" value={pendCaja} color={T.yellow}/></Card>}
+        </div>
+        {/* Rentabilidad por obra */}
+        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Rentabilidad por Obra</div>
+        <div style={{display:"grid",gridTemplateColumns:G,gap:8,marginBottom:14}}>{obras.filter(o=>o.cotizado>0).map(o=>{const m=(o.cotizado||0)-(o.egreso||0);return <Card key={o.id}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:700,fontSize:13}}>{o.nombre}</span><span style={{fontWeight:800,color:m>=0?T.green:T.red}}>{m>=0?"+":""}{$(m)}</span></div><div style={{fontSize:10,color:T.muted,marginBottom:4}}>Cot: {$(o.cotizado)} · Egr: {$(o.egreso||0)} · {pc(m,o.cotizado)}%</div><Bar v={o.egreso||0} mx={o.cotizado} c={(o.egreso||0)>o.cotizado?T.red:T.green}/></Card>})}</div>
+        {/* Movimientos por semana */}
+        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Todos los Movimientos</div>
+        {wkKeys.map(wk=>{const items=weeks[wk];const wkIng=items.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.monto,0);const wkEgr=items.filter(m=>m.tipo!=="ingreso").reduce((s,m)=>s+m.monto,0);
+        return <div key={wk} style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid "+T.border,marginBottom:6}}>
+            <span style={{fontSize:11,fontWeight:700,color:T.muted}}>Semana del {fd(wk)}</span>
+            <div style={{display:"flex",gap:10,fontSize:10}}><span style={{color:T.green}}>+{$(wkIng)}</span><span style={{color:T.red}}>-{$(wkEgr)}</span></div>
+          </div>
+          {items.map((m,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid "+T.line}} onClick={()=>{if(m.ticket)om("verTicket",m);}}>
+            <span style={{fontSize:16}}>{m.icon}</span>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:600,fontSize:13}}>{m.desc}</span><Badge s={m.status}/></div>
+              <div style={{fontSize:10,color:T.dim,marginTop:2}}>{fd(m.fecha)} · {m.obra}{m.prov?" · "+m.prov:""} · {m.user}{m.cat?" · "+m.cat:""}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontWeight:800,color:m.color,fontSize:14}}>{m.tipo==="ingreso"?"+":"-"}{$(m.monto)}</div>
+              {m.ticket&&<div style={{fontSize:9,color:T.blue}}>📷 ticket</div>}
+            </div>
+            {m.status==="pendiente"&&m.tipo==="caja"&&user.rol==="admin"&&<div style={{display:"flex",flexDirection:"column",gap:3,marginLeft:6}}>
+              <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.concepto===m.desc&&x.fecha===m.fecha?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"3px 6px",fontSize:9,fontWeight:700,cursor:"pointer"}}>✓</button>
+              <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.concepto===m.desc&&x.fecha===m.fecha?{...x,status:"rechazado"}:x));show("✕");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"3px 6px",fontSize:9,fontWeight:700,cursor:"pointer"}}>✕</button>
+            </div>}
+          </div>)}
+        </div>})}
+        {all.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.dim}}>Sin movimientos</div></Card>}
+      </div>;
+    })()}</div>}
 
     {sec==="auth"&&<div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{auts.slice().reverse().map(a=> <Card key={a.id} style={{borderLeft:a.status==="pendiente"?"3px solid "+T.yellow:"none"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700}}>{a.desc}</span><Badge s={a.status==="pendiente"?"pendiente":a.status}/></div><div style={{fontSize:16,fontWeight:800,color:T.gold}}>{$(a.monto)}</div>{a.status==="pendiente"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}><button style={{padding:10,borderRadius:8,border:"none",background:"#1a3a1a",color:T.green,fontWeight:700,cursor:"pointer"}} onClick={()=>{setAuts(auts.map(x=>x.id===a.id?{...x,status:"aprobada"}:x));show("Aprobada");}}>✓ Aprobar</button><button style={{padding:10,borderRadius:8,border:"none",background:"#3a1a1a",color:T.red,fontWeight:700,cursor:"pointer"}} onClick={()=>{setAuts(auts.map(x=>x.id===a.id?{...x,status:"rechazada"}:x));show("Rechazada");}}>✕ Rechazar</button></div>}</Card>)}</div>{auts.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.dim}}>Sin solicitudes</div></Card>}</div>}
 
