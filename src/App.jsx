@@ -160,7 +160,7 @@ export default function App(){
   const can=p=>user&&ROLES[user.rol].permisos.includes(p);
   const om=(t,d)=>{setModal(t);setMd(d||null);};
   const cm=()=>{setModal(null);setMd(null);};
-  const go=(s,d)=>{setSec(s);setSub(d||null);setMoreOpen(false);if(s==="finanzas"&&!subTab.match(/^(movs|caja|tablero|recibos|auth)$/))setSubTab("movs");if(s==="taller"&&!subTab.match(/^(inv|provs|catalogo)$/))setSubTab("inv");if(s==="admin"&&!subTab.match(/^(clis|usuarios)$/))setSubTab("clis");};
+  const go=(s,d)=>{setSec(s);setSub(d||null);setMoreOpen(false);if(s==="finanzas"&&!subTab.match(/^(movs|caja|tablero|recibos|auth)$/))setSubTab("movs");if(s==="taller"&&!subTab.match(/^(inv|provs|catalogo)$/))setSubTab("inv");};
   const tIng=movs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);
   const tEgr=movs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0);
   const tCaja=caja.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
@@ -177,6 +177,7 @@ export default function App(){
   const genRec=m=>{const id="R-"+String(recibos.length+1).padStart(3,"0");setRecibos(prev=>[...prev,{id,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra}]);return id;};
   const scanFile=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});const isPdf=file.type==="application/pdf";const content=[isPdf?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Analiza este documento/imagen de cotización de carpintería. Extrae TODOS los conceptos con su precio unitario y cantidad. Responde SOLO JSON array sin markdown: [{"desc":"descripción completa del concepto","precio":12345,"cant":1}]. Si un concepto tiene cantidad mayor a 1, ponla. Si no encuentras nada: []'}];const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content}]})});const data=await resp.json();const text=data.content?.map(i=>i.text||"").join("")||"[]";const items=JSON.parse(text.replace(/```json|```/g,"").trim());if(Array.isArray(items)&&items.length>0){setCotP(prev=>[...prev,...items.map((it,i)=>({id:"S-"+Date.now()+"-"+i,cat:"Escaneado",desc:it.desc||"Concepto",precio:Number(it.precio)||0,cant:Number(it.cant)||1}))]);show(items.length+" conceptos extraídos");}else show("Sin conceptos");}catch(e){show("Error al analizar");}setScanning(false);};
   const[subTab,setSubTab]=useState("");
+  const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");
   const allNav=[];
   if(can("dash"))allNav.push({key:"dash",icon:"🏠",label:"Inicio",grp:"neg"});
   if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
@@ -186,8 +187,9 @@ export default function App(){
   if(can("caja"))allNav.push({key:"cajachica",icon:"🧾",label:"Caja Chica",grp:"fin"});
   allNav.push({key:"nominas",icon:"📅",label:"Nóminas",grp:"fin"});
   if(can("inv")||can("provs"))allNav.push({key:"taller",icon:"🔨",label:"Taller",grp:"tal"});
+  if(can("clis"))allNav.push({key:"clis",icon:"👤",label:"Clientes",grp:"neg"});
   if(can("auth"))allNav.push({key:"auth_sec",icon:"✅",label:"Autorizar",grp:"sys"});
-  if(can("usuarios")||can("clis"))allNav.push({key:"admin",icon:"👥",label:"Admin",grp:"sys"});
+  if(can("usuarios"))allNav.push({key:"usuarios",icon:"👥",label:"Usuarios",grp:"sys"});
   const NAV_GRPS=[{id:"neg",label:"NEGOCIO"},{id:"fin",label:"FINANZAS"},{id:"tal",label:"TALLER"},{id:"sys",label:"SISTEMA"}];
   const mobT=allNav.slice(0,4);if(allNav.length>4)mobT.push({key:"_more",icon:"☰",label:"Más"});
 
@@ -318,12 +320,6 @@ export default function App(){
       <Card><div style={{fontSize:10,color:T.blue,fontWeight:700,marginBottom:6}}>BITÁCORA</div>{(sub.bitacora||[]).slice().reverse().map(b=> <div key={b.id} style={{padding:"5px 0",borderBottom:"1px solid "+T.border}}><div style={{fontSize:12}}>{b.nota}</div><div style={{fontSize:10,color:T.dim}}>{fd(b.fecha)} · {b.user}</div></div>)}<BitacoraForm onSave={nota=>{const up={...sub,bitacora:[...(sub.bitacora||[]),{id:(sub.bitacora?.length||0)+1,fecha:td(),nota,user:user.nombre}]};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show("Bitácora ✓");}}/></Card>
     </div>}
 
-    {sec==="finanzas"&&<div style={{display:"flex",gap:4,marginBottom:12,overflowX:"auto",paddingBottom:2}}>{[{k:"movs",l:"Movimientos"},{k:"caja",l:"Caja Chica"},{k:"tablero",l:"Tablero"},{k:"recibos",l:"Recibos"},{k:"auth",l:"Autorizar"}].map(t=><button key={t.k} onClick={()=>setSubTab(t.k)} style={{padding:"8px 14px",borderRadius:10,border:subTab===t.k?"2px solid "+T.gold:"1px solid "+T.border,background:subTab===t.k?"#1a1510":"transparent",color:subTab===t.k?T.gold:T.muted,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{t.l}</button>)}</div>}
-    {sec==="finanzas"&&subTab==="movs"&&<div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}><Card><Stat label="Ingresos" value={$(tIng)} color={T.green} small/></Card><Card><Stat label="Egresos" value={$(tEgr)} color={T.red} small/></Card><Card><Stat label="Balance" value={$(tIng-tEgr)} color={tIng-tEgr>=0?T.green:T.red} small/></Card></div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8,maxWidth:400}}><button style={{...sB,background:"#1a3a1a",color:T.green,marginTop:0}} onClick={()=>om("addIng")}>+ Ingreso</button><button style={{...sB,background:"#3a1a1a",color:T.red,marginTop:0}} onClick={()=>om("addEgr")}>+ Egreso</button></div>
-      <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{movs.slice().reverse().map(m=> <Card key={m.id}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600}}>{m.desc}</div><div style={{fontSize:10,color:T.dim}}>{fd(m.fecha)} · {m.prov}</div></div><span style={{fontWeight:800,color:m.ing>0?T.green:T.red}}>{m.ing>0?"+":"-"}{$(m.ing>0?m.ing:m.egr)}</span></div></Card>)}</div>
-    </div>}
 
     
     {sec==="nominas"&&<div>
@@ -340,68 +336,96 @@ export default function App(){
 
     {sec==="taller"&&subTab==="provs"&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addProv")}>+ Proveedor</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{provs.map(p=>{const pMvs=movs.filter(m=>m.egr>0&&m.prov===p.nombre);const pTot=pMvs.reduce((s,m)=>s+m.egr,0);const pObs=[...new Set(pMvs.map(m=>m.obra).filter(Boolean))];return <Card key={p.id}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div><div style={{fontWeight:700}}>{p.nombre}</div><div style={{fontSize:11,color:T.muted}}>{p.contacto}{p.tel&&" · "+p.tel}</div></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,color:T.red}}>{$(pTot)}</div><div style={{fontSize:9,color:T.muted}}>{pMvs.length} compras</div></div></div><div style={{fontSize:11,color:T.muted}}>{p.material} · {[...Array(p.calif||0)].map((_,i)=><span key={i}>⭐</span>)}</div>{pObs.length>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border,display:"flex",flexWrap:"wrap",gap:4}}>{pObs.map(o=><span key={o} style={{fontSize:9,background:T.gold+"15",color:T.gold,padding:"2px 6px",borderRadius:6}}>{o}</span>)}</div>}{p.credito>0&&<div style={{fontSize:10,color:T.blue,marginTop:4}}>Crédito: {p.credito} días</div>}</Card>})}</div></div>}
 
+
+    {sec==="finanzas"&&(()=>{
+
+      const all=[];
+      movs.forEach(m=>all.push({t:m.ing>0?"ing":"egr",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"",monto:m.ing>0?m.ing:m.egr,user:m.user||"",cat:m.cat||"",id:"m"+m.id,status:"aprobado",rec:m.recibo}));
+      caja.forEach(c=>all.push({t:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"",monto:c.monto,user:c.resp||"",cat:"Caja Chica",id:"c"+c.id,status:c.status||"aprobado",ticket:c.ticket,cajaId:c.id}));
+      all.sort((a,b)=>b.fecha>a.fecha?1:b.fecha<a.fecha?-1:0);
+      const filtered=all.filter(m=>{
+        if(ff==="ing"&&m.t!=="ing")return false;
+        if(ff==="egr"&&m.t!=="egr")return false;
+        if(ff==="caja"&&m.t!=="caja")return false;
+        if(ff==="nom"&&!["N\u00f3mina","Renta","IMSS","Destajo"].includes(m.cat))return false;
+        if(ff==="rec"&&!m.rec)return false;
+        if(fObra&&m.obra!==fObra)return false;
+        if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q))return false;}
+        return true;
+      });
+      const fIng=filtered.filter(m=>m.t==="ing").reduce((s,m)=>s+m.monto,0);
+      const fEgr=filtered.filter(m=>m.t!=="ing").reduce((s,m)=>s+m.monto,0);
+      const obrasUnicas=[...new Set(all.map(m=>m.obra).filter(Boolean))];
+      return <div style={{padding:0}}>
+        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
+          <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Ingresos" value={$(fIng)} color={T.green}/></Card>
+          <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Egresos" value={$(fEgr)} color={T.red}/></Card>
+          <Card><Stat label="Balance" value={$(fIng-fEgr)} color={fIng-fEgr>=0?T.green:T.red}/></Card>
+          <Card><Stat label="Movimientos" value={filtered.length}/></Card>
+        </div>
+        <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+          <button style={{...sB,background:"#1a3a1a",color:T.green,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addIng")}>+ Ingreso</button>
+          <button style={{...sB,background:"#3a1a1a",color:T.red,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addEgr")}>+ Egreso</button>
+        </div>
+        <div style={{display:"flex",gap:4,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
+          {[{k:"todo",l:"Todo",c:T.gold},{k:"ing",l:"Ingresos",c:T.green},{k:"egr",l:"Egresos",c:T.red},{k:"caja",l:"Caja Chica",c:T.orange},{k:"nom",l:"N\u00f3minas",c:T.purple},{k:"rec",l:"Recibos",c:T.blue}].map(f=>
+            <button key={f.k} onClick={()=>setFf(f.k)} style={{padding:"6px 12px",borderRadius:8,border:ff===f.k?"2px solid "+f.c:"1px solid "+T.border,background:ff===f.k?f.c+"15":"transparent",color:ff===f.k?f.c:T.muted,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{f.l}</button>
+          )}
+        </div>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <input style={{...sI,flex:1,padding:"8px 12px",fontSize:12}} placeholder="Buscar concepto, proveedor..." value={fBusq} onChange={e=>setFBusq(e.target.value)}/>
+          <select style={{...sI,width:D?200:120,padding:"8px",fontSize:11}} value={fObra} onChange={e=>setFObra(e.target.value)}><option value="">Todas las obras</option>{obrasUnicas.map(o=><option key={o} value={o}>{o}</option>)}</select>
+        </div>
+        <div style={{borderRadius:12,border:"1px solid "+T.border,overflow:"hidden"}}>
+          {D&&<div style={{display:"grid",gridTemplateColumns:"90px 1fr 120px 120px 80px 70px 100px",padding:"10px 12px",background:"rgba(255,255,255,.03)",borderBottom:"1px solid "+T.border,fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5}}>
+            <span>Fecha</span><span>Concepto</span><span>Proveedor</span><span>Obra</span><span>Quien</span><span>Status</span><span style={{textAlign:"right"}}>Monto</span>
+          </div>}
+          {filtered.length===0&&<div style={{padding:20,textAlign:"center",color:T.dim}}>Sin movimientos con estos filtros</div>}
+          {filtered.map(m=>{const isP=m.status==="pendiente"&&m.t==="caja";return D?
+            <div key={m.id} onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}} style={{display:"grid",gridTemplateColumns:"90px 1fr 120px 120px 80px 70px 100px",padding:"10px 12px",borderBottom:"1px solid "+T.line,fontSize:12,cursor:m.ticket||m.rec?"pointer":"default",background:isP?"rgba(241,196,15,.03)":"transparent",alignItems:"center"}}>
+              <span style={{color:T.dim,fontSize:11}}>{fd(m.fecha)}</span>
+              <div><div style={{fontWeight:600}}>{m.t==="ing"?"\u2B06":"\u2B07"} {m.desc}</div>{m.cat&&<span style={{fontSize:9,color:T.dim}}>{m.cat}</span>}</div>
+              <span style={{fontSize:11,color:T.muted}}>{m.prov}</span>
+              <span style={{fontSize:11,color:T.gold}}>{m.obra}</span>
+              <span style={{fontSize:10,color:T.dim}}>{m.user}</span>
+              <div>{isP&&user.rol==="admin"?<div style={{display:"flex",gap:2}}><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("\u2713");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"2px 6px",fontSize:9,cursor:"pointer"}}>\u2713</button><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("\u2717");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"2px 6px",fontSize:9,cursor:"pointer"}}>\u2717</button></div>:<Badge s={m.status}/>}</div>
+              <div style={{textAlign:"right"}}><span style={{fontWeight:800,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</span>{m.ticket&&<span style={{fontSize:8,color:T.blue,marginLeft:4}}>\U0001f4f7</span>}{m.rec&&<span style={{fontSize:8,color:T.green,marginLeft:4}}>{m.rec}</span>}</div>
+            </div>
+            :<Card key={m.id} onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}} style={{marginBottom:4,padding:10,background:isP?"rgba(241,196,15,.03)":"transparent"}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}><span style={{fontWeight:700,fontSize:13}}>{m.desc}</span>{isP&&user.rol==="admin"&&<><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("\u2713");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"2px 6px",fontSize:9,cursor:"pointer"}}>\u2713</button><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("\u2717");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"2px 6px",fontSize:9,cursor:"pointer"}}>\u2717</button></>}</div>
+                  <div style={{fontSize:10,color:T.dim,marginTop:2}}>{fd(m.fecha)} {m.prov&&"\u00b7 "+m.prov} {m.obra&&"\u00b7 "+m.obra} {m.user&&"\u00b7 "+m.user}</div>
+                  <div style={{display:"flex",gap:4,marginTop:2}}>{m.cat&&<span style={{fontSize:9,background:T.dim+"33",color:T.muted,padding:"1px 5px",borderRadius:4}}>{m.cat}</span>}<Badge s={m.status}/></div>
+                </div>
+                <div style={{textAlign:"right"}}><div style={{fontWeight:800,fontSize:15,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</div>{m.ticket&&<div style={{fontSize:8,color:T.blue}}>\U0001f4f7 ticket</div>}</div>
+              </div>
+            </Card>
+          })}
+        </div>
+      </div>;
+    })()}
+
     {(sec==="finanzas"&&subTab==="caja"||sec==="cajachica")&&<div><div style={{display:"grid",gridTemplateColumns:cajaPend>0?"1fr 1fr":"1fr",gap:8,marginBottom:8}}><Card><Stat label="Caja Chica Total" value={$(tCaja)} color={T.orange}/></Card>{cajaPend>0&&<Card style={{borderColor:T.yellow+"33"}}><Stat label="Por Aprobar" value={cajaPend} color={T.yellow}/></Card>}</div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addCj")}>+ Gasto</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{caja.slice().reverse().map(c=> <Card key={c.id} onClick={()=>{if(c.ticket)om("verTicket",c);}} style={{borderColor:c.status==="pendiente"?T.yellow+"22":c.status==="rechazado"?T.red+"22":"transparent"}}><div style={{display:"flex",justifyContent:"space-between",gap:10}}><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:600}}>{c.concepto}</span><Badge s={c.status||"aprobado"}/></div><div style={{fontSize:10,color:T.dim}}>{fd(c.fecha)} · {c.resp}{c.obra&&c.obra!=="General"?" · "+c.obra:""}</div></div><div style={{display:"flex",alignItems:"center",gap:8}}>{c.ticket&&<img src={c.ticket} style={{width:36,height:36,borderRadius:6,objectFit:"cover",border:"1px solid "+T.border}} alt=""/>}<span style={{fontWeight:700,color:T.orange,fontSize:16}}>{$(c.monto)}</span></div></div>{c.status==="pendiente"&&user.rol==="admin"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===c.id?{...x,status:"aprobado"}:x));show("Aprobado ✓");}} style={{padding:8,borderRadius:8,border:"none",background:"#0a2e0a",color:T.green,fontWeight:700,fontSize:11,cursor:"pointer"}}>✓ Aprobar</button><button onClick={e=>{e.stopPropagation();om("editCj",c);}} style={{padding:8,borderRadius:8,border:"none",background:"#1a1a00",color:T.yellow,fontWeight:700,fontSize:11,cursor:"pointer"}}>✏️ Modificar</button><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===c.id?{...x,status:"rechazado"}:x));show("Rechazado");}} style={{padding:8,borderRadius:8,border:"none",background:"#2a0a0a",color:T.red,fontWeight:700,fontSize:11,cursor:"pointer"}}>✕ Rechazar</button></div>}</Card>)}</div></div>}
 
     {sec==="taller"&&subTab==="catalogo"&&<div><div style={{fontSize:12,fontWeight:700,color:T.gold,marginBottom:8}}>Catálogo ({catalogo.length} productos)</div>{cats.map(cat=><div key={cat} style={{marginBottom:12}}><div style={{fontSize:11,color:T.gold,fontWeight:700,borderBottom:"1px solid "+T.border,paddingBottom:3,marginBottom:4}}>{cat}</div><div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{catalogo.filter(c=>c.cat===cat).map(item=><Card key={item.id}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:12}}><b style={{color:T.gold}}>{item.id}</b> {item.desc}</span><span style={{fontWeight:700}}>{$(item.precio)}</span></div></Card>)}</div></div>)}</div>}
 
-    {sec==="admin"&&<div style={{display:"flex",gap:4,marginBottom:12}}>{[{k:"clis",l:"Clientes"},{k:"usuarios",l:"Usuarios"}].map(t=><button key={t.k} onClick={()=>setSubTab(t.k)} style={{padding:"8px 14px",borderRadius:10,border:subTab===t.k?"2px solid "+T.gold:"1px solid "+T.border,background:subTab===t.k?"#1a1510":"transparent",color:subTab===t.k?T.gold:T.muted,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{t.l}</button>)}</div>}
-    {sec==="admin"&&subTab==="clis"&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addCli")}>+ Cliente</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{clis.map(c=>{const cOb=obras.filter(o=>o.cliente===c.nombre);const cPag=movs.filter(m=>m.ing>0&&cOb.some(o=>o.nombre===m.obra)).reduce((s,m)=>s+m.ing,0);const cTot=cOb.reduce((s,o)=>s+(o.cotizado||0),0);return <Card key={c.id}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div style={{fontWeight:700,fontSize:14}}>{c.nombre}</div>{cOb.length>0&&<span style={{fontSize:10,color:T.gold,fontWeight:700}}>{cOb.length} obra(s)</span>}</div><div style={{fontSize:11,color:T.muted}}>{c.tel&&c.tel}{c.email&&" · "+c.email}</div>{c.dir&&<div style={{fontSize:11,color:T.muted}}>📍 {c.dir}</div>}{cOb.length>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}><div><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold,fontSize:13}}>{$(cTot)}</div></div><div><div style={{fontSize:9,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green,fontSize:13}}>{$(cPag)}</div></div><div><div style={{fontSize:9,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:cTot-cPag>0?T.yellow:T.green,fontSize:13}}>{$(cTot-cPag)}</div></div></div>{cOb.map(o=><div key={o.id} style={{fontSize:10,color:T.muted,marginTop:3}}>{o.nombre} · <span style={{color:FCC[o.fase]||T.muted}}>{FASES[o.fase]||o.fase}</span></div>)}</div>}</Card>})}</div>{clis.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin clientes</div></Card>}</div>}
+    {sec==="clis"&&!sub&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addCli")}>+ Cliente</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{clis.map(c=>{const cOb=obras.filter(o=>o.cliente===c.nombre);const cPag=movs.filter(m=>m.ing>0&&cOb.some(o=>o.nombre===m.obra)).reduce((s,m)=>s+m.ing,0);const cTot=cOb.reduce((s,o)=>s+(o.cotizado||0),0);return <Card key={c.id} onClick={()=>setSub(c)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div style={{fontWeight:700,fontSize:14}}>{c.nombre}</div>{cOb.length>0&&<span style={{fontSize:10,color:T.gold,fontWeight:700}}>{cOb.length} obra(s)</span>}</div><div style={{fontSize:11,color:T.muted}}>{c.tel&&c.tel}{c.email&&" · "+c.email}</div>{c.dir&&<div style={{fontSize:11,color:T.muted}}>📍 {c.dir}</div>}{cOb.length>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}><div><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold,fontSize:13}}>{$(cTot)}</div></div><div><div style={{fontSize:9,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green,fontSize:13}}>{$(cPag)}</div></div><div><div style={{fontSize:9,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:cTot-cPag>0?T.yellow:T.green,fontSize:13}}>{$(cTot-cPag)}</div></div></div>{cOb.map(o=><div key={o.id} style={{fontSize:10,color:T.muted,marginTop:3}}>{o.nombre} · <span style={{color:FCC[o.fase]||T.muted}}>{FASES[o.fase]||o.fase}</span></div>)}</div>}</Card>})}</div>{clis.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin clientes</div></Card>}</div>}
 
-    {sec==="finanzas"&&subTab==="tablero"&&<div>{(()=>{
-      // Unificar TODOS los movimientos
-      const all=[];
-      movs.forEach(m=>all.push({tipo:m.ing>0?"ingreso":"egreso",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"General",monto:m.ing>0?m.ing:m.egr,color:m.ing>0?T.green:T.red,icon:m.ing>0?"💰":"📤",user:m.user||"—",status:"aprobado",cat:m.cat||""}));
-      caja.forEach(c=>all.push({tipo:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"General",monto:c.monto,color:T.orange,icon:"🧾",user:c.resp||"—",status:c.status||"aprobado",ticket:c.ticket,cat:"Caja Chica"}));
-      all.sort((a,b)=>b.fecha>a.fecha?1:b.fecha<a.fecha?-1:0);
-      // Agrupar por semana
-      const weeks={};all.forEach(m=>{const d=new Date(m.fecha+"T12:00:00");const day=d.getDay()||7;const mon=new Date(d);mon.setDate(d.getDate()-(day-1));const wk=mon.toISOString().slice(0,10);if(!weeks[wk])weeks[wk]=[];weeks[wk].push(m);});
-      const wkKeys=Object.keys(weeks).sort().reverse();
-      const tIngAll=all.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.monto,0);
-      const tEgrAll=all.filter(m=>m.tipo!=="ingreso").reduce((s,m)=>s+m.monto,0);
-      const pendCaja=caja.filter(c=>c.status==="pendiente").length;
+    {sec==="clis"&&sub&&<div style={{maxWidth:800}}>
+      <button onClick={()=>setSub(null)} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:13,padding:0,marginBottom:12}}>← Clientes</button>
+      {(()=>{const c=sub;const cOb=obras.filter(o=>o.cliente===c.nombre);const cPag=movs.filter(m=>m.ing>0&&cOb.some(o=>o.nombre===m.obra)).reduce((s,m)=>s+m.ing,0);const cTot=cOb.reduce((s,o)=>s+(o.cotizado||0),0);const cEgr=movs.filter(m=>m.egr>0&&cOb.some(o=>o.nombre===m.obra)).reduce((s,m)=>s+m.egr,0);
       return <div>
-        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
-          <Card><Stat label="Ingresos" value={$(tIngAll)} color={T.green}/></Card>
-          <Card><Stat label="Egresos + Caja" value={$(tEgrAll)} color={T.red}/></Card>
-          <Card><Stat label="Balance" value={$(tIngAll-tEgrAll)} color={tIngAll-tEgrAll>=0?T.green:T.red}/></Card>
-          {pendCaja>0&&<Card style={{borderColor:T.yellow+"33"}}><Stat label="Caja x Aprobar" value={pendCaja} color={T.yellow}/></Card>}
-        </div>
-        {/* Rentabilidad por obra */}
-        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Rentabilidad por Obra</div>
-        <div style={{display:"grid",gridTemplateColumns:G,gap:8,marginBottom:14}}>{obras.filter(o=>o.cotizado>0).map(o=>{const m=(o.cotizado||0)-(o.egreso||0);return <Card key={o.id}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:700,fontSize:13}}>{o.nombre}</span><span style={{fontWeight:800,color:m>=0?T.green:T.red}}>{m>=0?"+":""}{$(m)}</span></div><div style={{fontSize:10,color:T.muted,marginBottom:4}}>Cot: {$(o.cotizado)} · Egr: {$(o.egreso||0)} · {pc(m,o.cotizado)}%</div><Bar v={o.egreso||0} mx={o.cotizado} c={(o.egreso||0)>o.cotizado?T.red:T.green}/></Card>})}</div>
-        {/* Movimientos por semana */}
-        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Todos los Movimientos</div>
-        {wkKeys.map(wk=>{const items=weeks[wk];const wkIng=items.filter(m=>m.tipo==="ingreso").reduce((s,m)=>s+m.monto,0);const wkEgr=items.filter(m=>m.tipo!=="ingreso").reduce((s,m)=>s+m.monto,0);
-        return <div key={wk} style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid "+T.border,marginBottom:6}}>
-            <span style={{fontSize:11,fontWeight:700,color:T.muted}}>Semana del {fd(wk)}</span>
-            <div style={{display:"flex",gap:10,fontSize:10}}><span style={{color:T.green}}>+{$(wkIng)}</span><span style={{color:T.red}}>-{$(wkEgr)}</span></div>
-          </div>
-          {items.map((m,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid "+T.line}} onClick={()=>{if(m.ticket)om("verTicket",m);}}>
-            <span style={{fontSize:16}}>{m.icon}</span>
-            <div style={{flex:1}}>
-              <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:600,fontSize:13}}>{m.desc}</span><Badge s={m.status}/></div>
-              <div style={{fontSize:10,color:T.dim,marginTop:2}}>{fd(m.fecha)} · {m.obra}{m.prov?" · "+m.prov:""} · {m.user}{m.cat?" · "+m.cat:""}</div>
-            </div>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontWeight:800,color:m.color,fontSize:14}}>{m.tipo==="ingreso"?"+":"-"}{$(m.monto)}</div>
-              {m.ticket&&<div style={{fontSize:9,color:T.blue}}>📷 ticket</div>}
-            </div>
-            {m.status==="pendiente"&&m.tipo==="caja"&&user.rol==="admin"&&<div style={{display:"flex",flexDirection:"column",gap:3,marginLeft:6}}>
-              <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.concepto===m.desc&&x.fecha===m.fecha?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"3px 6px",fontSize:9,fontWeight:700,cursor:"pointer"}}>✓</button>
-              <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.concepto===m.desc&&x.fecha===m.fecha?{...x,status:"rechazado"}:x));show("✕");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"3px 6px",fontSize:9,fontWeight:700,cursor:"pointer"}}>✕</button>
-            </div>}
-          </div>)}
-        </div>})}
-        {all.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.dim}}>Sin movimientos</div></Card>}
-      </div>;
-    })()}</div>}
+        <Card><div style={{fontSize:22,fontWeight:800,marginBottom:4}}>{c.nombre}</div><div style={{fontSize:12,color:T.muted}}>{c.tel&&"📱 "+c.tel}{c.email&&" · "+c.email}</div>{c.dir&&<div style={{fontSize:12,color:T.muted}}>📍 {c.dir}</div>}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginTop:12}}><Stat label="Cotizado" value={$(cTot)} color={T.gold}/><Stat label="Pagado" value={$(cPag)} color={T.green}/><Stat label="Resta" value={$(cTot-cPag)} color={cTot-cPag>0?T.yellow:T.green}/><Stat label="Margen" value={$(cTot-cEgr)} color={cTot-cEgr>=0?T.green:T.red}/></div></Card>
+        {cOb.length>0&&<div><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Obras</div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{cOb.map(o=><Card key={o.id} onClick={()=>go("obras",o)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontSize:10,background:FCC[o.fase]+"33",color:FCC[o.fase],padding:"2px 8px",borderRadius:8,fontWeight:700}}>{FASES[o.fase]||o.fase}</span></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}><div><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold}}>{$(o.cotizado)}</div></div><div><div style={{fontSize:9,color:T.muted}}>AVANCE</div><div style={{fontWeight:700}}>{o.avance||0}%</div></div></div><Bar v={o.avance||0} mx={100} c={FCC[o.fase]}/></Card>)}</div></div>}
+        {(()=>{const cMovs=movs.filter(m=>cOb.some(o=>o.nombre===m.obra));return cMovs.length>0?<div><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,margin:"12px 0 8px"}}>Movimientos</div>{cMovs.slice().reverse().slice(0,20).map(m=><Card key={m.id}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600}}>{m.desc}</div><div style={{fontSize:10,color:T.dim}}>{fd(m.fecha)} · {m.obra} · {m.prov}</div></div><span style={{fontWeight:800,color:m.ing>0?T.green:T.red}}>{m.ing>0?"+":"-"}{$(m.ing>0?m.ing:m.egr)}</span></div></Card>)}</div>:null;})()}
+      </div>;})()}
+    </div>}
 
-    {sec==="finanzas"&&subTab==="auth"&&<div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{auts.slice().reverse().map(a=> <Card key={a.id} style={{borderLeft:a.status==="pendiente"?"3px solid "+T.yellow:"none"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700}}>{a.desc}</span><Badge s={a.status==="pendiente"?"pendiente":a.status}/></div><div style={{fontSize:16,fontWeight:800,color:T.gold}}>{$(a.monto)}</div>{a.status==="pendiente"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}><button style={{padding:10,borderRadius:8,border:"none",background:"#1a3a1a",color:T.green,fontWeight:700,cursor:"pointer"}} onClick={()=>{setAuts(auts.map(x=>x.id===a.id?{...x,status:"aprobada"}:x));show("Aprobada");}}>✓ Aprobar</button><button style={{padding:10,borderRadius:8,border:"none",background:"#3a1a1a",color:T.red,fontWeight:700,cursor:"pointer"}} onClick={()=>{setAuts(auts.map(x=>x.id===a.id?{...x,status:"rechazada"}:x));show("Rechazada");}}>✕ Rechazar</button></div>}</Card>)}</div>{auts.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.dim}}>Sin solicitudes</div></Card>}</div>}
 
-    {sec==="finanzas"&&subTab==="recibos"&&<div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{recibos.slice().reverse().map(r=> <Card key={r.id} onClick={()=>om("vRec",r)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:700,color:T.green,fontSize:15}}>{r.id}</div><div style={{fontSize:12,fontWeight:600,marginTop:2}}>{r.concepto}</div><div style={{fontSize:10,color:T.dim,marginTop:2}}>{r.cliente} · {fd(r.fecha)}{r.obra?" · "+r.obra:""}</div></div><div style={{textAlign:"right"}}><span style={{fontWeight:800,color:T.green,fontSize:18}}>{$(r.monto)}</span><div style={{fontSize:9,color:T.muted,marginTop:4}}>Ver recibo →</div></div></div></Card>)}</div>{recibos.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.dim}}>Se generan al registrar ingresos en Finanzas</div></Card>}</div>}
 
-    {sec==="admin"&&subTab==="usuarios"&&<div>
+
+    {sec==="usuarios"&&<div>
       <button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addUser")}>+ Agregar Usuario</button>
       <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{users.filter(u=>u.rol!=="cliente").map(u=> <Card key={u.id} style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:40,height:40,borderRadius:20,background:ROLES[u.rol].color+"22",color:ROLES[u.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{u.avatar}</div><div style={{flex:1}}><div style={{fontWeight:700}}>{u.nombre}</div><div style={{fontSize:10,color:ROLES[u.rol].color}}>{ROLES[u.rol].icon} {ROLES[u.rol].nombre}</div><div style={{fontSize:10,color:u.pin?T.green:T.muted,marginTop:2}}>{u.pin?"🔒 PIN: ••••":"🔓 Sin PIN"}</div></div><div style={{display:"flex",gap:4}}><button onClick={()=>om("setPin",u)} style={{background:"#1a1a2a",color:T.blue,border:"1px solid #2a2a4a",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>{u.pin?"Cambiar":"+ PIN"}</button>{u.id!==1&&(confirmDel===u.id?<div style={{display:"flex",gap:4}}><button onClick={()=>{setUsers(prev=>prev.filter(x=>x.id!==u.id));setConfirmDel(null);show("Eliminado");}} style={{background:T.red,color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Sí</button><button onClick={()=>setConfirmDel(null)} style={{background:"#333",color:"#aaa",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>No</button></div>:<button onClick={()=>setConfirmDel(u.id)} style={{background:"#2a1111",color:T.red,border:"1px solid #3a1a1a",borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer"}}>🗑</button>)}</div></Card>)}</div>
       {users.filter(u=>u.rol==="cliente").length>0&&<div style={{marginTop:14}}><div style={{fontSize:10,color:T.teal,fontWeight:700,marginBottom:8}}>CLIENTES</div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{users.filter(u=>u.rol==="cliente").map(u=> <Card key={u.id} style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:40,height:40,borderRadius:20,background:T.teal+"22",color:T.teal,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{u.avatar}</div><div style={{flex:1}}><div style={{fontWeight:700}}>{u.nombre}</div><div style={{fontSize:10,color:T.teal}}>{obras.find(o=>o.id===u.proyectoId)?.nombre||"Sin proyecto"}</div><div style={{fontSize:10,color:u.pin?T.green:T.muted,marginTop:2}}>{u.pin?"🔒 PIN":"🔓 Sin PIN"}</div></div><div style={{display:"flex",gap:4}}><button onClick={()=>om("setPin",u)} style={{background:"#1a1a2a",color:T.blue,border:"1px solid #2a2a4a",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>{u.pin?"Cambiar":"+ PIN"}</button>{confirmDel===u.id?<div style={{display:"flex",gap:4}}><button onClick={()=>{setUsers(prev=>prev.filter(x=>x.id!==u.id));setConfirmDel(null);show("Eliminado");}} style={{background:T.red,color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Sí</button><button onClick={()=>setConfirmDel(null)} style={{background:"#333",color:"#aaa",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>No</button></div>:<button onClick={()=>setConfirmDel(u.id)} style={{background:"#2a1111",color:T.red,border:"1px solid #3a1a1a",borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer"}}>🗑</button>}</div></Card>)}</div></div>}
