@@ -21,9 +21,11 @@ const DB={
     // 1. Leer nube
     if(CLOUD){
       try{
-        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
+        const _ctrl=new AbortController();const _t=setTimeout(()=>_ctrl.abort(),5000);
+        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY},signal:_ctrl.signal});
+        clearTimeout(_t);
         if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0)cloudVal=j[0].value;_syncOk=true;}
-      }catch(e){console.warn('DB nube:',e);}
+      }catch(e){if(e.name!=='AbortError')console.warn('DB nube:',e);}
     }
     // 2. Leer local
     try{const v=localStorage.getItem('ev_'+k);if(v)localVal=JSON.parse(v);}catch{}
@@ -45,7 +47,8 @@ const DB={
     const lite=k==='caja'&&Array.isArray(v)?v.map(c=>{if(c.ticket&&c.ticket.length>500)return{...c,ticket:'[nube]'};return c;}):v;
     try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch(e){console.warn('localStorage full for '+k+', clearing old...');try{localStorage.removeItem('ev_'+k);localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}
     if(CLOUD){const body=JSON.stringify({key:k,value:v});const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'};
-    fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body}).catch(()=>{setTimeout(()=>{fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body}).catch(e=>console.warn('DB.set retry fail:',e));},3000);});}
+    const _send=()=>{const c=new AbortController();setTimeout(()=>c.abort(),8000);return fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body,signal:c.signal});};
+    _send().catch(()=>{setTimeout(()=>{_send().catch(()=>{});},5000);});}
   }
 };
 
@@ -130,7 +133,7 @@ export default function App(){
     setLoading(false);})();},[]);
   // Auto-sync cada 30s — PROTEGE escrituras recientes
   const _lastWrite=useRef({});
-  useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){if(_lastWrite.current[k]&&now-_lastWrite.current[k]<15000)continue;const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0){const cloud=j[0].value;const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');const cLen=Array.isArray(cloud)?cloud.length:0;const lLen=Array.isArray(local)?local.length:0;if(cLen>lLen){const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;setter(cloud);try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}else if(lLen>cLen){DB.set(k,local);}}}}}catch{}},30000);return()=>clearInterval(iv);},[]);
+  useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){if(_lastWrite.current[k]&&now-_lastWrite.current[k]<15000)continue;try{const _ctrl=new AbortController();const _t=setTimeout(()=>_ctrl.abort(),5000);const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY},signal:_ctrl.signal});clearTimeout(_t);if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0){const cloud=j[0].value;const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');const cLen=Array.isArray(cloud)?cloud.length:0;const lLen=Array.isArray(local)?local.length:0;if(cLen>lLen){const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;setter(cloud);try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}else if(lLen>cLen){DB.set(k,local);}}}}catch{}};}catch{}},30000);return()=>clearInterval(iv);},[]);
   const wrap=(raw,set,key)=>v=>{const n=typeof v==="function"?v(raw):v;set(n);_lastWrite.current[key]=Date.now();DB.set(key,n);};
   const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos");
   const cats=[...new Set(catalogo.map(c=>c.cat))];
