@@ -434,6 +434,15 @@ export default function App(){
 
 
     {sec==="finanzas"&&<div>
+        {/* ═══ TABS FINANZAS ═══ */}
+        <div style={{display:"flex",gap:4,marginBottom:12,background:T.card,borderRadius:10,padding:3,border:"1px solid "+T.border}}>
+          {[{k:"movs",l:"📊 Movimientos"},{k:"control",l:"🏗️ Control por Obra"}].map(t=>
+            <button key={t.k} onClick={()=>setSubTab(t.k)} style={{flex:1,padding:"9px 8px",fontSize:12,fontWeight:700,border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",background:subTab===t.k||(!subTab&&t.k==="movs")?T.gold:"transparent",color:subTab===t.k||(!subTab&&t.k==="movs")?"#000":T.muted}}>{t.l}</button>
+          )}
+        </div>
+
+        {/* ═══ TAB: MOVIMIENTOS ═══ */}
+        {(subTab==="movs"||!subTab)&&<div>
         <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
           <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Ingresos" value={$(finIng)} color={T.green}/></Card>
           <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Egresos" value={$(finEgr)} color={T.red}/></Card>
@@ -481,6 +490,77 @@ export default function App(){
             </Card>
           })}
         </div>
+        </div>}
+
+        {/* ═══ TAB: CONTROL POR OBRA ═══ */}
+        {subTab==="control"&&(()=>{
+          const obrasConMovs=obras.map(o=>{
+            const oIng=finAll.filter(m=>m.t==="ing"&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.monto,0);
+            const oEgr=finAll.filter(m=>m.t!=="ing"&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.monto,0);
+            const margen=oIng-oEgr;
+            const utilPct=oIng>0?Math.round((margen/oIng)*100):0;
+            const cobPct=o.cotizado>0?Math.round((oIng/o.cotizado)*100):0;
+            return {...o,oIng,oEgr,margen,utilPct,cobPct};
+          }).filter(o=>o.oIng>0||o.oEgr>0||o.cotizado>0);
+          const totIng=obrasConMovs.reduce((s,o)=>s+o.oIng,0);
+          const totEgr=obrasConMovs.reduce((s,o)=>s+o.oEgr,0);
+          const totCot=obrasConMovs.reduce((s,o)=>s+o.cotizado,0);
+          return <div>
+            {/* Resumen global */}
+            <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:14}}>
+              <Card style={{background:"rgba(201,149,107,.06)",borderTop:"3px solid "+T.gold}}><div style={{fontSize:20,fontWeight:800,color:T.text}}>{$(totCot)}</div><div style={{fontSize:10,color:T.muted}}>Total Cotizado</div></Card>
+              <Card style={{background:"rgba(76,175,80,.06)",borderTop:"3px solid "+T.green}}><div style={{fontSize:20,fontWeight:800,color:T.green}}>{$(totIng)}</div><div style={{fontSize:10,color:T.muted}}>Total Cobrado</div><div style={{fontSize:10,color:T.green}}>{totCot>0?Math.round(totIng/totCot*100):0}% del cotizado</div></Card>
+              <Card style={{background:"rgba(231,76,60,.06)",borderTop:"3px solid "+T.red}}><div style={{fontSize:20,fontWeight:800,color:T.red}}>{$(totEgr)}</div><div style={{fontSize:10,color:T.muted}}>Total Gastado</div></Card>
+              <Card style={{borderTop:"3px solid "+(totIng-totEgr>=0?T.green:T.red)}}><div style={{fontSize:20,fontWeight:800,color:totIng-totEgr>=0?T.green:T.red}}>{$(totIng-totEgr)}</div><div style={{fontSize:10,color:T.muted}}>Utilidad Bruta</div></Card>
+            </div>
+
+            {/* Tabla por obra */}
+            <Card style={{overflow:"hidden"}}>
+              <div style={{padding:"12px 14px",borderBottom:"2px solid "+T.border,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:13,fontWeight:800,color:T.text}}>📊 Control Financiero por Obra</div>
+                <div style={{fontSize:10,color:T.muted}}>{obrasConMovs.length} obras</div>
+              </div>
+              {D&&<div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px 60px",padding:"8px 14px",background:"rgba(201,149,107,.04)",borderBottom:"1px solid "+T.border,fontSize:9,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:.8}}>
+                <span>Obra</span><span style={{textAlign:"right"}}>Cotizado</span><span style={{textAlign:"right"}}>Cobrado</span><span style={{textAlign:"right"}}>Gastado</span><span style={{textAlign:"right"}}>Margen</span><span style={{textAlign:"right"}}>% Util</span><span style={{textAlign:"right"}}>% Cobro</span>
+              </div>}
+              {obrasConMovs.sort((a,b)=>b.oIng-a.oIng).map((o,idx)=>{
+                const mCol=o.margen>=0?T.green:T.red;
+                const uCol=o.utilPct>=20?T.green:o.utilPct>=0?T.orange:T.red;
+                return D?
+                <div key={o.id} onClick={()=>{setFObra(o.nombre);setSubTab("movs");setFf("todo");}} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px 60px",padding:"10px 14px",borderBottom:"1px solid "+T.line,cursor:"pointer",alignItems:"center",background:idx%2===0?"transparent":"rgba(255,255,255,.01)"}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:12}}>{o.nombre}</div>
+                    <div style={{fontSize:9,color:T.dim}}>{o.cliente||""} {o.fase?("· "+o.fase):""}</div>
+                  </div>
+                  <span style={{textAlign:"right",fontSize:12,color:T.gold,fontWeight:600}}>{$(o.cotizado)}</span>
+                  <span style={{textAlign:"right",fontSize:12,color:T.green,fontWeight:600}}>{$(o.oIng)}</span>
+                  <span style={{textAlign:"right",fontSize:12,color:T.red,fontWeight:600}}>{$(o.oEgr)}</span>
+                  <span style={{textAlign:"right",fontSize:12,color:mCol,fontWeight:800}}>{$(o.margen)}</span>
+                  <span style={{textAlign:"right"}}><span style={{padding:"2px 6px",borderRadius:10,fontSize:10,fontWeight:700,background:uCol+"18",color:uCol}}>{o.utilPct}%</span></span>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{background:T.border,borderRadius:3,height:6,width:"100%",overflow:"hidden"}}><div style={{height:"100%",width:Math.min(o.cobPct,100)+"%",background:T.green,borderRadius:3}}/></div>
+                    <div style={{fontSize:8,color:T.muted,marginTop:1}}>{o.cobPct}%</div>
+                  </div>
+                </div>
+                :<Card key={o.id} onClick={()=>{setFObra(o.nombre);setSubTab("movs");setFf("todo");}} style={{marginBottom:6,padding:10,cursor:"pointer"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                    <div><div style={{fontWeight:700,fontSize:13}}>{o.nombre}</div><div style={{fontSize:9,color:T.dim}}>{o.cliente||""}</div></div>
+                    <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:uCol+"18",color:uCol,height:"fit-content"}}>{o.utilPct}%</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
+                    <div><div style={{fontSize:9,color:T.muted}}>Cotizado</div><div style={{fontWeight:700,fontSize:11,color:T.gold}}>{$(o.cotizado)}</div></div>
+                    <div><div style={{fontSize:9,color:T.muted}}>Cobrado</div><div style={{fontWeight:700,fontSize:11,color:T.green}}>{$(o.oIng)}</div></div>
+                    <div><div style={{fontSize:9,color:T.muted}}>Gastado</div><div style={{fontWeight:700,fontSize:11,color:T.red}}>{$(o.oEgr)}</div></div>
+                    <div><div style={{fontSize:9,color:T.muted}}>Margen</div><div style={{fontWeight:700,fontSize:11,color:mCol}}>{$(o.margen)}</div></div>
+                  </div>
+                  <div style={{background:T.border,borderRadius:3,height:5,marginTop:6,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(o.cobPct,100)+"%",background:T.green,borderRadius:3}}/></div>
+                  <div style={{fontSize:8,color:T.muted,marginTop:2}}>Cobrado: {o.cobPct}% del cotizado</div>
+                </Card>;
+              })}
+              {obrasConMovs.length===0&&<div style={{padding:30,textAlign:"center",color:T.dim}}>Sin obras con movimientos financieros</div>}
+            </Card>
+          </div>;
+        })()}
     </div>}
 
     {(sec==="finanzas"&&subTab==="caja"||sec==="cajachica")&&(()=>{
