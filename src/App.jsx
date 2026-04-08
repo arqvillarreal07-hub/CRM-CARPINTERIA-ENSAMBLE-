@@ -184,7 +184,7 @@ export default function App(){
   const ensureCli=(nombre)=>{if(!nombre)return;const n=nombre.trim();setClis(prev=>{if(prev.some(c=>c.nombre.toLowerCase()===n.toLowerCase()))return prev;return[...prev,{id:"C"+Date.now(),nombre:n,tel:"",email:"",dir:""}];});};
   const scanFile=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});const isPdf=file.type==="application/pdf";const content=[isPdf?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Analiza este documento/imagen de cotización de carpintería. Extrae TODOS los conceptos con su precio unitario y cantidad. Responde SOLO JSON array sin markdown: [{"desc":"descripción completa del concepto","precio":12345,"cant":1}]. Si un concepto tiene cantidad mayor a 1, ponla. Si no encuentras nada: []'}];const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content}]})});const data=await resp.json();const text=data.content?.map(i=>i.text||"").join("")||"[]";const items=JSON.parse(text.replace(/```json|```/g,"").trim());if(Array.isArray(items)&&items.length>0){setCotP(prev=>[...prev,...items.map((it,i)=>({id:"S-"+Date.now()+"-"+i,cat:"Escaneado",desc:it.desc||"Concepto",precio:Number(it.precio)||0,cant:Number(it.cant)||1}))]);show(items.length+" conceptos extraídos");}else show("Sin conceptos");}catch(e){show("Error al analizar");}setScanning(false);};
   const[subTab,setSubTab]=useState("");
-  const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");
+  const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");const[ctrlDetalle,setCtrlDetalle]=useState(null);
   // ═══ FINANZAS COMPUTED ═══
   const finAll=(()=>{const a=[];movs.forEach(m=>a.push({t:m.ing>0?"ing":"egr",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"",monto:m.ing>0?m.ing:m.egr,user:m.user||"",cat:m.cat||"",id:"m"+m.id,status:"aprobado",rec:m.recibo}));caja.forEach(c=>a.push({t:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"",monto:c.monto,user:c.resp||"",cat:"Caja Chica",id:"c"+c.id,status:c.status||"aprobado",ticket:c.ticket,cajaId:c.id}));a.sort((x,y)=>y.fecha>x.fecha?1:y.fecha<x.fecha?-1:0);return a;})();
   const _norm=s=>(s||"").toLowerCase().replace(/\s+/g,' ').trim();
@@ -648,7 +648,6 @@ export default function App(){
           const totIng=obrasConMovs.reduce((s,o)=>s+o.oIng,0);
           const totEgr=obrasConMovs.reduce((s,o)=>s+o.oEgr,0);
           const totCot=obrasConMovs.reduce((s,o)=>s+o.cotizado,0);
-          const[ctrlDetalle,setCtrlDetalle]=useState(null);
           return <div>
             {/* Resumen global */}
             <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:14}}>
