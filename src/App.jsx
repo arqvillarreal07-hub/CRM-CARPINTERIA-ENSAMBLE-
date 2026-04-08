@@ -188,7 +188,16 @@ export default function App(){
   // ═══ FINANZAS COMPUTED ═══
   const finAll=(()=>{const a=[];movs.forEach(m=>a.push({t:m.ing>0?"ing":"egr",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"",monto:m.ing>0?m.ing:m.egr,user:m.user||"",cat:m.cat||"",id:"m"+m.id,status:"aprobado",rec:m.recibo}));caja.forEach(c=>a.push({t:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"",monto:c.monto,user:c.resp||"",cat:"Caja Chica",id:"c"+c.id,status:c.status||"aprobado",ticket:c.ticket,cajaId:c.id}));a.sort((x,y)=>y.fecha>x.fecha?1:y.fecha<x.fecha?-1:0);return a;})();
   const _norm=s=>(s||"").toLowerCase().replace(/\s+/g,' ').trim();
-  const finFilt=finAll.filter(m=>{if(ff==="ing"&&m.t!=="ing")return false;if(ff==="egr"&&m.t==="ing")return false;if(ff==="caja"&&m.t!=="caja")return false;if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;if(ff==="rec"&&!m.rec)return false;if(fObra&&m.obra!==fObra)return false;if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q)&&!m.cat.toLowerCase().includes(q))return false;}return true;});
+  const finFilt=finAll.filter(m=>{
+    if(ff==="ing"&&m.t!=="ing")return false;
+    if(ff==="egr"&&m.t==="ing")return false;
+    if(ff==="caja"&&m.t!=="caja")return false;
+    if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;
+    if(ff==="rec"&&!m.rec)return false;
+    if(fObra&&m.obra!==fObra)return false;
+    if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q)&&!m.cat.toLowerCase().includes(q))return false;}
+    return true;
+  });
   const finIng=finFilt.filter(m=>m.t==="ing").reduce((s,m)=>s+m.monto,0);
   const finEgr=finFilt.filter(m=>m.t!=="ing").reduce((s,m)=>s+m.monto,0);
   const obrasActivas=obras.map(o=>o.nombre);
@@ -305,10 +314,11 @@ export default function App(){
       const balance=tIng-tEgr;
 
       // Datos para gráfica de ingresos vs egresos por mes
-      const mesesData=(()=>{const map={};movs.forEach(m=>{const mes=m.fecha?.slice(0,7)||"";if(!mes)return;if(!map[mes])map[mes]={mes,ing:0,egr:0};if(m.ing>0)map[mes].ing+=m.ing;if(m.egr>0)map[mes].egr+=m.egr;});caja.filter(c=>c.status!=="rechazado").forEach(c=>{const mes=c.fecha?.slice(0,7)||"";if(!mes)return;if(!map[mes])map[mes]={mes,ing:0,egr:0};map[mes].egr+=c.monto;});return Object.values(map).sort((a,b)=>a.mes>b.mes?1:-1).map(m=>({...m,name:m.mes.slice(5),balance:m.ing-m.egr}));})();
+      const _MNAMES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+      const mesesData=(()=>{const map={};movs.forEach(m=>{const mes=m.fecha?.slice(0,7)||"";if(!mes)return;if(!map[mes])map[mes]={mes,ing:0,egr:0};if(m.ing>0)map[mes].ing+=m.ing;if(m.egr>0)map[mes].egr+=m.egr;});caja.filter(c=>c.status!=="rechazado").forEach(c=>{const mes=c.fecha?.slice(0,7)||"";if(!mes)return;if(!map[mes])map[mes]={mes,ing:0,egr:0};map[mes].egr+=c.monto;});return Object.values(map).sort((a,b)=>a.mes>b.mes?1:-1).map(m=>{const mi=parseInt(m.mes.slice(5))-1;return{...m,name:(_MNAMES[mi]||m.mes.slice(5))+" "+m.mes.slice(2,4),balance:m.ing-m.egr};});})();
 
       // Datos para gráfica de obras (bar chart)
-      const obrasChart=oAct.map(o=>{const oCob=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);return{name:o.nombre.length>12?o.nombre.slice(0,12)+"…":o.nombre,cobrado:oCob,gastado:oGas,cotizado:o.cotizado,margen:oCob-oGas};});
+      const obrasChart=oAct.filter(o=>{const oCob=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);return oCob>0||oGas>0;}).map(o=>{const oCob=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);return{name:o.nombre.length>10?o.nombre.slice(0,10)+"…":o.nombre,full:o.nombre,cobrado:oCob,gastado:oGas};});
 
       // Datos para pie chart de categorías de gasto
       const catMap={};movs.filter(m=>m.egr>0).forEach(m=>{const c=m.cat||"Sin cat.";catMap[c]=(catMap[c]||0)+m.egr;});caja.filter(c=>c.status!=="rechazado").forEach(c=>{catMap["Caja Chica"]=(catMap["Caja Chica"]||0)+c.monto;});
@@ -389,14 +399,14 @@ export default function App(){
       {/* Gráfica de barras: Obras comparadas */}
       {obrasChart.length>0&&<Card style={{padding:"14px 16px",marginBottom:12}}>
         <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>🏗️ Cobrado vs Gastado por Obra</div>
-        <ResponsiveContainer width="100%" height={D?200:160}>
-          <BarChart data={obrasChart} barGap={2}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#222"/>
-            <XAxis dataKey="name" tick={{fill:T.muted,fontSize:D?10:8}} axisLine={false} interval={0} angle={D?0:-25} textAnchor={D?"middle":"end"}/>
-            <YAxis tick={{fill:T.muted,fontSize:9}} axisLine={false} tickFormatter={v=>v>=1e6?(v/1e6).toFixed(1)+"M":v>=1e3?(v/1e3).toFixed(0)+"K":v}/>
+        <ResponsiveContainer width="100%" height={Math.max(obrasChart.length*40+30,120)}>
+          <BarChart data={obrasChart} layout="vertical" barGap={2} margin={{left:10,right:10}}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#222" horizontal={false}/>
+            <YAxis dataKey="name" type="category" tick={{fill:T.muted,fontSize:10}} axisLine={false} width={90}/>
+            <XAxis type="number" tick={{fill:T.muted,fontSize:9}} axisLine={false} tickFormatter={v=>v>=1e6?(v/1e6).toFixed(1)+"M":v>=1e3?(v/1e3).toFixed(0)+"K":v}/>
             <Tooltip contentStyle={ChartTooltipStyle} formatter={(v)=>$(v)}/>
-            <RBar dataKey="cobrado" fill={T.green} radius={[4,4,0,0]} name="Cobrado"/>
-            <RBar dataKey="gastado" fill={T.red} radius={[4,4,0,0]} name="Gastado"/>
+            <RBar dataKey="cobrado" fill={T.green} radius={[0,4,4,0]} name="Cobrado" barSize={14}/>
+            <RBar dataKey="gastado" fill={T.red} radius={[0,4,4,0]} name="Gastado" barSize={14}/>
           </BarChart>
         </ResponsiveContainer>
       </Card>}
