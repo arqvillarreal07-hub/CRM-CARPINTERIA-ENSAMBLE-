@@ -84,6 +84,7 @@ function ObraForm({onSave,clientes,onNewCli}){const[f,sf]=useState({nombre:"",cl
 function IngForm({obras,movs,clis,onSave}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",ing:"",obra:""});const ob=obras.find(o=>o.nombre===f.obra);const pagado=ob?movs.filter(m=>m.ing>0&&m.obra===ob.nombre).reduce((s,m)=>s+m.ing,0):0;const a1=ob?Math.round(ob.cotizado*.6):0;const a2=ob?Math.round(ob.cotizado*.2):0;const a3=ob?Math.round(ob.cotizado*.2):0;const sugerido=ob?(pagado<a1?a1-pagado:pagado<a1+a2?a1+a2-pagado:pagado<ob.cotizado?ob.cotizado-pagado:0):0;const etapa=ob?(pagado<a1?"Anticipo 60%":pagado<a1+a2?"Avance 20%":"Entrega 20%"):"";return <div><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>{const selOb=obras.find(o=>o.nombre===e.target.value);sf({...f,obra:e.target.value,desc:"",prov:selOb&&selOb.cliente?selOb.cliente:f.prov});}}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}{o.cliente?" — "+o.cliente:""}</option>)}</select></Fl>{ob&&<div style={{background:"rgba(201,149,107,.08)",border:"1px solid rgba(201,149,107,.15)",borderRadius:10,padding:12,marginBottom:12}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold}}>{$(ob.cotizado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green}}>{$(pagado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:ob.cotizado-pagado>0?T.yellow:T.green}}>{$(ob.cotizado-pagado)}</div></div></div>{sugerido>0&&<div><div style={{fontSize:10,color:T.gold,fontWeight:700,marginBottom:4}}>Siguiente pago: {etapa}</div><div style={{display:"flex",gap:6}}>{[{l:etapa,v:sugerido},{l:"Total restante",v:ob.cotizado-pagado}].filter((x,i,a)=>i===0||x.v!==a[0].v).map(x=><button key={x.l} onClick={()=>sf({...f,ing:String(x.v),desc:x.l+" - "+ob.nombre,prov:ob.cliente||f.prov})} style={{flex:1,padding:"8px 6px",borderRadius:8,border:"1px solid "+T.gold+"33",background:Number(f.ing)===x.v?T.gold+"22":"transparent",color:Number(f.ing)===x.v?T.gold:T.muted,fontSize:11,fontWeight:700,cursor:"pointer"}}>{x.l}: {$(x.v)}</button>)}</div></div>}</div>}<Fl l="Recibido de"><input list="ing-cli-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Nombre del cliente"/><datalist id="ing-cli-list">{(clis||[]).map(c=><option key={c.id} value={c.nombre}/>)}</datalist></Fl><Fl l="Concepto"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})} placeholder="Ej: Anticipo 60%"/></Fl><Fl l="Monto"><input type="number" style={{...sI,fontSize:20,fontWeight:800,textAlign:"center"}} value={f.ing} onChange={e=>sf({...f,ing:e.target.value})} placeholder="$0"/></Fl><button style={{...sB,background:T.green,opacity:Number(f.ing)>0?1:.5}} onClick={()=>{const m=Number(f.ing);if(m>0){const desc=f.desc||f.prov||("Ingreso "+f.obra);onSave({...f,desc,ing:m,egr:0});}}}>💰 Registrar + Generar Recibo</button></div>;}
 function EgrForm({obras,provs,onSave,onNewProv}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});const exists=provs.some(p=>p.nombre.toLowerCase()===f.prov.toLowerCase());return <div><Fl l="Proveedor"><input list="prov-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="prov-list">{provs.map(p=> <option key={p.id} value={p.nombre}/>)}</datalist>{f.prov&&!exists&&<div style={{fontSize:10,color:T.orange,marginTop:3}}>⚡ Nuevo proveedor — se creará automáticamente</div>}</Fl><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})}/></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">General</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><button style={{...sB,background:T.red,color:"#fff"}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0){if(f.prov&&!exists&&onNewProv)onNewProv(f.prov);onSave({...f,egr:m,ing:0});}}}>Registrar Egreso</button></div>;}
 function CajaForm({onSave,users,obras}){const[f,sf]=useState({fecha:td(),concepto:"",monto:"",resp:"Taller",obra:"",ticket:""});const[scanning,setScanning]=useState(false);const scanTicket=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});sf(prev=>({...prev,ticket:"data:"+(file.type||"image/jpeg")+";base64,"+b64}));const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:500,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Este es un ticket/recibo de compra. Extrae: concepto (qué se compró, resumido), monto total. Responde SOLO JSON sin markdown: {"concepto":"x","monto":0}'}]}]})});const data=await resp.json();const text=data.content?.map(i=>i.text||"").join("")||"{}";const info=JSON.parse(text.replace(/```json|```/g,"").trim());if(info.concepto)sf(prev=>({...prev,concepto:info.concepto,monto:String(info.monto||"")}));}catch{}setScanning(false);};return <div><div style={{marginBottom:12}}><label style={{display:"block",padding:16,border:"2px dashed "+(scanning?T.blue:f.ticket?T.green:T.border),borderRadius:10,textAlign:"center",cursor:scanning?"wait":"pointer",background:scanning?"#0a1a33":f.ticket?"#0a1a0a":"#111"}}><input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>{if(e.target.files[0])scanTicket(e.target.files[0]);}}/>{scanning?<div style={{color:T.blue,fontWeight:700}}>🔄 Leyendo ticket...</div>:f.ticket?<div><img src={f.ticket} style={{maxHeight:120,borderRadius:8,marginBottom:6}} alt=""/><div style={{fontSize:10,color:T.green,fontWeight:700}}>✅ Ticket cargado</div></div>:<div><div style={{fontSize:24}}>🧾</div><div style={{color:T.gold,fontWeight:700,fontSize:12}}>Escanear Ticket</div><div style={{fontSize:10,color:T.muted}}>Toma foto o sube imagen del ticket</div></div>}</label></div><Fl l="Concepto"><input style={sI} value={f.concepto} onChange={e=>sf({...f,concepto:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Responsable"><select style={sI} value={f.resp} onChange={e=>sf({...f,resp:e.target.value})}>{users.map(u=> <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">Seleccionar obra</option>{(obras||[]).map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General (sin obra)</option></select></Fl><button style={sB} onClick={()=>{if(f.concepto&&Number(f.monto)>0&&f.obra)onSave({...f,monto:Number(f.monto)});else if(!f.obra)show("Selecciona una obra");}}>Guardar</button></div>;}
+function HerramientaForm({obras,onSave}){const oAct=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");const[f,sf]=useState({nombre:"",monto:"",fecha:td(),proveedor:"",distribuir:"todas",obrasSelec:oAct.map(o=>o.nombre)});const toggleObra=(n)=>{sf(prev=>({...prev,obrasSelec:prev.obrasSelec.includes(n)?prev.obrasSelec.filter(x=>x!==n):[...prev.obrasSelec,n]}));};const prorr=f.distribuir==="todas"&&oAct.length>0?Math.round((Number(f.monto)||0)/oAct.length):f.obrasSelec.length>0?Math.round((Number(f.monto)||0)/f.obrasSelec.length):Number(f.monto)||0;return <div><Fl l="Herramienta / Equipo"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})} placeholder="Ej: Taladro Dewalt, Sierra circular..."/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Monto total"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Fecha"><input type="date" style={sI} value={f.fecha} onChange={e=>sf({...f,fecha:e.target.value})}/></Fl></div><Fl l="Proveedor"><input style={sI} value={f.proveedor} onChange={e=>sf({...f,proveedor:e.target.value})} placeholder="Ferretería, Home Depot..."/></Fl><Fl l="Distribuir costo en"><select style={sI} value={f.distribuir} onChange={e=>sf({...f,distribuir:e.target.value})}><option value="todas">Todas las obras activas ({oAct.length})</option><option value="selec">Seleccionar obras</option></select></Fl>{f.distribuir==="selec"&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>{oAct.map(o=><button key={o.id} onClick={()=>toggleObra(o.nombre)} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(f.obrasSelec.includes(o.nombre)?T.green+"66":T.border),background:f.obrasSelec.includes(o.nombre)?T.green+"15":"transparent",color:f.obrasSelec.includes(o.nombre)?T.green:T.muted,fontSize:10,fontWeight:600,cursor:"pointer"}}>{f.obrasSelec.includes(o.nombre)?"✓ ":""}{o.nombre}</button>)}</div>}{Number(f.monto)>0&&<div style={{background:"rgba(79,142,247,.08)",border:"1px solid rgba(79,142,247,.2)",borderRadius:8,padding:10,marginBottom:8}}><div style={{fontSize:10,color:T.blue,fontWeight:700,marginBottom:4}}>PRORRATEO</div><div style={{fontSize:12,color:T.text}}>{$(prorr)} por obra × {f.distribuir==="todas"?oAct.length:f.obrasSelec.length} obras = <b style={{color:T.orange}}>{$(Number(f.monto))}</b></div></div>}<button style={sB} onClick={()=>{if(f.nombre&&Number(f.monto)>0)onSave({...f,monto:Number(f.monto)});}}>🔧 Registrar</button></div>;}
 function EditMovForm({mov,obras,onSave,onDelete}){const[desc,setDesc]=useState(mov.desc||"");const[monto,setMonto]=useState(mov.monto||0);const[prov,setProv]=useState(mov.prov||"");const[obra,setObra]=useState(mov.obra||"");const[cat,setCat]=useState(mov.cat||"");return <div><Fl l="Concepto"><input style={sI} value={desc} onChange={e=>setDesc(e.target.value)}/></Fl><Fl l="Monto"><input type="number" style={sI} value={monto} onChange={e=>setMonto(Number(e.target.value))}/></Fl><Fl l="Proveedor / Cliente"><input style={sI} value={prov} onChange={e=>setProv(e.target.value)}/></Fl><Fl l="Obra"><select style={sI} value={obra} onChange={e=>setObra(e.target.value)}><option value="">Sin obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><Fl l="Categoría"><input style={sI} value={cat} onChange={e=>setCat(e.target.value)} placeholder="Material, Nómina, etc."/></Fl><button style={{...sB,marginTop:8}} onClick={()=>onSave(desc,monto,prov,obra,cat)}>💾 Guardar Cambios</button><button style={{...sB,background:"#2a0a0a",color:T.red,border:"1px solid "+T.red+"33"}} onClick={onDelete}> 🗑 Eliminar Movimiento</button></div>;}
 function ExtraForm({onSave}){const[f,sf]=useState({desc:"",monto:""});return <div><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><button style={{...sB,background:T.orange}} onClick={()=>{const m=Number(f.monto);if(f.desc&&m>0)onSave({desc:f.desc,monto:m});}}>Enviar</button></div>;}
 function ClienteForm({onSave}){const[f,sf]=useState({nombre:"",tel:"",email:"",dir:""});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Teléfono"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><Fl l="Email"><input style={sI} value={f.email} onChange={e=>sf({...f,email:e.target.value})}/></Fl></div><Fl l="Dirección"><input style={sI} value={f.dir} onChange={e=>sf({...f,dir:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave(f)}>Guardar</button></div>;}
@@ -119,16 +120,17 @@ export default function App(){
   const[catalogo,setCatalogoR]=useState(CATALOGO_INIT);
   const[nominas,setNominasR]=useState([]);
   const[documentos,setDocumentosR]=useState([]);
+  const[herramientas,setHerramientasR]=useState([]);
   useEffect(()=>{(async()=>{
     if(CLOUD)setSyncStatus("Conectando a la nube...");
-    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[])};
+    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[]),herramientas:await DB.get('herramientas',[])};
     if(CLOUD)setSyncStatus(_syncOk?"☁️ Nube sincronizada":"⚠️ Usando datos locales");
     // Datos ya viven en Supabase — no se tocan al actualizar el código
     if(!d.nominas||d.nominas.length===0)d.nominas=[{id:"N01",nombre:"Nómina Carpintería",monto:15000,frecuencia:"semanal",tipo:"Nómina"},{id:"N02",nombre:"Renta Carpintería",monto:11000,frecuencia:"mensual",tipo:"Renta"},{id:"N05",nombre:"IMSS",monto:16563,frecuencia:"mensual",tipo:"IMSS"},{id:"N06",nombre:"Luz Carpintería",monto:2500,frecuencia:"mensual",tipo:"Servicios"},{id:"N07",nombre:"Caja Chica Carpintería",monto:5000,frecuencia:"semanal",tipo:"Caja chica"},{id:"N08",nombre:"Francisco — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N09",nombre:"Erik — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N10",nombre:"Héctor — Carpintero",monto:3500,frecuencia:"semanal",tipo:"Nómina"},{id:"N11",nombre:"Barnizador",monto:3500,frecuencia:"semanal",tipo:"Nómina"}];
 
     // Fix duplicate obra IDs
     const seenIds=new Set();d.obras=d.obras.map(o=>{if(seenIds.has(o.id)){return{...o,id:"OB"+Date.now()+Math.random().toString(36).slice(2,6)};}seenIds.add(o.id);return o;});
-    setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setCatalogoR(d.catalogo);if(d.nominas)setNominasR(d.nominas);if(d.documentos)setDocumentosR(d.documentos);
+    setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setCatalogoR(d.catalogo);if(d.nominas)setNominasR(d.nominas);if(d.documentos)setDocumentosR(d.documentos);if(d.herramientas)setHerramientasR(d.herramientas);
     // Save fixed obras back if duplicates were found
     if(seenIds.size<d.obras.length)DB.set('obras',d.obras);
     setLoading(false);})();},[]);
@@ -136,7 +138,7 @@ export default function App(){
   const _lastWrite=useRef({});
   useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){if(_lastWrite.current[k]&&now-_lastWrite.current[k]<15000)continue;try{const _ctrl=new AbortController();const _t=setTimeout(()=>_ctrl.abort(),5000);const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY},signal:_ctrl.signal});clearTimeout(_t);if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0){const cloud=j[0].value;const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');const cLen=Array.isArray(cloud)?cloud.length:0;const lLen=Array.isArray(local)?local.length:0;if(cLen>lLen){const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;setter(cloud);try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}else if(lLen>cLen){DB.set(k,local);}}}}catch{}};}catch{}},30000);return()=>clearInterval(iv);},[]);
   const wrap=(raw,set,key)=>v=>{const n=typeof v==="function"?v(raw):v;set(n);_lastWrite.current[key]=Date.now();DB.set(key,n);};
-  const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos");
+  const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos"),setHerramientas=wrap(herramientas,setHerramientasR,"herramientas");
   const cats=[...new Set(catalogo.map(c=>c.cat))];
   const[toast,setToast]=useState(null);
   const[cliTab,setCliTab]=useState("resumen");
@@ -427,8 +429,41 @@ export default function App(){
       <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{movs.filter(m=>["Nómina","Renta","IMSS","Destajo"].includes(m.cat)).slice().reverse().map(m=> <Card key={m.id}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600}}>{m.desc}</div><div style={{fontSize:10,color:T.dim}}>{fd(m.fecha)} · {m.cat}</div></div><span style={{fontWeight:700,color:T.red}}>{$(m.egr)}</span></div></Card>)}</div>
     </div>}
 
-    {sec==="taller"&&<div style={{display:"flex",gap:4,marginBottom:12}}>{[{k:"inv",l:"Inventario"},{k:"provs",l:"Proveedores"},{k:"catalogo",l:"Catálogo"}].map(t=><button key={t.k} onClick={()=>setSubTab(t.k)} style={{padding:"8px 14px",borderRadius:10,border:subTab===t.k?"2px solid "+T.gold:"1px solid "+T.border,background:subTab===t.k?"#1a1510":"transparent",color:subTab===t.k?T.gold:T.muted,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{t.l}</button>)}</div>}
+    {sec==="taller"&&<div style={{display:"flex",gap:4,marginBottom:12}}>{[{k:"inv",l:"📦 Inventario"},{k:"herram",l:"🔧 Herramientas"},{k:"provs",l:"🤝 Proveedores"},{k:"catalogo",l:"📋 Catálogo"}].map(t=><button key={t.k} onClick={()=>setSubTab(t.k)} style={{padding:"8px 14px",borderRadius:10,border:subTab===t.k?"2px solid "+T.gold:"1px solid "+T.border,background:subTab===t.k?"#1a1510":"transparent",color:subTab===t.k?T.gold:T.muted,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{t.l}</button>)}</div>}
     {sec==="taller"&&subTab==="inv"&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addInv")}>+ Material</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{inv.sort((a,b)=>(a.stock<=a.minimo?0:1)-(b.stock<=b.minimo?0:1)).map(it=> <Card key={it.id} style={{borderLeft:it.stock<=it.minimo?"3px solid "+T.red:"none"}}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700}}>{it.nombre}</div><div style={{fontSize:10,color:T.dim}}>{it.cat} · {$(it.precio)}/{it.unidad}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:18,fontWeight:800,color:it.stock<=it.minimo?T.red:T.green}}>{it.stock}</div><div style={{fontSize:9,color:T.muted}}>min:{it.minimo}</div></div></div><Bar v={it.stock} mx={it.minimo*3} c={it.stock<=it.minimo?T.red:T.green}/></Card>)}</div></div>}
+
+    {sec==="taller"&&subTab==="herram"&&(()=>{
+      const oAct2=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
+      const totHerr=herramientas.reduce((s,h)=>s+h.monto,0);
+      return <div>
+        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
+          <Card style={{borderTop:"3px solid "+T.orange}}><div style={{fontSize:18,fontWeight:800,color:T.text}}>{$(totHerr)}</div><div style={{fontSize:10,color:T.muted}}>Total en Herramientas</div></Card>
+          <Card><div style={{fontSize:18,fontWeight:800,color:T.text}}>{herramientas.length}</div><div style={{fontSize:10,color:T.muted}}>Herramientas registradas</div></Card>
+          {oAct2.length>0&&<Card><div style={{fontSize:18,fontWeight:800,color:T.blue}}>{$(Math.round(totHerr/oAct2.length))}</div><div style={{fontSize:10,color:T.muted}}>Costo prorrateado / obra</div></Card>}
+        </div>
+        <button style={{...sB,marginBottom:10,marginTop:0,background:"#1a2a1a",color:T.green,maxWidth:300}} onClick={()=>om("addHerr")}>🔧 + Registrar Herramienta</button>
+        {herramientas.length===0&&<Card><div style={{textAlign:"center",padding:20,color:T.dim}}>Sin herramientas registradas</div></Card>}
+        <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>
+        {herramientas.sort((a,b)=>b.fecha>a.fecha?1:-1).map(h=>{
+          const numObras=(h.obras||[]).length;
+          const prorr=numObras>0?Math.round(h.monto/numObras):h.monto;
+          return <Card key={h.id}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <div><div style={{fontWeight:700,fontSize:13}}>{h.nombre}</div><div style={{fontSize:10,color:T.dim}}>{h.fecha} · {h.proveedor||"Sin prov."}</div></div>
+              <div style={{textAlign:"right"}}><div style={{fontSize:16,fontWeight:800,color:T.orange}}>{$(h.monto)}</div></div>
+            </div>
+            <div style={{fontSize:10,color:T.muted,marginBottom:4}}>Prorrateado en {numObras} obra{numObras!==1?"s":""}: <span style={{color:T.blue,fontWeight:700}}>{$(prorr)}/obra</span></div>
+            <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+              {(h.obras||[]).map(o=><span key={o} style={{fontSize:9,background:T.gold+"15",color:T.gold,padding:"2px 6px",borderRadius:6}}>{o}</span>)}
+            </div>
+            {user.rol==="admin"&&<div style={{marginTop:6,display:"flex",gap:4}}>
+              <button onClick={()=>{if(confirm("¿Eliminar esta herramienta y sus egresos?")){setHerramientas(herramientas.filter(x=>x.id!==h.id));setMovs(movs.filter(x=>x.herrId!==h.id));show("Eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer"}}>🗑</button>
+            </div>}
+          </Card>;
+        })}
+        </div>
+      </div>;
+    })()}
 
     {sec==="taller"&&subTab==="provs"&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addProv")}>+ Proveedor</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{provs.map(p=>{const pMvs=movs.filter(m=>m.egr>0&&m.prov===p.nombre);const pTot=pMvs.reduce((s,m)=>s+m.egr,0);const pObs=[...new Set(pMvs.map(m=>m.obra).filter(Boolean))];return <Card key={p.id}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div><div style={{fontWeight:700}}>{p.nombre}</div><div style={{fontSize:11,color:T.muted}}>{p.contacto}{p.tel&&" · "+p.tel}</div></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,color:T.red}}>{$(pTot)}</div><div style={{fontSize:9,color:T.muted}}>{pMvs.length} compras</div></div></div><div style={{fontSize:11,color:T.muted}}>{p.material} · {[...Array(p.calif||0)].map((_,i)=><span key={i}>⭐</span>)}</div>{pObs.length>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border,display:"flex",flexWrap:"wrap",gap:4}}>{pObs.map(o=><span key={o} style={{fontSize:9,background:T.gold+"15",color:T.gold,padding:"2px 6px",borderRadius:6}}>{o}</span>)}</div>}{p.credito>0&&<div style={{fontSize:10,color:T.blue,marginTop:4}}>Crédito: {p.credito} días</div>}</Card>})}</div></div>}
 
@@ -505,6 +540,7 @@ export default function App(){
           const totIng=obrasConMovs.reduce((s,o)=>s+o.oIng,0);
           const totEgr=obrasConMovs.reduce((s,o)=>s+o.oEgr,0);
           const totCot=obrasConMovs.reduce((s,o)=>s+o.cotizado,0);
+          const[ctrlDetalle,setCtrlDetalle]=useState(null);
           return <div>
             {/* Resumen global */}
             <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:14}}>
@@ -527,7 +563,7 @@ export default function App(){
                 const mCol=o.margen>=0?T.green:T.red;
                 const uCol=o.utilPct>=20?T.green:o.utilPct>=0?T.orange:T.red;
                 return D?
-                <div key={o.id} onClick={()=>{setFObra(o.nombre);setSubTab("movs");setFf("todo");}} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px 60px",padding:"10px 14px",borderBottom:"1px solid "+T.line,cursor:"pointer",alignItems:"center",background:idx%2===0?"transparent":"rgba(255,255,255,.01)"}}>
+                <div key={o.id} onClick={()=>setCtrlDetalle(ctrlDetalle===o.nombre?null:o.nombre)} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px 60px",padding:"10px 14px",borderBottom:"1px solid "+T.line,cursor:"pointer",alignItems:"center",background:idx%2===0?"transparent":"rgba(255,255,255,.01)"}}>
                   <div>
                     <div style={{fontWeight:700,fontSize:12}}>{o.nombre}</div>
                     <div style={{fontSize:9,color:T.dim}}>{o.cliente||""} {o.fase?("· "+o.fase):""}</div>
@@ -542,7 +578,7 @@ export default function App(){
                     <div style={{fontSize:8,color:T.muted,marginTop:1}}>{o.cobPct}%</div>
                   </div>
                 </div>
-                :<Card key={o.id} onClick={()=>{setFObra(o.nombre);setSubTab("movs");setFf("todo");}} style={{marginBottom:6,padding:10,cursor:"pointer"}}>
+                :<Card key={o.id} onClick={()=>setCtrlDetalle(ctrlDetalle===o.nombre?null:o.nombre)} style={{marginBottom:6,padding:10,cursor:"pointer"}}>
                   <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
                     <div><div style={{fontWeight:700,fontSize:13}}>{o.nombre}</div><div style={{fontSize:9,color:T.dim}}>{o.cliente||""}</div></div>
                     <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:uCol+"18",color:uCol,height:"fit-content"}}>{o.utilPct}%</span>
@@ -559,6 +595,73 @@ export default function App(){
               })}
               {obrasConMovs.length===0&&<div style={{padding:30,textAlign:"center",color:T.dim}}>Sin obras con movimientos financieros</div>}
             </Card>
+
+            {/* Detalle expandido de obra seleccionada */}
+            {ctrlDetalle&&(()=>{
+              const oMovs=finAll.filter(m=>_norm(m.obra)===_norm(ctrlDetalle));
+              const oIngs=oMovs.filter(m=>m.t==="ing");
+              const oEgrs=oMovs.filter(m=>m.t!=="ing");
+              const tI=oIngs.reduce((s,m)=>s+m.monto,0);
+              const tE=oEgrs.reduce((s,m)=>s+m.monto,0);
+              // Desglose por categoría
+              const catMap={};oEgrs.forEach(m=>{const c=m.cat||"Sin categoría";if(!catMap[c])catMap[c]=0;catMap[c]+=m.monto;});
+              const cats=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+              const catCols={"Material":T.orange,"Herramienta":T.blue,"Nómina":"#AB47BC","Renta":"#8B949E","IMSS":"#E0529F","Caja Chica":"#FF9800","Destajo":"#26A69A","Herrajes":"#52C4E0","Ferretería":"#6B7C5E"};
+              const ob=obras.find(o=>_norm(o.nombre)===_norm(ctrlDetalle));
+              return <Card style={{marginTop:10,borderTop:"3px solid "+T.gold}}>
+                <div style={{padding:"12px 14px",borderBottom:"1px solid "+T.border,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div><div style={{fontSize:14,fontWeight:800}}>{ctrlDetalle}</div><div style={{fontSize:10,color:T.muted}}>{ob?.cliente||""} · {ob?.fase||""}</div></div>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={()=>{setFObra(ctrlDetalle);setSubTab("movs");setFf("todo");}} style={{padding:"5px 10px",background:T.gold+"18",border:"1px solid "+T.gold+"44",color:T.gold,borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer"}}>📋 Ver movimientos</button>
+                    <button onClick={()=>setCtrlDetalle(null)} style={{padding:"5px 8px",background:"transparent",border:"1px solid "+T.border,color:T.muted,borderRadius:6,fontSize:11,cursor:"pointer"}}>✕</button>
+                  </div>
+                </div>
+                <div style={{padding:14}}>
+                  {/* KPIs de esta obra */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                    <div style={{background:T.gold+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Cotizado</div><div style={{fontSize:15,fontWeight:800,color:T.gold}}>{$(ob?.cotizado||0)}</div></div>
+                    <div style={{background:T.green+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Cobrado</div><div style={{fontSize:15,fontWeight:800,color:T.green}}>{$(tI)}</div></div>
+                    <div style={{background:T.red+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Gastado</div><div style={{fontSize:15,fontWeight:800,color:T.red}}>{$(tE)}</div></div>
+                    <div style={{background:(tI-tE>=0?T.green:T.red)+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Margen</div><div style={{fontSize:15,fontWeight:800,color:tI-tE>=0?T.green:T.red}}>{$(tI-tE)}</div></div>
+                  </div>
+
+                  {/* Desglose de egresos por categoría */}
+                  <div style={{fontSize:10,fontWeight:700,color:T.gold,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Desglose de gastos por partida</div>
+                  {cats.length===0&&<div style={{color:T.dim,fontSize:11,padding:10}}>Sin egresos registrados</div>}
+                  {cats.map(([cat,monto])=>{
+                    const pct=tE>0?Math.round(monto/tE*100):0;
+                    const col=catCols[cat]||T.muted;
+                    return <div key={cat} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"1px solid "+T.line}}>
+                      <div style={{width:10,height:10,borderRadius:3,background:col,flexShrink:0}}/>
+                      <div style={{flex:1,fontSize:12,fontWeight:600}}>{cat}</div>
+                      <div style={{fontSize:11,color:T.muted,minWidth:40,textAlign:"right"}}>{pct}%</div>
+                      <div style={{width:D?120:60,background:T.border,borderRadius:3,height:8,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:col,borderRadius:3}}/></div>
+                      <div style={{fontSize:12,fontWeight:800,color:T.red,minWidth:80,textAlign:"right"}}>{$(monto)}</div>
+                    </div>;
+                  })}
+                  {tE>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4,borderTop:"2px solid "+T.border}}>
+                    <span style={{fontWeight:800,fontSize:12}}>TOTAL EGRESOS</span>
+                    <span style={{fontWeight:800,fontSize:14,color:T.red}}>{$(tE)}</span>
+                  </div>}
+
+                  {/* Últimos movimientos */}
+                  <div style={{fontSize:10,fontWeight:700,color:T.gold,letterSpacing:1,textTransform:"uppercase",marginTop:14,marginBottom:6}}>Últimos movimientos</div>
+                  {oMovs.slice(0,10).map((m,i)=>
+                    <div key={m.id} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid "+T.line,fontSize:11}}>
+                      <div style={{display:"flex",gap:6,alignItems:"center",flex:1,minWidth:0}}>
+                        <span style={{color:m.t==="ing"?T.green:T.red,fontSize:10}}>{m.t==="ing"?"⬆":"⬇"}</span>
+                        <span style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.desc}</span>
+                        {m.cat&&<span style={{fontSize:8,color:T.muted,background:T.border,padding:"1px 4px",borderRadius:3,flexShrink:0}}>{m.cat}</span>}
+                      </div>
+                      <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                        <span style={{color:T.dim,fontSize:10}}>{m.fecha?.slice(5)}</span>
+                        <span style={{fontWeight:800,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Card>;
+            })()}
           </div>;
         })()}
     </div>}
@@ -758,6 +861,17 @@ export default function App(){
     {modal==="editCj"&&md&&<ModalW title="Editar Gasto" onClose={cm}><div><Fl l="Concepto"><input style={sI} defaultValue={md.concepto} id="editCjConc"/></Fl><Fl l="Monto"><input type="number" style={sI} defaultValue={md.monto} id="editCjMonto"/></Fl><Fl l="Obra"><select style={sI} defaultValue={md.obra} id="editCjObra"><option value="">Seleccionar obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General</option></select></Fl><Fl l="Responsable"><input style={sI} defaultValue={md.resp} id="editCjResp"/></Fl><button style={{...sB,marginTop:8}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;const nr=document.getElementById("editCjResp").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,resp:nr||x.resp}:x));cm();show("Gasto actualizado ✓");}}>💾 Guardar Cambios</button>{md.status==="pendiente"&&user.rol==="admin"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}><button style={{...sB,background:"#0a2e0a",color:T.green,marginTop:0}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,status:"aprobado"}:x));cm();show("Aprobado ✓");}}>✓ Aprobar</button><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setCaja(caja.map(x=>x.id===md.id?{...x,status:"rechazado"}:x));cm();show("Rechazado");}}>✕ Rechazar</button></div>}</div></ModalW>}
     {modal==="addDoc"&&sub&&<ModalW title="Documento" onClose={cm}><DocForm onSave={d=>{const up={...sub,docs:[...(sub.docs||[]),{...d,id:(sub.docs?.length||0)+1,fecha:td(),size:"—"}]};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);cm();show("✓");}}/></ModalW>}
     {modal==="addCli"&&<ModalW title="Cliente" onClose={cm}><ClienteForm onSave={c=>{if(clis.some(x=>x.nombre.toLowerCase()===c.nombre.toLowerCase())){show("Este cliente ya existe");return;}setClis(prev=>[...prev,{...c,id:"C"+Date.now()}]);cm();show("✓");}}/></ModalW>}
+    {modal==="addHerr"&&<ModalW title="🔧 Registrar Herramienta" onClose={cm}><HerramientaForm obras={obras} onSave={(h)=>{
+      const oAct2=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
+      const obrasTarget=h.distribuir==="todas"?oAct2.map(o=>o.nombre):(h.obrasSelec||[]);
+      const herrId="H"+Date.now();
+      const herrRecord={id:herrId,nombre:h.nombre,monto:h.monto,fecha:h.fecha,proveedor:h.proveedor,obras:obrasTarget};
+      setHerramientas(prev=>[herrRecord,...prev]);
+      // Crear egresos prorrateados por obra
+      if(obrasTarget.length>0){const prorr=Math.round(h.monto/obrasTarget.length);obrasTarget.forEach(oNombre=>{setMovs(prev=>[...prev,{id:prev.length+1,fecha:h.fecha,desc:"🔧 "+h.nombre,prov:h.proveedor||"",obra:oNombre,ing:0,egr:prorr,cat:"Herramienta",user:user?.nombre||"",herrId}]);});}
+      else{setMovs(prev=>[...prev,{id:prev.length+1,fecha:h.fecha,desc:"🔧 "+h.nombre,prov:h.proveedor||"",obra:"General",ing:0,egr:h.monto,cat:"Herramienta",user:user?.nombre||"",herrId}]);}
+      cm();show("Herramienta registrada + egresos creados");
+    }}/></ModalW>}
     {modal==="addInv"&&<ModalW title="Material" onClose={cm}><InvForm onSave={i=>{setInv(prev=>[...prev,{...i,id:"I"+String(prev.length+1)}]);cm();show("✓");}}/></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+String(prev.length+1).padStart(2,"0")}]);cm();show("✓");}}/></ModalW>}
     {modal==="addUser"&&<ModalW title="Usuario" onClose={cm}><UserForm obras={obras} onSave={u=>{setUsers(prev=>[...prev,{...u,id:Math.max(...prev.map(x=>x.id))+1}]);cm();show("Usuario ✓");}}/></ModalW>}
