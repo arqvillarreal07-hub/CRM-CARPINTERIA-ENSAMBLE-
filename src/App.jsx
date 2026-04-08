@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { PieChart, Pie, Cell, BarChart, Bar as RBar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid } from "recharts";
 
 const GFONT_LINK = document.createElement('link');
 GFONT_LINK.rel = 'stylesheet';
@@ -297,28 +298,135 @@ export default function App(){
 
   // ═══ MAIN CONTENT ═══
   const content= <div style={{padding:D?"16px 24px":"6px 12px 80px",flex:1,overflowY:"auto"}}>
-    {sec==="dash"&&<div>
-      <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Dashboard</div>
-      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
-        <Card onClick={()=>go("cotizaciones")} style={{cursor:"pointer"}}><Stat label="Cotizaciones" value={cotsPend} color={cotsPend>0?T.yellow:T.muted}/></Card>
-        <Card onClick={()=>go("obras")} style={{cursor:"pointer"}}><Stat label="Obras Activas" value={oAct.length} color={T.green}/></Card>
-        <Card><Stat label="Cotizado Total" value={$(tCot)} color={T.gold}/></Card>
-        <Card><Stat label="Balance" value={$(tIng-tEgr)} color={tIng-tEgr>=0?T.green:T.red}/></Card>
+    {sec==="dash"&&(()=>{
+      const totCobrado=movs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);
+      const totGastado=movs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
+      const porCobrar=tCot-totCobrado;
+      const margenGlobal=tCot-totGastado;
+      const balance=tIng-tEgr;
+
+      // Datos para gráfica de ingresos vs egresos por mes
+      const mesesData=(()=>{const map={};movs.forEach(m=>{const mes=m.fecha?.slice(0,7)||"";if(!mes)return;if(!map[mes])map[mes]={mes,ing:0,egr:0};if(m.ing>0)map[mes].ing+=m.ing;if(m.egr>0)map[mes].egr+=m.egr;});caja.filter(c=>c.status!=="rechazado").forEach(c=>{const mes=c.fecha?.slice(0,7)||"";if(!mes)return;if(!map[mes])map[mes]={mes,ing:0,egr:0};map[mes].egr+=c.monto;});return Object.values(map).sort((a,b)=>a.mes>b.mes?1:-1).map(m=>({...m,name:m.mes.slice(5),balance:m.ing-m.egr}));})();
+
+      // Datos para gráfica de obras (bar chart)
+      const obrasChart=oAct.map(o=>{const oCob=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);return{name:o.nombre.length>12?o.nombre.slice(0,12)+"…":o.nombre,cobrado:oCob,gastado:oGas,cotizado:o.cotizado,margen:oCob-oGas};});
+
+      // Datos para pie chart de categorías de gasto
+      const catMap={};movs.filter(m=>m.egr>0).forEach(m=>{const c=m.cat||"Sin cat.";catMap[c]=(catMap[c]||0)+m.egr;});caja.filter(c=>c.status!=="rechazado").forEach(c=>{catMap["Caja Chica"]=(catMap["Caja Chica"]||0)+c.monto;});
+      const pieData=Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,value])=>({name,value}));
+      const PIE_COLORS=[T.gold,"#4CAF50","#E05252","#42A5F5","#AB47BC","#FF9800","#26A69A","#E0529F"];
+
+      const ChartTooltipStyle={backgroundColor:"#1a1a1a",border:"1px solid #333",borderRadius:8,fontSize:11,color:"#e8e0d8"};
+
+      return <div>
+      {/* Bienvenida */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div><div style={{fontSize:20,fontWeight:800}}>Hola, {user?.nombre?.split(" ")[0]} 👋</div><div style={{fontSize:11,color:T.muted}}>Panel de control · Ensamble Villarreal</div></div>
+        <div style={{fontSize:11,color:T.dim}}>{new Date().toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
       </div>
-      {pendA>0&&<Card onClick={()=>{go("finanzas");setSubTab("auth");}} style={{borderColor:T.yellow+"33",cursor:"pointer"}}><span style={{fontWeight:700,color:T.yellow}}>🔔 {pendA} autorización(es) pendiente(s)</span></Card>}
-      {(()=>{const totCobrado=movs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);const totGastado=movs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);const porCobrar=tCot-totCobrado;const margenGlobal=tCot-totGastado;return <Card>
-        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:12,marginBottom:10}}>
-          <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Cobrado</div><div style={{fontSize:16,fontWeight:800,color:T.green}}>{$(totCobrado)}</div></div>
-          <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Gastado</div><div style={{fontSize:16,fontWeight:800,color:T.red}}>{$(totGastado)}</div></div>
-          <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Por Cobrar</div><div style={{fontSize:16,fontWeight:800,color:porCobrar>0?T.yellow:T.green}}>{$(porCobrar)}</div></div>
-          <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Utilidad Global</div><div style={{fontSize:16,fontWeight:800,color:margenGlobal>=0?T.green:T.red}}>{$(margenGlobal)}</div><div style={{fontSize:9,color:margenGlobal>=0?T.green:T.red}}>{tCot?pc(margenGlobal,tCot):0}%</div></div>
+
+      {pendA>0&&<Card onClick={()=>{go("finanzas");setSubTab("auth");}} style={{borderColor:T.yellow+"33",cursor:"pointer",marginBottom:8}}><span style={{fontWeight:700,color:T.yellow}}>🔔 {pendA} autorización(es) pendiente(s)</span></Card>}
+
+      {/* KPIs principales */}
+      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
+        <Card style={{borderLeft:"3px solid "+T.gold,padding:"14px 16px"}} onClick={()=>go("cotizaciones")}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Cotizado Total</div><div style={{fontSize:22,fontWeight:800,color:T.gold}}>{$(tCot)}</div><div style={{fontSize:10,color:T.dim}}>{obras.length} proyectos</div></Card>
+        <Card style={{borderLeft:"3px solid "+T.green,padding:"14px 16px"}} onClick={()=>go("finanzas")}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Cobrado</div><div style={{fontSize:22,fontWeight:800,color:T.green}}>{$(totCobrado)}</div><div style={{fontSize:10,color:T.green}}>{tCot?pc(totCobrado,tCot):0}% del cotizado</div></Card>
+        <Card style={{borderLeft:"3px solid "+T.red,padding:"14px 16px"}}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Gastado</div><div style={{fontSize:22,fontWeight:800,color:T.red}}>{$(totGastado)}</div><div style={{fontSize:10,color:T.dim}}>{movs.filter(m=>m.egr>0).length+caja.length} movimientos</div></Card>
+        <Card style={{borderLeft:"3px solid "+(balance>=0?T.green:T.red),padding:"14px 16px"}}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Balance</div><div style={{fontSize:22,fontWeight:800,color:balance>=0?T.green:T.red}}>{$(balance)}</div><div style={{fontSize:10,color:margenGlobal>=0?T.green:T.red}}>Utilidad: {tCot?pc(margenGlobal,tCot):0}%</div></Card>
+      </div>
+
+      {/* Barra de progreso de cobranza */}
+      <Card style={{padding:"10px 16px",marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+          <span style={{fontSize:10,color:T.muted}}>Avance de cobranza</span>
+          <span style={{fontSize:10,fontWeight:700,color:T.green}}>{tCot?pc(totCobrado,tCot):0}%</span>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}><div style={{flex:1}}><Bar v={totCobrado} mx={tCot||1} c={T.green} h={4}/></div><span style={{fontSize:9,color:T.muted,whiteSpace:"nowrap"}}>{tCot?pc(totCobrado,tCot):0}% cobrado</span></div>
-      </Card>;})()}
-      <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,margin:"10px 0 6px"}}>Proyectos en Curso</div>
-      {oAct.length>0?<div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{oAct.map(o=>{const oCob=movs.filter(m=>m.ing>0&&m.obra===o.nombre).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&m.obra===o.nombre).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>c.obra===o.nombre&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);const oMar=o.cotizado-oGas;return <Card key={o.id} onClick={()=>go("obras",o)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontSize:10,background:FCC[o.fase]+"33",color:FCC[o.fase],padding:"1px 6px",borderRadius:8,fontWeight:700}}>{FASES[o.fase]}</span></div><div style={{fontSize:11,color:T.muted,marginBottom:6}}>{o.cliente} · {$(o.cotizado)}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:6}}><div><div style={{fontSize:8,color:T.muted}}>COBRADO</div><div style={{fontSize:12,fontWeight:700,color:T.green}}>{$(oCob)}</div></div><div><div style={{fontSize:8,color:T.muted}}>GASTADO</div><div style={{fontSize:12,fontWeight:700,color:T.red}}>{$(oGas)}</div></div><div><div style={{fontSize:8,color:T.muted}}>MARGEN</div><div style={{fontSize:12,fontWeight:700,color:oMar>=0?T.green:T.red}}>{$(oMar)}</div></div></div><Bar v={o.avance} mx={100} c={FCC[o.fase]}/><div style={{fontSize:9,color:T.muted,textAlign:"right",marginTop:2}}>{o.avance}%</div></Card>})}</div>:<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin proyectos activos</div></Card>}
-      {movs.length>0&&<div><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,margin:"12px 0 6px"}}>Últimos Movimientos</div>{movs.slice(-5).reverse().map(m=> <Card key={m.id}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600}}>{m.desc}</div><div style={{fontSize:10,color:T.dim}}>{fd(m.fecha)} · {m.prov} · {m.obra||"General"}</div></div><span style={{fontWeight:800,color:m.ing>0?T.green:T.red}}>{m.ing>0?"+":"-"}{$(m.ing>0?m.ing:m.egr)}</span></div></Card>)}</div>}
-    </div>}
+        <div style={{background:T.border,borderRadius:6,height:10,overflow:"hidden"}}>
+          <div style={{height:"100%",width:(tCot?Math.min(totCobrado/tCot*100,100):0)+"%",background:"linear-gradient(90deg,"+T.green+",#6BCB77)",borderRadius:6,transition:"width .5s"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:9,color:T.dim}}>
+          <span>Cobrado: {$(totCobrado)}</span><span>Por cobrar: {$(porCobrar)}</span><span>Total: {$(tCot)}</span>
+        </div>
+      </Card>
+
+      {/* Gráficas: Flujo mensual + Distribución de gastos */}
+      <div style={{display:"grid",gridTemplateColumns:D?"2fr 1fr":"1fr",gap:10,marginBottom:12}}>
+        <Card style={{padding:"14px 16px"}}>
+          <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>📈 Ingresos vs Egresos por Mes</div>
+          {mesesData.length>0?<ResponsiveContainer width="100%" height={180}>
+            <AreaChart data={mesesData}>
+              <defs>
+                <linearGradient id="gIng" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.green} stopOpacity={0.3}/><stop offset="95%" stopColor={T.green} stopOpacity={0}/></linearGradient>
+                <linearGradient id="gEgr" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.red} stopOpacity={0.3}/><stop offset="95%" stopColor={T.red} stopOpacity={0}/></linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#222"/>
+              <XAxis dataKey="name" tick={{fill:T.muted,fontSize:10}} axisLine={false}/>
+              <YAxis tick={{fill:T.muted,fontSize:9}} axisLine={false} tickFormatter={v=>v>=1e6?(v/1e6).toFixed(1)+"M":v>=1e3?(v/1e3).toFixed(0)+"K":v}/>
+              <Tooltip contentStyle={ChartTooltipStyle} formatter={(v)=>$(v)}/>
+              <Area type="monotone" dataKey="ing" stroke={T.green} fill="url(#gIng)" strokeWidth={2} name="Ingresos"/>
+              <Area type="monotone" dataKey="egr" stroke={T.red} fill="url(#gEgr)" strokeWidth={2} name="Egresos"/>
+            </AreaChart>
+          </ResponsiveContainer>:<div style={{height:180,display:"flex",alignItems:"center",justifyContent:"center",color:T.dim}}>Sin datos aún</div>}
+        </Card>
+
+        <Card style={{padding:"14px 16px"}}>
+          <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>🍩 Distribución de Gastos</div>
+          {pieData.length>0?<div>
+            <ResponsiveContainer width="100%" height={140}>
+              <PieChart>
+                <Pie data={pieData} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={2} dataKey="value">
+                  {pieData.map((entry,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}
+                </Pie>
+                <Tooltip contentStyle={ChartTooltipStyle} formatter={(v)=>$(v)}/>
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center"}}>
+              {pieData.slice(0,6).map((d,i)=><span key={i} style={{fontSize:9,display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:PIE_COLORS[i%PIE_COLORS.length],display:"inline-block"}}/>{d.name}</span>)}
+            </div>
+          </div>:<div style={{height:140,display:"flex",alignItems:"center",justifyContent:"center",color:T.dim}}>Sin gastos</div>}
+        </Card>
+      </div>
+
+      {/* Gráfica de barras: Obras comparadas */}
+      {obrasChart.length>0&&<Card style={{padding:"14px 16px",marginBottom:12}}>
+        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>🏗️ Cobrado vs Gastado por Obra</div>
+        <ResponsiveContainer width="100%" height={D?200:160}>
+          <BarChart data={obrasChart} barGap={2}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#222"/>
+            <XAxis dataKey="name" tick={{fill:T.muted,fontSize:D?10:8}} axisLine={false} interval={0} angle={D?0:-25} textAnchor={D?"middle":"end"}/>
+            <YAxis tick={{fill:T.muted,fontSize:9}} axisLine={false} tickFormatter={v=>v>=1e6?(v/1e6).toFixed(1)+"M":v>=1e3?(v/1e3).toFixed(0)+"K":v}/>
+            <Tooltip contentStyle={ChartTooltipStyle} formatter={(v)=>$(v)}/>
+            <RBar dataKey="cobrado" fill={T.green} radius={[4,4,0,0]} name="Cobrado"/>
+            <RBar dataKey="gastado" fill={T.red} radius={[4,4,0,0]} name="Gastado"/>
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>}
+
+      {/* Proyectos en curso (mini cards) */}
+      <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Proyectos en Curso</div>
+      {oAct.length>0?<div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr":"1fr",gap:8,marginBottom:12}}>{oAct.map(o=>{const oCob=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);const oMar=oCob-oGas;return <Card key={o.id} onClick={()=>go("obras",o)} style={{cursor:"pointer",padding:"10px 14px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700,fontSize:13}}>{o.nombre}</span><span style={{fontSize:9,background:FCC[o.fase]+"33",color:FCC[o.fase],padding:"2px 8px",borderRadius:10,fontWeight:700}}>{FASES[o.fase]}</span></div>
+        <div style={{fontSize:10,color:T.muted,marginBottom:8}}>{o.cliente} · {$(o.cotizado)}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+          <div style={{textAlign:"center",background:T.green+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Cobrado</div><div style={{fontSize:13,fontWeight:800,color:T.green}}>{$(oCob)}</div></div>
+          <div style={{textAlign:"center",background:T.red+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Gastado</div><div style={{fontSize:13,fontWeight:800,color:T.red}}>{$(oGas)}</div></div>
+          <div style={{textAlign:"center",background:(oMar>=0?T.green:T.red)+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Margen</div><div style={{fontSize:13,fontWeight:800,color:oMar>=0?T.green:T.red}}>{$(oMar)}</div></div>
+        </div>
+        <div style={{marginTop:6}}><Bar v={o.avance} mx={100} c={FCC[o.fase]} h={5}/><div style={{fontSize:9,color:T.muted,textAlign:"right",marginTop:1}}>{o.avance}% avance</div></div>
+      </Card>})}</div>:<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin proyectos activos</div></Card>}
+
+      {/* Últimos movimientos */}
+      {movs.length>0&&<Card style={{padding:0,overflow:"hidden"}}>
+        <div style={{padding:"10px 14px",borderBottom:"1px solid "+T.border,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Últimos Movimientos</div>
+          <button onClick={()=>go("finanzas")} style={{fontSize:10,color:T.blue,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Ver todos →</button>
+        </div>
+        {movs.slice(-6).reverse().map((m,i)=><div key={m.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 14px",borderBottom:"1px solid "+T.line,background:i%2===0?"transparent":"rgba(255,255,255,.01)"}}>
+          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:m.ing>0?T.green:T.red,marginRight:4}}>{m.ing>0?"⬆":"⬇"}</span>{m.desc}</div><div style={{fontSize:9,color:T.dim}}>{fd(m.fecha)} · {m.obra||"General"}{m.cat?" · "+m.cat:""}</div></div>
+          <span style={{fontWeight:800,fontSize:13,color:m.ing>0?T.green:T.red,flexShrink:0}}>{m.ing>0?"+":"-"}{$(m.ing>0?m.ing:m.egr)}</span>
+        </div>)}
+      </Card>}
+    </div>;})()}
 
     {sec==="cot"&&<div style={{maxWidth:700}}>
       {editObraId&&<div style={{background:"#2a2000",border:"1px solid #FFD54F44",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{color:T.yellow,fontWeight:700}}>✏️ Editando: {cotEmp||cotNom}</span><button onClick={()=>{setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");}} style={{background:"#333",border:"none",color:"#999",borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Cancelar</button></div>}
