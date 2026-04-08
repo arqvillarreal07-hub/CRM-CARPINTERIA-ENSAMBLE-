@@ -188,12 +188,11 @@ export default function App(){
   // ═══ FINANZAS COMPUTED ═══
   const finAll=(()=>{const a=[];movs.forEach(m=>a.push({t:m.ing>0?"ing":"egr",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"",monto:m.ing>0?m.ing:m.egr,user:m.user||"",cat:m.cat||"",id:"m"+m.id,status:"aprobado",rec:m.recibo}));caja.forEach(c=>a.push({t:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"",monto:c.monto,user:c.resp||"",cat:"Caja Chica",id:"c"+c.id,status:c.status||"aprobado",ticket:c.ticket,cajaId:c.id}));a.sort((x,y)=>y.fecha>x.fecha?1:y.fecha<x.fecha?-1:0);return a;})();
   const _norm=s=>(s||"").toLowerCase().replace(/\s+/g,' ').trim();
-  const finFilt=finAll.filter(m=>{if(ff==="ing"&&m.t!=="ing")return false;if(ff==="egr"&&m.t==="ing")return false;if(ff==="caja"&&m.t!=="caja")return false;if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;if(ff==="rec"&&!m.rec)return false;if(fObra&&_norm(m.obra)!==_norm(fObra))return false;if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q)&&!m.cat.toLowerCase().includes(q))return false;}return true;});
+  const finFilt=finAll.filter(m=>{if(ff==="ing"&&m.t!=="ing")return false;if(ff==="egr"&&m.t==="ing")return false;if(ff==="caja"&&m.t!=="caja")return false;if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;if(ff==="rec"&&!m.rec)return false;if(fObra&&m.obra!==fObra)return false;if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q)&&!m.cat.toLowerCase().includes(q))return false;}return true;});
   const finIng=finFilt.filter(m=>m.t==="ing").reduce((s,m)=>s+m.monto,0);
   const finEgr=finFilt.filter(m=>m.t!=="ing").reduce((s,m)=>s+m.monto,0);
   const obrasActivas=obras.map(o=>o.nombre);
-  const _obrasNorm={};finAll.forEach(m=>{if(!m.obra)return;const n=_norm(m.obra);if(!_obrasNorm[n])_obrasNorm[n]=m.obra;});
-  const finObras=[...new Set(Object.values(_obrasNorm))].filter(o=>obrasActivas.some(a=>_norm(a)===_norm(o))).sort();
+  const finObras=[...new Set(finAll.map(m=>m.obra).filter(Boolean))].sort();
   const allNav=[];
   if(can("dash"))allNav.push({key:"dash",icon:"🏠",label:"Inicio",grp:"neg"});
   if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
@@ -637,7 +636,7 @@ export default function App(){
 
         {/* ═══ TAB: CONTROL POR OBRA ═══ */}
         {subTab==="control"&&(()=>{
-          const obrasConMovs=obras.map(o=>{
+          const obrasConMovs=obras.filter(o=>o.fase!=="cancelado").map(o=>{
             const oIng=finAll.filter(m=>m.t==="ing"&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.monto,0);
             const oEgr=finAll.filter(m=>m.t!=="ing"&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.monto,0);
             const margen=oIng-oEgr;
