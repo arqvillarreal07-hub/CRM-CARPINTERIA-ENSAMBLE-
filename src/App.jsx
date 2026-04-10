@@ -10,6 +10,7 @@ if(typeof document!=='undefined' && !document.querySelector('link[href*="DM+Sans
    ENSAMBLE VILLARREAL — CRM v6.0 NUBE + MULTIUSUARIO
    ═══════════════════════════════════════════════════════════ */
 
+const APP_VERSION='2026-04-09-v2';
 // ═══ CONFIGURACIÓN NUBE (Supabase) ═══
 // Pega aquí tu URL y Key de Supabase (ver instrucciones)
 const SUPA_URL='https://zzxabnvjooosgqviucct.supabase.co';
@@ -238,14 +239,14 @@ export default function App(){
     if(ff==="caja"&&m.t!=="caja")return false;
     if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;
     if(ff==="rec"&&!m.rec)return false;
-    if(fObra&&m.obra!==fObra)return false;
+    if(fObra){const fa=(fObra||"").trim();const ma=(m.obra||"").trim();if(fa&&ma!==fa)return false;if(fa&&!ma)return false;}
     if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q)&&!m.cat.toLowerCase().includes(q))return false;}
     return true;
   });
   const finIng=finFilt.filter(m=>m.t==="ing").reduce((s,m)=>s+m.monto,0);
   const finEgr=finFilt.filter(m=>m.t!=="ing").reduce((s,m)=>s+m.monto,0);
   const obrasActivas=obras.map(o=>o.nombre);
-  const finObras=[...new Set(finAll.map(m=>m.obra).filter(Boolean))].sort();
+  const finObras=[...new Set(finAll.map(m=>(m.obra||"").trim()).filter(Boolean))].sort();
   const allNav=[];
   if(can("dash"))allNav.push({key:"dash",icon:"🏠",label:"Inicio",grp:"neg"});
   if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
