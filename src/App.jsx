@@ -167,16 +167,17 @@ export default function App(){
   const[nominas,setNominasR]=useState([]);
   const[documentos,setDocumentosR]=useState([]);
   const[herramientas,setHerramientasR]=useState([]);
+  const[archivadas,setArchivadasR]=useState([]);
   useEffect(()=>{(async()=>{
     if(CLOUD)setSyncStatus("Conectando a la nube...");
-    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[]),herramientas:await DB.get('herramientas',[])};
+    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[]),herramientas:await DB.get('herramientas',[]),archivadas:await DB.get('archivadas',[])};
     if(CLOUD)setSyncStatus(_syncOk?"☁️ Nube sincronizada":"⚠️ Usando datos locales");
     // Datos ya viven en Supabase — no se tocan al actualizar el código
     if(!d.nominas||d.nominas.length===0)d.nominas=[{id:"N01",nombre:"Nómina Carpintería",monto:15000,frecuencia:"semanal",tipo:"Nómina"},{id:"N02",nombre:"Renta Carpintería",monto:11000,frecuencia:"mensual",tipo:"Renta"},{id:"N05",nombre:"IMSS",monto:16563,frecuencia:"mensual",tipo:"IMSS"},{id:"N06",nombre:"Luz Carpintería",monto:2500,frecuencia:"mensual",tipo:"Servicios"},{id:"N07",nombre:"Caja Chica Carpintería",monto:5000,frecuencia:"semanal",tipo:"Caja chica"},{id:"N08",nombre:"Francisco — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N09",nombre:"Erik — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N10",nombre:"Héctor — Carpintero",monto:3500,frecuencia:"semanal",tipo:"Nómina"},{id:"N11",nombre:"Barnizador",monto:3500,frecuencia:"semanal",tipo:"Nómina"}];
 
     // Fix duplicate obra IDs
     const seenIds=new Set();d.obras=d.obras.map(o=>{if(seenIds.has(o.id)){return{...o,id:"OB"+Date.now()+Math.random().toString(36).slice(2,6)};}seenIds.add(o.id);return o;});
-    setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setCatalogoR(d.catalogo);if(d.nominas)setNominasR(d.nominas);if(d.documentos)setDocumentosR(d.documentos);if(d.herramientas)setHerramientasR(d.herramientas);
+    setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setCatalogoR(d.catalogo);if(d.nominas)setNominasR(d.nominas);if(d.documentos)setDocumentosR(d.documentos);if(d.herramientas)setHerramientasR(d.herramientas);if(d.archivadas)setArchivadasR(d.archivadas);
     // Save fixed obras back if duplicates were found
     if(seenIds.size<d.obras.length)DB.set('obras',d.obras);
     setLoading(false);})();},[]);
@@ -184,7 +185,7 @@ export default function App(){
   const _lastWrite=useRef({});
   useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){if(_lastWrite.current[k]&&now-_lastWrite.current[k]<15000)continue;try{const _ctrl=new AbortController();const _t=setTimeout(()=>_ctrl.abort(),5000);const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY},signal:_ctrl.signal});clearTimeout(_t);if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0){const cloud=j[0].value;const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');const cLen=Array.isArray(cloud)?cloud.length:0;const lLen=Array.isArray(local)?local.length:0;if(cLen>lLen){const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;setter(cloud);try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}else if(lLen>cLen){DB.set(k,local);}}}}catch{}};}catch{}},30000);return()=>clearInterval(iv);},[]);
   const wrap=(raw,set,key)=>v=>{const n=typeof v==="function"?v(raw):v;set(n);_lastWrite.current[key]=Date.now();DB.set(key,n);};
-  const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos"),setHerramientas=wrap(herramientas,setHerramientasR,"herramientas");
+  const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos"),setHerramientas=wrap(herramientas,setHerramientasR,"herramientas"),setArchivadas=wrap(archivadas,setArchivadasR,"archivadas");
   const cats=[...new Set(catalogo.map(c=>c.cat))];
   const[toast,setToast]=useState(null);
   const[cliTab,setCliTab]=useState("resumen");
@@ -252,6 +253,7 @@ export default function App(){
   if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
   if(can("cot")||can("obras")||can("obras_ver"))allNav.push({key:"cotizaciones",icon:"📋",label:"Cotizaciones",grp:"neg"});
   if(can("obras")||can("obras_ver"))allNav.push({key:"obras",icon:"🏗️",label:"Obras",grp:"neg"});
+  if(can("obras")||can("obras_ver"))allNav.push({key:"archivadas",icon:"📦",label:"Archivadas",grp:"neg"});
   if(can("money")||can("caja")||can("recibos")||can("anal"))allNav.push({key:"finanzas",icon:"💰",label:"Finanzas",grp:"fin"});
   if(can("caja"))allNav.push({key:"cajachica",icon:"🧾",label:"Caja Chica",grp:"fin"});
   allNav.push({key:"nominas",icon:"📅",label:"Nóminas",grp:"fin"});
@@ -529,6 +531,91 @@ export default function App(){
       </div>;})()}
     </div>}
 
+    {sec==="archivadas"&&(()=>{
+      const[arSel,_ar]=[sub,setSub];
+      if(arSel){
+        const ar=arSel;
+        return <div style={{maxWidth:900}}>
+          <button onClick={()=>_ar(null)} style={{background:"none",border:"none",color:"#a78bfa",cursor:"pointer",fontSize:13,padding:0,marginBottom:12}}>← Volver a Archivadas</button>
+          <Card style={{borderLeft:"4px solid #a78bfa",marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontSize:22,fontWeight:800,marginBottom:4}}>📦 {ar.obra.nombre}</div>
+                <div style={{fontSize:12,color:T.muted}}>{ar.obra.cliente||"Sin cliente"} · Archivada el {new Date(ar.archivedAt).toLocaleDateString("es-MX")}{ar.archivedBy?" · por "+ar.archivedBy:""}</div>
+              </div>
+              <button onClick={()=>{
+                if(!confirm("¿Restaurar \""+ar.obra.nombre+"\" a obras activas? Los movimientos volverán al sistema."))return;
+                setObras(prev=>[...prev,{...ar.obra,fase:"produccion"}]);
+                setMovs(prev=>[...prev,...(ar.movs||[])]);
+                setCaja(prev=>[...prev,...(ar.caja||[])]);
+                setDocumentos(prev=>[...prev,...(ar.documentos||[])]);
+                setArchivadas(prev=>prev.filter(a=>a.archivedAt!==ar.archivedAt));
+                _ar(null);show("✅ Obra restaurada");go("obras");
+              }} style={{background:"rgba(38,166,154,.12)",border:"1px solid rgba(38,166,154,.3)",color:T.teal,borderRadius:8,padding:"8px 14px",fontSize:11,fontWeight:700,cursor:"pointer"}}>♻️ Restaurar</button>
+            </div>
+          </Card>
+          <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
+            <Card style={{borderTop:"3px solid "+T.gold}}><div style={{fontSize:10,color:T.muted}}>COTIZADO</div><div style={{fontSize:18,fontWeight:800,color:T.gold}}>{$(ar.resumen.cotizado)}</div></Card>
+            <Card style={{borderTop:"3px solid "+T.green}}><div style={{fontSize:10,color:T.muted}}>COBRADO</div><div style={{fontSize:18,fontWeight:800,color:T.green}}>{$(ar.resumen.cobrado)}</div></Card>
+            <Card style={{borderTop:"3px solid "+T.red}}><div style={{fontSize:10,color:T.muted}}>GASTADO</div><div style={{fontSize:18,fontWeight:800,color:T.red}}>{$(ar.resumen.gastado)}</div></Card>
+            <Card style={{borderTop:"3px solid "+(ar.resumen.margen>=0?T.green:T.red)}}><div style={{fontSize:10,color:T.muted}}>MARGEN</div><div style={{fontSize:18,fontWeight:800,color:ar.resumen.margen>=0?T.green:T.red}}>{$(ar.resumen.margen)}</div></Card>
+          </div>
+          <Card style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:T.gold,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>📋 Movimientos archivados ({(ar.movs||[]).length})</div>
+            {(ar.movs||[]).length===0?<div style={{color:T.dim,fontSize:12,textAlign:"center",padding:20}}>Sin movimientos</div>:
+            <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:400,overflowY:"auto"}}>
+              {(ar.movs||[]).sort((a,b)=>b.fecha>a.fecha?1:-1).map((m,i)=>
+                <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:i%2===0?"rgba(255,255,255,.02)":"transparent",borderRadius:6,fontSize:11}}>
+                  <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600}}>{m.ing>0?"⬆":"⬇"} {m.desc}</div><div style={{fontSize:9,color:T.dim}}>{fd(m.fecha)}{m.prov?" · "+m.prov:""}{m.cat?" · "+m.cat:""}</div></div>
+                  <span style={{fontWeight:800,color:m.ing>0?T.green:T.red}}>{m.ing>0?"+":"-"}{$(m.ing>0?m.ing:m.egr)}</span>
+                </div>
+              )}
+            </div>}
+          </Card>
+          {(ar.caja||[]).length>0&&<Card style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:T.gold,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>🧾 Caja chica archivada ({ar.caja.length})</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:300,overflowY:"auto"}}>
+              {ar.caja.map((c,i)=>
+                <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:i%2===0?"rgba(255,255,255,.02)":"transparent",borderRadius:6,fontSize:11}}>
+                  <div style={{flex:1}}><div style={{fontWeight:600}}>{c.concepto}</div><div style={{fontSize:9,color:T.dim}}>{c.fecha} · {c.resp||""}</div></div>
+                  <span style={{fontWeight:800,color:T.orange}}>-{$(c.monto)}</span>
+                </div>
+              )}
+            </div>
+          </Card>}
+        </div>;
+      }
+      return <div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div>
+            <div style={{fontSize:18,fontWeight:800}}>📦 Obras Archivadas</div>
+            <div style={{fontSize:11,color:T.muted}}>Historial completo de obras terminadas</div>
+          </div>
+          <div style={{fontSize:11,color:T.muted}}>{archivadas.length} obra{archivadas.length!==1?"s":""}</div>
+        </div>
+        {archivadas.length===0?<Card style={{textAlign:"center",padding:40}}>
+          <div style={{fontSize:40,marginBottom:10}}>📦</div>
+          <div style={{color:T.muted,fontSize:14}}>No hay obras archivadas</div>
+          <div style={{color:T.dim,fontSize:11,marginTop:6}}>Cuando termines una obra, usa el botón "📦 Archivar" en su detalle</div>
+        </Card>:<div style={{display:"grid",gridTemplateColumns:G,gap:8}}>
+          {archivadas.sort((a,b)=>b.archivedAt>a.archivedAt?1:-1).map(ar=>
+            <Card key={ar.archivedAt} onClick={()=>_ar(ar)} style={{cursor:"pointer",borderLeft:"3px solid #a78bfa"}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <div style={{fontWeight:700,fontSize:13}}>{ar.obra.nombre}</div>
+                <span style={{fontSize:9,color:"#a78bfa"}}>📦</span>
+              </div>
+              <div style={{fontSize:10,color:T.muted,marginBottom:8}}>{ar.obra.cliente||"Sin cliente"} · {new Date(ar.archivedAt).toLocaleDateString("es-MX")}</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+                <div><div style={{fontSize:8,color:T.muted}}>COBRADO</div><div style={{fontSize:11,fontWeight:700,color:T.green}}>{$(ar.resumen.cobrado)}</div></div>
+                <div><div style={{fontSize:8,color:T.muted}}>GASTADO</div><div style={{fontSize:11,fontWeight:700,color:T.red}}>{$(ar.resumen.gastado)}</div></div>
+                <div><div style={{fontSize:8,color:T.muted}}>MARGEN</div><div style={{fontSize:11,fontWeight:700,color:ar.resumen.margen>=0?T.green:T.red}}>{$(ar.resumen.margen)}</div></div>
+              </div>
+              <div style={{fontSize:9,color:T.dim,marginTop:6}}>{(ar.movs||[]).length} movs · {(ar.caja||[]).length} caja · {(ar.documentos||[]).length} docs</div>
+            </Card>
+          )}
+        </div>}
+      </div>;
+    })()}
     {sec==="obras"&&!sub&&<div>
       <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Obras en Proceso</div>
       {can("obras")&&<button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addOb")}>+ Nueva Obra</button>}
@@ -578,7 +665,7 @@ export default function App(){
 
       <Card><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Estatus del Proyecto</div><div style={{display:"flex",gap:2,marginBottom:12,overflowX:"auto"}}>{FASE_ORD.map((f,i)=>{const cur=FASE_ORD.indexOf(sub.fase);const done=i<=cur;return <div key={f} style={{flex:1,textAlign:"center",minWidth:D?0:60}}><div style={{width:"100%",height:4,borderRadius:2,background:done?FCC[f]:T.border,marginBottom:4}}/><div style={{fontSize:9,color:done?FCC[f]:T.dim,fontWeight:done?700:400}}>{FASES[f]}</div></div>})}</div>{user.rol==="admin"&&<div><div style={{fontSize:10,color:T.muted,marginBottom:6}}>Cambiar estatus:</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{FASE_ORD.map(f=><button key={f} onClick={()=>{const up={...sub,fase:f,status:f==="cotizacion"?"cotizado":f==="entregado"?"completado":"en_proceso"};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show(FASES[f]+" ✓");}} style={{padding:"6px 12px",borderRadius:8,border:sub.fase===f?"2px solid "+FCC[f]:"1px solid "+T.border,background:sub.fase===f?FCC[f]+"22":"transparent",color:sub.fase===f?FCC[f]:T.muted,fontSize:10,fontWeight:sub.fase===f?700:400,cursor:"pointer"}}>{FASES[f]}</button>)}<button onClick={()=>{const up={...sub,fase:"cancelado",status:"cancelado"};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show("Cancelado");}} style={{padding:"6px 12px",borderRadius:8,border:sub.fase==="cancelado"?"2px solid "+FCC.cancelado:"1px solid "+T.border,background:sub.fase==="cancelado"?FCC.cancelado+"22":"transparent",color:sub.fase==="cancelado"?FCC.cancelado:T.dim,fontSize:10,cursor:"pointer"}}>Cancelado</button></div></div>}</Card>
 
-      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:8}}><button style={{...sB,background:"rgba(38,166,154,.08)",color:T.teal,border:"1px solid "+T.teal+"33",marginTop:0}} onClick={()=>{if(sub.cliente){const cn=sub.cliente.toLowerCase();let cli=clis.find(c=>c.nombre.toLowerCase()===cn);if(!cli){cli={id:"C"+Date.now(),nombre:sub.cliente,tel:"",email:"",dir:""};ensureCli(sub.cliente);cli=clis.find(c2=>c2.nombre.toLowerCase()===sub.cliente.toLowerCase())||cli;}go("clis",cli);}else{show("Esta obra no tiene cliente asignado");}}}>👤 Estado de Cuenta</button><button style={{...sB,background:"#1a1510",color:T.gold,border:"1px solid "+T.gold+"44",marginTop:0}} onClick={()=>{setCotP(sub.partidas||[]);setCotNom(sub.cliente||"");setCotEmp(sub.nombre||"");setConIva(sub.conIva!==false);setEditObraId(sub.id);setSub(null);go("cot");}}>📝 Editar Cotización</button><button style={{...sB,background:"#0a1a0a",color:T.green,border:"1px solid "+T.green+"44",marginTop:0}} onClick={()=>openPdfCot(sub)}>📄 Generar PDF</button><button style={{...sB,background:"#1a1a2a",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0}} onClick={()=>{const dup={...sub,id:"OB"+Date.now(),nombre:sub.nombre+" (copia)",fase:"cotizacion",status:"cotizado",avance:0,partidas:(sub.partidas||[]).map(p=>({...p,id:"C-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)})),extras:[],pagos:[],docs:[],bitacora:[]};setObras(prev=>[...prev,dup]);show("Duplicada como cotización ✓");go("cotizaciones");}}>📋 Duplicar</button><button style={{...sB,background:"#1a1a0a",color:T.yellow,border:"1px solid "+T.yellow+"33",marginTop:0}} onClick={()=>om("mergeOb",sub)}>🔗 Fusionar</button><button style={{...sB,background:"#1a0a0a",color:T.red,border:"1px solid "+T.red+"33",marginTop:0}} onClick={()=>om("delOb",sub)}>🗑 Eliminar</button></div>
+      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:8}}><button style={{...sB,background:"rgba(38,166,154,.08)",color:T.teal,border:"1px solid "+T.teal+"33",marginTop:0}} onClick={()=>{if(sub.cliente){const cn=sub.cliente.toLowerCase();let cli=clis.find(c=>c.nombre.toLowerCase()===cn);if(!cli){cli={id:"C"+Date.now(),nombre:sub.cliente,tel:"",email:"",dir:""};ensureCli(sub.cliente);cli=clis.find(c2=>c2.nombre.toLowerCase()===sub.cliente.toLowerCase())||cli;}go("clis",cli);}else{show("Esta obra no tiene cliente asignado");}}}>👤 Estado de Cuenta</button><button style={{...sB,background:"#1a1510",color:T.gold,border:"1px solid "+T.gold+"44",marginTop:0}} onClick={()=>{setCotP(sub.partidas||[]);setCotNom(sub.cliente||"");setCotEmp(sub.nombre||"");setConIva(sub.conIva!==false);setEditObraId(sub.id);setSub(null);go("cot");}}>📝 Editar Cotización</button><button style={{...sB,background:"#0a1a0a",color:T.green,border:"1px solid "+T.green+"44",marginTop:0}} onClick={()=>openPdfCot(sub)}>📄 Generar PDF</button><button style={{...sB,background:"#1a1a2a",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0}} onClick={()=>{const dup={...sub,id:"OB"+Date.now(),nombre:sub.nombre+" (copia)",fase:"cotizacion",status:"cotizado",avance:0,partidas:(sub.partidas||[]).map(p=>({...p,id:"C-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)})),extras:[],pagos:[],docs:[],bitacora:[]};setObras(prev=>[...prev,dup]);show("Duplicada como cotización ✓");go("cotizaciones");}}>📋 Duplicar</button><button style={{...sB,background:"#1a1a0a",color:T.yellow,border:"1px solid "+T.yellow+"33",marginTop:0}} onClick={()=>om("mergeOb",sub)}>🔗 Fusionar</button><button style={{...sB,background:"rgba(168,139,250,.1)",color:"#a78bfa",border:"1px solid rgba(168,139,250,.33)",marginTop:0}} onClick={()=>om("archivarOb",sub)}>📦 Archivar</button><button style={{...sB,background:"#1a0a0a",color:T.red,border:"1px solid "+T.red+"33",marginTop:0}} onClick={()=>om("delOb",sub)}>🗑 Eliminar</button></div>
 
       {(sub.partidas||[]).length>0&&<Card><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:10,color:T.gold,fontWeight:700}}>PARTIDAS ({sub.partidas.length})</div></div>{sub.partidas.map((p,i)=> <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+T.border,fontSize:12}}><div style={{flex:1}}>{p.id&&<b style={{color:T.gold}}>{p.id} </b>}{p.desc}{p.cant>1&&<span style={{color:T.muted}}> ×{p.cant}</span>}</div><div style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:T.muted,fontSize:11}}>$</span><input inputMode="numeric" value={p.precio||""} onFocus={e=>e.target.select()} onChange={e=>{const np=Number(e.target.value.replace(/[^0-9]/g,""))||0;const newP=[...sub.partidas];newP[i]={...newP[i],precio:np};const newSub=newP.reduce((s,x)=>s+x.precio*x.cant,0);const up={...sub,partidas:newP,subtotal:newSub,cotizado:sub.conIva!==false?Math.round(newSub*1.16):newSub};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);}} style={{background:"transparent",border:"1px solid "+T.border,borderRadius:6,color:T.text,fontSize:13,fontWeight:700,width:80,textAlign:"right",padding:"4px 6px",outline:"none"}}/></div></div>)}<div style={{borderTop:"2px solid "+T.border,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between",fontWeight:800,color:T.gold}}><span>TOTAL{sub.conIva!==false?" (IVA incl.)":""}</span><span>{$(sub.cotizado)}</span></div></Card>}
 
@@ -1083,6 +1170,55 @@ export default function App(){
     {modal==="addOb"&&<ModalW title="Nueva Obra" onClose={cm}><ObraForm clientes={clis} onNewCli={nombre=>ensureCli(nombre)} onSave={o=>{setObras(prev=>[...prev,{...o,id:"OB"+String(prev.length+1).padStart(2,"0"),egreso:0,extras:[],pagos:[],docs:[],bitacora:[]}]);cm();show("Obra ✓");}}/></ModalW>}
     {modal==="editMov"&&md&&<ModalW title="Editar Movimiento" onClose={cm}><EditMovForm key={md.id} mov={md} obras={obras} onSave={(nd,nm,np,no,nc)=>{if(md._kind==="caja"){setCaja(prev=>prev.map((x,i)=>i===md._idx?{...x,concepto:nd||x.concepto,monto:nm||x.monto,obra:no,resp:np||x.resp}:x));}else{setMovs(prev=>prev.map((x,i)=>i===md._idx?{...x,desc:nd||x.desc,ing:md.t==="ing"?(nm||x.ing):0,egr:md.t!=="ing"?(nm||x.egr):0,prov:np,obra:no,cat:nc}:x));}cm();show("Actualizado ✓");}} onDelete={()=>{if(confirm("¿Eliminar este movimiento?")){if(md._kind==="caja"){setCaja(prev=>prev.filter((x,i)=>i!==md._idx));}else{setMovs(prev=>prev.filter((x,i)=>i!==md._idx));}cm();show("Eliminado ✓");}}}/></ModalW>}
     {modal==="delOb"&&md&&<ModalW title="Eliminar Proyecto" onClose={cm}><div style={{textAlign:"center",padding:"10px 0"}}><div style={{fontSize:40,marginBottom:10}}>⚠️</div><div style={{fontSize:16,fontWeight:700,marginBottom:6}}>¿Eliminar "{md.nombre}"?</div><div style={{fontSize:12,color:T.muted,marginBottom:16}}>Se eliminará el proyecto, sus partidas, documentos, bitácora y extras. Los movimientos financieros NO se borran.</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setObras(prev=>prev.filter(o=>o.id!==md.id));setSub(null);cm();show("Proyecto eliminado");}}>🗑 Sí, eliminar</button><button style={{...sB,background:"#222",color:T.muted,marginTop:0}} onClick={cm}>Cancelar</button></div></div></ModalW>}
+    {modal==="archivarOb"&&md&&<ModalW title="📦 Archivar Obra" onClose={cm}>{(()=>{
+      const oMovs=movs.filter(m=>_norm(m.obra)===_norm(md.nombre));
+      const oCaja=caja.filter(c=>_norm(c.obra)===_norm(md.nombre));
+      const oDocs=documentos.filter(d=>_norm(d.obra)===_norm(md.nombre));
+      const oIng=oMovs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);
+      const oEgr=oMovs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0)+oCaja.reduce((s,c)=>s+c.monto,0);
+      const margen=oIng-oEgr;
+      return <div>
+        <div style={{background:"rgba(168,139,250,.08)",border:"1px solid rgba(168,139,250,.2)",borderRadius:10,padding:14,marginBottom:12}}>
+          <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>📦 "{md.nombre}"</div>
+          <div style={{fontSize:11,color:T.muted}}>{md.cliente||"Sin cliente"} · {md.fase}</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          <div style={{background:T.gold+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontSize:14,fontWeight:800,color:T.gold}}>{$(md.cotizado)}</div></div>
+          <div style={{background:T.green+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COBRADO</div><div style={{fontSize:14,fontWeight:800,color:T.green}}>{$(oIng)}</div></div>
+          <div style={{background:T.red+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>GASTADO</div><div style={{fontSize:14,fontWeight:800,color:T.red}}>{$(oEgr)}</div></div>
+          <div style={{background:(margen>=0?T.green:T.red)+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>MARGEN</div><div style={{fontSize:14,fontWeight:800,color:margen>=0?T.green:T.red}}>{$(margen)}</div></div>
+        </div>
+        <div style={{background:"rgba(255,255,255,.03)",borderRadius:10,padding:12,marginBottom:12}}>
+          <div style={{fontSize:11,color:T.muted,marginBottom:6}}>Se archivarán:</div>
+          <div style={{fontSize:12,color:T.text,lineHeight:1.8}}>
+            ✓ {oMovs.length} movimientos (ingresos/egresos)<br/>
+            ✓ {oCaja.length} gastos de caja chica<br/>
+            ✓ {oDocs.length} documentos<br/>
+            ✓ Bitácora, extras y partidas completas
+          </div>
+        </div>
+        <div style={{background:"rgba(79,142,247,.08)",border:"1px solid rgba(79,142,247,.2)",borderRadius:8,padding:10,fontSize:11,color:T.blue,marginBottom:12}}>ℹ️ La información queda guardada permanentemente. Puedes restaurarla cuando quieras desde "📦 Archivadas".</div>
+        <button style={{...sB,background:"#1a1030",color:"#a78bfa",border:"1px solid rgba(168,139,250,.33)",width:"100%"}} onClick={()=>{
+          if(!confirm("¿Archivar \""+md.nombre+"\"? Los datos se moverán a Archivadas."))return;
+          const snapshot={
+            obra:{...md},
+            movs:oMovs,
+            caja:oCaja,
+            documentos:oDocs,
+            resumen:{cotizado:md.cotizado,cobrado:oIng,gastado:oEgr,margen:margen},
+            archivedAt:new Date().toISOString(),
+            archivedBy:user?.nombre||"",
+          };
+          setArchivadas(prev=>[snapshot,...(prev||[])]);
+          // Remover de activos
+          setObras(prev=>prev.filter(o=>o.id!==md.id));
+          setMovs(prev=>prev.filter(m=>_norm(m.obra)!==_norm(md.nombre)));
+          setCaja(prev=>prev.filter(c=>_norm(c.obra)!==_norm(md.nombre)));
+          setDocumentos(prev=>prev.filter(d=>_norm(d.obra)!==_norm(md.nombre)));
+          setSub(null);cm();show("✅ Obra archivada");go("archivadas");
+        }}>📦 Archivar Obra</button>
+      </div>;
+    })()}</ModalW>}
     {modal==="mergeOb"&&md&&<ModalW title="🔗 Fusionar Obra Duplicada" onClose={cm}><MergeObraForm obra={md} obras={obras} movs={movs} caja={caja} onMerge={(source,target)=>{
       const srcName=source.nombre;const tgtName=target.nombre;
       // Mover todos los movimientos de source a target
