@@ -262,7 +262,8 @@ export default function App(){
   const finIng=finFilt.filter(m=>m.t==="ing").reduce((s,m)=>s+m.monto,0);
   const finEgr=finFilt.filter(m=>m.t!=="ing").reduce((s,m)=>s+m.monto,0);
   const obrasActivas=obras.map(o=>o.nombre);
-  const finObras=[...new Set(finAll.map(m=>(m.obra||"").trim()).filter(Boolean))].sort();
+  // Solo mostrar obras REALES del sistema (no obras fantasma de movimientos viejos)
+  const finObras=obras.filter(o=>o.fase!=="cancelado").map(o=>o.nombre).sort();
   const allNav=[];
   if(can("dash"))allNav.push({key:"dash",icon:"🏠",label:"Inicio",grp:"neg"});
   if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
