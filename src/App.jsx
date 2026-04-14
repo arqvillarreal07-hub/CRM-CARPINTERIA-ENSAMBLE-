@@ -395,8 +395,8 @@ export default function App(){
       {/* KPIs principales */}
       <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
         <Card style={{borderLeft:"3px solid "+T.gold,padding:"14px 16px"}} onClick={()=>go("cotizaciones")}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Cotizado Total</div><div style={{fontSize:22,fontWeight:800,color:T.gold}}>{$(tCot)}</div><div style={{fontSize:10,color:T.dim}}>{obras.length} proyectos</div></Card>
-        <Card style={{borderLeft:"3px solid "+T.green,padding:"14px 16px"}} onClick={()=>go("finanzas")}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Cobrado</div><div style={{fontSize:22,fontWeight:800,color:T.green}}>{$(totCobrado)}</div><div style={{fontSize:10,color:T.green}}>{tCot?pc(totCobrado,tCot):0}% del cotizado</div></Card>
-        <Card style={{borderLeft:"3px solid "+T.red,padding:"14px 16px"}}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Gastado</div><div style={{fontSize:22,fontWeight:800,color:T.red}}>{$(totGastado)}</div><div style={{fontSize:10,color:T.dim}}>{movs.filter(m=>m.egr>0).length+caja.length} movimientos</div></Card>
+        <Card style={{borderLeft:"3px solid "+T.green,padding:"14px 16px"}} onClick={()=>go("finanzas")}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Ingresos</div><div style={{fontSize:22,fontWeight:800,color:T.green}}>{$(totCobrado)}</div><div style={{fontSize:10,color:T.green}}>{tCot?pc(totCobrado,tCot):0}% del cotizado</div></Card>
+        <Card style={{borderLeft:"3px solid "+T.red,padding:"14px 16px"}}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Egresos</div><div style={{fontSize:22,fontWeight:800,color:T.red}}>{$(totGastado)}</div><div style={{fontSize:10,color:T.dim}}>{movs.filter(m=>m.egr>0).length+caja.length} movimientos</div></Card>
         <Card style={{borderLeft:"3px solid "+(balance>=0?T.green:T.red),padding:"14px 16px"}}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Balance</div><div style={{fontSize:22,fontWeight:800,color:balance>=0?T.green:T.red}}>{$(balance)}</div><div style={{fontSize:10,color:margenGlobal>=0?T.green:T.red}}>Utilidad: {tCot?pc(margenGlobal,tCot):0}%</div></Card>
       </div>
 
@@ -454,15 +454,15 @@ export default function App(){
 
       {/* Gráfica de barras: Obras comparadas */}
       {obrasChart.length>0&&<Card style={{padding:"14px 16px",marginBottom:12}}>
-        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>🏗️ Cobrado vs Gastado por Obra</div>
+        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>🏗️ Ingresos vs Egresos por Obra</div>
         <ResponsiveContainer width="100%" height={Math.max(obrasChart.length*40+30,120)}>
           <BarChart data={obrasChart} layout="vertical" barGap={2} margin={{left:10,right:10}}>
             <CartesianGrid strokeDasharray="3 3" stroke="#222" horizontal={false}/>
             <YAxis dataKey="name" type="category" tick={{fill:T.muted,fontSize:10}} axisLine={false} width={90}/>
             <XAxis type="number" tick={{fill:T.muted,fontSize:9}} axisLine={false} tickFormatter={v=>v>=1e6?(v/1e6).toFixed(1)+"M":v>=1e3?(v/1e3).toFixed(0)+"K":v}/>
             <Tooltip contentStyle={ChartTooltipStyle} formatter={(v)=>$(v)}/>
-            <RBar dataKey="cobrado" fill={T.green} radius={[0,4,4,0]} name="Cobrado" barSize={14}/>
-            <RBar dataKey="gastado" fill={T.red} radius={[0,4,4,0]} name="Gastado" barSize={14}/>
+            <RBar dataKey="cobrado" fill={T.green} radius={[0,4,4,0]} name="Ingresos" barSize={14}/>
+            <RBar dataKey="gastado" fill={T.red} radius={[0,4,4,0]} name="Egresos" barSize={14}/>
           </BarChart>
         </ResponsiveContainer>
       </Card>}
@@ -473,8 +473,8 @@ export default function App(){
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700,fontSize:13}}>{o.nombre}</span><span style={{fontSize:9,background:FCC[o.fase]+"33",color:FCC[o.fase],padding:"2px 8px",borderRadius:10,fontWeight:700}}>{FASES[o.fase]}</span></div>
         <div style={{fontSize:10,color:T.muted,marginBottom:8}}>{o.cliente} · {$(o.cotizado)}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-          <div style={{textAlign:"center",background:T.green+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Cobrado</div><div style={{fontSize:13,fontWeight:800,color:T.green}}>{$(oCob)}</div></div>
-          <div style={{textAlign:"center",background:T.red+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Gastado</div><div style={{fontSize:13,fontWeight:800,color:T.red}}>{$(oGas)}</div></div>
+          <div style={{textAlign:"center",background:T.green+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Ingresos</div><div style={{fontSize:13,fontWeight:800,color:T.green}}>{$(oCob)}</div></div>
+          <div style={{textAlign:"center",background:T.red+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Egresos</div><div style={{fontSize:13,fontWeight:800,color:T.red}}>{$(oGas)}</div></div>
           <div style={{textAlign:"center",background:(oMar>=0?T.green:T.red)+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Margen</div><div style={{fontSize:13,fontWeight:800,color:oMar>=0?T.green:T.red}}>{$(oMar)}</div></div>
         </div>
         <div style={{marginTop:6}}><Bar v={o.avance} mx={100} c={FCC[o.fase]} h={5}/><div style={{fontSize:9,color:T.muted,textAlign:"right",marginTop:1}}>{o.avance}% avance</div></div>
@@ -556,8 +556,8 @@ export default function App(){
           </Card>
           <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
             <Card style={{borderTop:"3px solid "+T.gold}}><div style={{fontSize:10,color:T.muted}}>COTIZADO</div><div style={{fontSize:18,fontWeight:800,color:T.gold}}>{$(ar.resumen.cotizado)}</div></Card>
-            <Card style={{borderTop:"3px solid "+T.green}}><div style={{fontSize:10,color:T.muted}}>COBRADO</div><div style={{fontSize:18,fontWeight:800,color:T.green}}>{$(ar.resumen.cobrado)}</div></Card>
-            <Card style={{borderTop:"3px solid "+T.red}}><div style={{fontSize:10,color:T.muted}}>GASTADO</div><div style={{fontSize:18,fontWeight:800,color:T.red}}>{$(ar.resumen.gastado)}</div></Card>
+            <Card style={{borderTop:"3px solid "+T.green}}><div style={{fontSize:10,color:T.muted}}>INGRESOS</div><div style={{fontSize:18,fontWeight:800,color:T.green}}>{$(ar.resumen.cobrado)}</div></Card>
+            <Card style={{borderTop:"3px solid "+T.red}}><div style={{fontSize:10,color:T.muted}}>EGRESOS</div><div style={{fontSize:18,fontWeight:800,color:T.red}}>{$(ar.resumen.gastado)}</div></Card>
             <Card style={{borderTop:"3px solid "+(ar.resumen.margen>=0?T.green:T.red)}}><div style={{fontSize:10,color:T.muted}}>MARGEN</div><div style={{fontSize:18,fontWeight:800,color:ar.resumen.margen>=0?T.green:T.red}}>{$(ar.resumen.margen)}</div></Card>
           </div>
           <Card style={{marginBottom:12}}>
@@ -606,8 +606,8 @@ export default function App(){
               </div>
               <div style={{fontSize:10,color:T.muted,marginBottom:8}}>{ar.obra.cliente||"Sin cliente"} · {new Date(ar.archivedAt).toLocaleDateString("es-MX")}</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
-                <div><div style={{fontSize:8,color:T.muted}}>COBRADO</div><div style={{fontSize:11,fontWeight:700,color:T.green}}>{$(ar.resumen.cobrado)}</div></div>
-                <div><div style={{fontSize:8,color:T.muted}}>GASTADO</div><div style={{fontSize:11,fontWeight:700,color:T.red}}>{$(ar.resumen.gastado)}</div></div>
+                <div><div style={{fontSize:8,color:T.muted}}>INGRESOS</div><div style={{fontSize:11,fontWeight:700,color:T.green}}>{$(ar.resumen.cobrado)}</div></div>
+                <div><div style={{fontSize:8,color:T.muted}}>EGRESOS</div><div style={{fontSize:11,fontWeight:700,color:T.red}}>{$(ar.resumen.gastado)}</div></div>
                 <div><div style={{fontSize:8,color:T.muted}}>MARGEN</div><div style={{fontSize:11,fontWeight:700,color:ar.resumen.margen>=0?T.green:T.red}}>{$(ar.resumen.margen)}</div></div>
               </div>
               <div style={{fontSize:9,color:T.dim,marginTop:6}}>{(ar.movs||[]).length} movs · {(ar.caja||[]).length} caja · {(ar.documentos||[]).length} docs</div>
@@ -638,20 +638,20 @@ export default function App(){
 
       <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:8}}>
         <Card style={{background:"rgba(201,149,107,.06)",borderColor:"rgba(201,149,107,.15)"}}><Stat label="Presupuesto" value={$(sub.cotizado)} color={T.gold}/></Card>
-        <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Cobrado" value={$(pagCliente)} color={T.green}/><div style={{fontSize:9,color:T.muted,marginTop:2}}>{pc(pagCliente,sub.cotizado)}% cobrado</div></Card>
-        <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Gastado" value={$(gastoTotal)} color={T.red}/><div style={{fontSize:9,color:T.muted,marginTop:2}}>{pc(gastoTotal,sub.cotizado)}% del presupuesto</div></Card>
+        <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Ingresos" value={$(pagCliente)} color={T.green}/><div style={{fontSize:9,color:T.muted,marginTop:2}}>{pc(pagCliente,sub.cotizado)}% del cotizado</div></Card>
+        <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Egresos" value={$(gastoTotal)} color={T.red}/><div style={{fontSize:9,color:T.muted,marginTop:2}}>{pc(gastoTotal,sub.cotizado)}% del presupuesto</div></Card>
         <Card style={{background:margen>=0?"rgba(76,175,80,.06)":"rgba(231,76,60,.06)",borderColor:margen>=0?"rgba(76,175,80,.15)":"rgba(231,76,60,.15)"}}><Stat label="Margen / Utilidad" value={$(margen)} color={margen>=0?T.green:T.red}/><div style={{fontSize:9,color:margen>=0?T.green:T.red,marginTop:2,fontWeight:700}}>{rentPct}% rentabilidad</div></Card>
       </div>
 
       <Card><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Flujo del Cliente</div>
-        <div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Cobrado: {$(pagCliente)}</span><span style={{color:restaCliente>0?T.yellow:T.green,fontWeight:700}}>Falta: {$(restaCliente)}</span></div><Bar v={pagCliente} mx={sub.cotizado} c={T.green} h={6}/></div>
+        <div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Ingresos: {$(pagCliente)}</span><span style={{color:restaCliente>0?T.yellow:T.green,fontWeight:700}}>Falta: {$(restaCliente)}</span></div><Bar v={pagCliente} mx={sub.cotizado} c={T.green} h={6}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           {[{l:"Anticipo 60%",v:a1,ok:pagCliente>=a1},{l:"Avance 20%",v:a2,ok:pagCliente>=a1+a2},{l:"Entrega 20%",v:a3,ok:pagCliente>=sub.cotizado}].map((e,i)=><div key={i} style={{textAlign:"center",padding:10,borderRadius:10,background:e.ok?"rgba(76,175,80,.06)":"rgba(255,255,255,.025)",border:"1px solid "+(e.ok?"rgba(76,175,80,.15)":T.border)}}><div style={{fontSize:9,color:T.muted}}>{e.l}</div><div style={{fontSize:16,fontWeight:800,color:e.ok?T.green:T.text}}>{$(e.v)}</div><div style={{fontSize:9,color:e.ok?T.green:T.muted,marginTop:2}}>{e.ok?"✅ Recibido":"⏳ Pendiente"}</div></div>)}
         </div>
       </Card>
 
       <Card><div style={{fontSize:10,color:T.red,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Costos del Proyecto</div>
-        <div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Gastado: {$(gastoTotal)}</span><span style={{color:gastoTotal>sub.cotizado?T.red:T.green,fontWeight:700}}>Disponible: {$(sub.cotizado-gastoTotal)}</span></div><Bar v={gastoTotal} mx={sub.cotizado} c={gastoTotal>sub.cotizado?T.red:T.orange} h={6}/></div>
+        <div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Egresos: {$(gastoTotal)}</span><span style={{color:gastoTotal>sub.cotizado?T.red:T.green,fontWeight:700}}>Disponible: {$(sub.cotizado-gastoTotal)}</span></div><Bar v={gastoTotal} mx={sub.cotizado} c={gastoTotal>sub.cotizado?T.red:T.orange} h={6}/></div>
         {catArr.length>0?<div>{catArr.map(([cat,total],i)=><div key={cat} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+T.border}}><div style={{flex:1}}><div style={{fontWeight:600,fontSize:12}}>{cat}</div><Bar v={total} mx={gastoTotal} c={T.orange} h={3}/></div><div style={{textAlign:"right",minWidth:90}}><span style={{fontWeight:800,color:T.red}}>{$(total)}</span><div style={{fontSize:9,color:T.muted}}>{pc(total,gastoTotal)}%</div></div></div>)}</div>:<div style={{textAlign:"center",padding:16,color:T.muted}}>Sin gastos registrados</div>}
       </Card>
 
@@ -803,8 +803,8 @@ export default function App(){
             {/* Resumen global */}
             <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:14}}>
               <Card style={{background:"rgba(201,149,107,.06)",borderTop:"3px solid "+T.gold}}><div style={{fontSize:20,fontWeight:800,color:T.text}}>{$(totCot)}</div><div style={{fontSize:10,color:T.muted}}>Total Cotizado</div></Card>
-              <Card style={{background:"rgba(76,175,80,.06)",borderTop:"3px solid "+T.green}}><div style={{fontSize:20,fontWeight:800,color:T.green}}>{$(totIng)}</div><div style={{fontSize:10,color:T.muted}}>Total Cobrado</div><div style={{fontSize:10,color:T.green}}>{totCot>0?Math.round(totIng/totCot*100):0}% del cotizado</div></Card>
-              <Card style={{background:"rgba(231,76,60,.06)",borderTop:"3px solid "+T.red}}><div style={{fontSize:20,fontWeight:800,color:T.red}}>{$(totEgr)}</div><div style={{fontSize:10,color:T.muted}}>Total Gastado</div></Card>
+              <Card style={{background:"rgba(76,175,80,.06)",borderTop:"3px solid "+T.green}}><div style={{fontSize:20,fontWeight:800,color:T.green}}>{$(totIng)}</div><div style={{fontSize:10,color:T.muted}}>Total Ingresos</div><div style={{fontSize:10,color:T.green}}>{totCot>0?Math.round(totIng/totCot*100):0}% del cotizado</div></Card>
+              <Card style={{background:"rgba(231,76,60,.06)",borderTop:"3px solid "+T.red}}><div style={{fontSize:20,fontWeight:800,color:T.red}}>{$(totEgr)}</div><div style={{fontSize:10,color:T.muted}}>Total Egresos</div></Card>
               <Card style={{borderTop:"3px solid "+(totIng-totEgr>=0?T.green:T.red)}}><div style={{fontSize:20,fontWeight:800,color:totIng-totEgr>=0?T.green:T.red}}>{$(totIng-totEgr)}</div><div style={{fontSize:10,color:T.muted}}>Utilidad Bruta</div></Card>
             </div>
 
@@ -815,7 +815,7 @@ export default function App(){
                 <div style={{fontSize:10,color:T.muted}}>{obrasConMovs.length} obras</div>
               </div>
               {D&&<div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px 60px",padding:"8px 14px",background:"rgba(201,149,107,.04)",borderBottom:"1px solid "+T.border,fontSize:9,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:.8}}>
-                <span>Obra</span><span style={{textAlign:"right"}}>Cotizado</span><span style={{textAlign:"right"}}>Cobrado</span><span style={{textAlign:"right"}}>Gastado</span><span style={{textAlign:"right"}}>Margen</span><span style={{textAlign:"right"}}>% Util</span><span style={{textAlign:"right"}}>% Cobro</span>
+                <span>Obra</span><span style={{textAlign:"right"}}>Cotizado</span><span style={{textAlign:"right"}}>Ingresos</span><span style={{textAlign:"right"}}>Egresos</span><span style={{textAlign:"right"}}>Margen</span><span style={{textAlign:"right"}}>% Util</span><span style={{textAlign:"right"}}>% Cobro</span>
               </div>}
               {obrasConMovs.sort((a,b)=>b.oIng-a.oIng).map((o,idx)=>{
                 const mCol=o.margen>=0?T.green:T.red;
@@ -843,8 +843,8 @@ export default function App(){
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
                     <div><div style={{fontSize:9,color:T.muted}}>Cotizado</div><div style={{fontWeight:700,fontSize:11,color:T.gold}}>{$(o.cotizado)}</div></div>
-                    <div><div style={{fontSize:9,color:T.muted}}>Cobrado</div><div style={{fontWeight:700,fontSize:11,color:T.green}}>{$(o.oIng)}</div></div>
-                    <div><div style={{fontSize:9,color:T.muted}}>Gastado</div><div style={{fontWeight:700,fontSize:11,color:T.red}}>{$(o.oEgr)}</div></div>
+                    <div><div style={{fontSize:9,color:T.muted}}>Ingresos</div><div style={{fontWeight:700,fontSize:11,color:T.green}}>{$(o.oIng)}</div></div>
+                    <div><div style={{fontSize:9,color:T.muted}}>Egresos</div><div style={{fontWeight:700,fontSize:11,color:T.red}}>{$(o.oEgr)}</div></div>
                     <div><div style={{fontSize:9,color:T.muted}}>Margen</div><div style={{fontWeight:700,fontSize:11,color:mCol}}>{$(o.margen)}</div></div>
                   </div>
                   <div style={{background:T.border,borderRadius:3,height:5,marginTop:6,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(o.cobPct,100)+"%",background:T.green,borderRadius:3}}/></div>
@@ -935,8 +935,8 @@ export default function App(){
                   {/* KPIs de esta obra */}
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
                     <div style={{background:T.gold+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Cotizado</div><div style={{fontSize:15,fontWeight:800,color:T.gold}}>{$(ob?.cotizado||0)}</div></div>
-                    <div style={{background:T.green+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Cobrado</div><div style={{fontSize:15,fontWeight:800,color:T.green}}>{$(tI)}</div></div>
-                    <div style={{background:T.red+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Gastado</div><div style={{fontSize:15,fontWeight:800,color:T.red}}>{$(tE)}</div></div>
+                    <div style={{background:T.green+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Ingresos</div><div style={{fontSize:15,fontWeight:800,color:T.green}}>{$(tI)}</div></div>
+                    <div style={{background:T.red+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Egresos</div><div style={{fontSize:15,fontWeight:800,color:T.red}}>{$(tE)}</div></div>
                     <div style={{background:(tI-tE>=0?T.green:T.red)+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Margen</div><div style={{fontSize:15,fontWeight:800,color:tI-tE>=0?T.green:T.red}}>{$(tI-tE)}</div></div>
                   </div>
 
@@ -1230,8 +1230,8 @@ export default function App(){
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
           <div style={{background:T.gold+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontSize:14,fontWeight:800,color:T.gold}}>{$(md.cotizado)}</div></div>
-          <div style={{background:T.green+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COBRADO</div><div style={{fontSize:14,fontWeight:800,color:T.green}}>{$(oIng)}</div></div>
-          <div style={{background:T.red+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>GASTADO</div><div style={{fontSize:14,fontWeight:800,color:T.red}}>{$(oEgr)}</div></div>
+          <div style={{background:T.green+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>INGRESOS</div><div style={{fontSize:14,fontWeight:800,color:T.green}}>{$(oIng)}</div></div>
+          <div style={{background:T.red+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>EGRESOS</div><div style={{fontSize:14,fontWeight:800,color:T.red}}>{$(oEgr)}</div></div>
           <div style={{background:(margen>=0?T.green:T.red)+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>MARGEN</div><div style={{fontSize:14,fontWeight:800,color:margen>=0?T.green:T.red}}>{$(margen)}</div></div>
         </div>
         <div style={{background:"rgba(255,255,255,.03)",borderRadius:10,padding:12,marginBottom:12}}>
@@ -1366,8 +1366,8 @@ export default function App(){
         {/* KPIs ejecutivos */}
         <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:12}}>
           <div style={{background:T.gold+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.gold}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>COTIZADO</div><div style={{fontSize:16,fontWeight:800,color:T.gold}}>{$(totalCot)}</div><div style={{fontSize:9,color:T.dim}}>{datos.length} obras</div></div>
-          <div style={{background:T.green+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.green}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>COBRADO</div><div style={{fontSize:16,fontWeight:800,color:T.green}}>{$(totalIng)}</div><div style={{fontSize:9,color:T.green}}>{totalCot>0?Math.round(totalIng/totalCot*100):0}% del total</div></div>
-          <div style={{background:T.red+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.red}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>GASTADO</div><div style={{fontSize:16,fontWeight:800,color:T.red}}>{$(totalGas)}</div><div style={{fontSize:9,color:T.dim}}>{totalCot>0?Math.round(totalGas/totalCot*100):0}% del cotiz.</div></div>
+          <div style={{background:T.green+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.green}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>INGRESOS</div><div style={{fontSize:16,fontWeight:800,color:T.green}}>{$(totalIng)}</div><div style={{fontSize:9,color:T.green}}>{totalCot>0?Math.round(totalIng/totalCot*100):0}% del total</div></div>
+          <div style={{background:T.red+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.red}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>EGRESOS</div><div style={{fontSize:16,fontWeight:800,color:T.red}}>{$(totalGas)}</div><div style={{fontSize:9,color:T.dim}}>{totalCot>0?Math.round(totalGas/totalCot*100):0}% del cotiz.</div></div>
           <div style={{background:(totalFlujo>=0?T.green:T.red)+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+(totalFlujo>=0?T.green:T.red)}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>FLUJO</div><div style={{fontSize:16,fontWeight:800,color:totalFlujo>=0?T.green:T.red}}>{$(totalFlujo)}</div><div style={{fontSize:9,color:T.dim}}>caja actual</div></div>
           <div style={{background:T.yellow+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.yellow}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>POR COBRAR</div><div style={{fontSize:16,fontWeight:800,color:T.yellow}}>{$(totalPorCobrar)}</div><div style={{fontSize:9,color:T.dim}}>pendiente</div></div>
         </div>
@@ -1434,8 +1434,8 @@ export default function App(){
             {/* Números clave */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8,padding:"8px 0",borderTop:"1px solid "+T.line,borderBottom:"1px solid "+T.line}}>
               <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>COTIZADO</div><div style={{fontSize:12,fontWeight:700,color:T.gold}}>{$(d.cotizado)}</div></div>
-              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>COBRADO</div><div style={{fontSize:12,fontWeight:700,color:T.green}}>{$(d.oIng)}</div></div>
-              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>GASTADO</div><div style={{fontSize:12,fontWeight:700,color:T.red}}>{$(d.oGas)}</div></div>
+              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>INGRESOS</div><div style={{fontSize:12,fontWeight:700,color:T.green}}>{$(d.oIng)}</div></div>
+              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>EGRESOS</div><div style={{fontSize:12,fontWeight:700,color:T.red}}>{$(d.oGas)}</div></div>
               <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>UTIL. FINAL</div><div style={{fontSize:12,fontWeight:800,color:d.utilidadFinal>=0?T.green:T.red}}>{$(d.utilidadFinal)}</div></div>
             </div>
 
