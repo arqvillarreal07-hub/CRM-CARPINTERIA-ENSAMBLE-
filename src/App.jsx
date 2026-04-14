@@ -234,12 +234,27 @@ export default function App(){
   // ═══ FINANZAS COMPUTED ═══
   const finAll=(()=>{const a=[];movs.forEach((m,_idx)=>a.push({t:m.ing>0?"ing":"egr",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"",monto:m.ing>0?m.ing:m.egr,user:m.user||"",cat:m.cat||"",id:"m"+_idx,_idx:_idx,_kind:"movs",status:"aprobado",rec:m.recibo}));caja.forEach((c,_idx)=>a.push({t:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"",monto:c.monto,user:c.resp||"",cat:"Caja Chica",id:"c"+_idx,_idx:_idx,_kind:"caja",status:c.status||"aprobado",ticket:c.ticket,cajaId:c.id}));a.sort((x,y)=>y.fecha>x.fecha?1:y.fecha<x.fecha?-1:0);return a;})();
   const _norm=s=>(s||"").toLowerCase().replace(/\s+/g,' ').trim();
+  // Gastos indirectos del taller (no son de obras reales)
+  const _CATS_INDIRECTOS=["Nómina","Renta","IMSS","Servicios","Luz","Agua","Gas","Internet","Caja chica","Destajo","Nomina"];
+  const _NOMS_INDIRECTOS_OBRA=["carpinteria","taller","general","sin obra"];
+  const esIndirecto=(m)=>{
+    const cat=(m.cat||"").toLowerCase();
+    const obra=(m.obra||"").toLowerCase().trim();
+    if(_CATS_INDIRECTOS.map(x=>x.toLowerCase()).includes(cat))return true;
+    if(_NOMS_INDIRECTOS_OBRA.includes(obra))return true;
+    if(!obra)return true;
+    // Si la obra no coincide con una obra real del sistema, es indirecto
+    if(!obras.some(o=>_norm(o.nombre)===_norm(m.obra)))return true;
+    return false;
+  };
   const finFilt=finAll.filter(m=>{
     if(ff==="ing"&&m.t!=="ing")return false;
     if(ff==="egr"&&(m.t==="ing"||m.t==="caja"))return false;
     if(ff==="caja"&&m.t!=="caja")return false;
     if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;
     if(ff==="rec"&&!m.rec)return false;
+    if(ff==="directo"&&esIndirecto(m))return false;
+    if(ff==="indirecto"&&!esIndirecto(m))return false;
     if(fObra){if(_norm(m.obra)!==_norm(fObra))return false;}
     if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q)&&!m.cat.toLowerCase().includes(q))return false;}
     return true;
@@ -747,7 +762,7 @@ export default function App(){
           <button style={{...sB,background:"#3a1a1a",color:T.red,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addEgr")}>+ Egreso</button>
         </div>
         <div style={{display:"flex",gap:4,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
-          {[{k:"todo",l:"Todo",c:T.gold},{k:"ing",l:"⬆ Ingresos",c:T.green},{k:"egr",l:"⬇ Egresos",c:T.red},{k:"caja",l:"🧾 Caja Chica",c:T.orange},{k:"nom",l:"📅 Nóminas",c:T.purple},{k:"rec",l:"🧾 Recibos",c:T.blue}].map(f=>
+          {[{k:"todo",l:"Todo",c:T.gold},{k:"directo",l:"🏗 Costos de Obra",c:T.gold},{k:"indirecto",l:"🏭 Taller/Fijos",c:T.purple},{k:"ing",l:"⬆ Ingresos",c:T.green},{k:"egr",l:"⬇ Egresos",c:T.red},{k:"caja",l:"🧾 Caja Chica",c:T.orange},{k:"nom",l:"📅 Nóminas",c:T.purple},{k:"rec",l:"🧾 Recibos",c:T.blue}].map(f=>
             <button key={f.k} onClick={()=>setFf(f.k)} style={{padding:"6px 14px",borderRadius:20,border:ff===f.k?"2px solid "+f.c:"1px solid "+T.border,background:ff===f.k?f.c+"18":"transparent",color:ff===f.k?f.c:T.muted,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{f.l}</button>
           )}
         </div>
