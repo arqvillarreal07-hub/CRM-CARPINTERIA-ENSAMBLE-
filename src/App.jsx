@@ -758,6 +758,63 @@ export default function App(){
               {obrasConMovs.length===0&&<div style={{padding:30,textAlign:"center",color:T.dim}}>Sin obras con movimientos financieros</div>}
             </Card>
 
+            {/* ═══ OBRAS FANTASMA: movimientos con obras que no existen ═══ */}
+            {(()=>{
+              const obrasSistema=new Set(obras.map(o=>_norm(o.nombre)));
+              const fantasmas={};
+              finAll.forEach(m=>{
+                const on=(m.obra||"").trim();
+                if(!on)return;
+                if(!obrasSistema.has(_norm(on))){
+                  if(!fantasmas[on])fantasmas[on]={nombre:on,count:0,total:0,ing:0,egr:0,movs:[]};
+                  fantasmas[on].count++;
+                  fantasmas[on].total+=m.monto;
+                  if(m.t==="ing")fantasmas[on].ing+=m.monto;else fantasmas[on].egr+=m.monto;
+                  fantasmas[on].movs.push(m);
+                }
+              });
+              const fantList=Object.values(fantasmas).sort((a,b)=>b.total-a.total);
+              if(fantList.length===0)return null;
+              return <Card style={{marginTop:12,borderTop:"3px solid "+T.red}}>
+                <div style={{padding:"12px 14px",borderBottom:"1px solid "+T.border}}>
+                  <div style={{fontSize:13,fontWeight:800,color:T.red,marginBottom:4}}>⚠️ Obras Fantasma ({fantList.length})</div>
+                  <div style={{fontSize:10,color:T.muted}}>Movimientos que apuntan a obras que NO existen en tu sistema. Reasigna a una obra real o elimina los movimientos.</div>
+                </div>
+                <div style={{padding:10}}>
+                  {fantList.map((f,idx)=>
+                    <div key={f.nombre} style={{background:"rgba(231,76,60,.06)",border:"1px solid rgba(231,76,60,.15)",borderRadius:10,padding:"10px 12px",marginBottom:6}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                        <div style={{flex:1,minWidth:200}}>
+                          <div style={{fontWeight:700,fontSize:13,color:T.text}}>🚫 "{f.nombre}"</div>
+                          <div style={{fontSize:10,color:T.muted,marginTop:2}}>{f.count} movimiento{f.count!==1?"s":""}{f.ing>0?" · Ingresos: "+$(f.ing):""}{f.egr>0?" · Egresos: "+$(f.egr):""}</div>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <select onChange={e=>{
+                          const destino=e.target.value;
+                          if(!destino)return;
+                          if(!confirm("¿Reasignar "+f.count+" movimiento(s) de \""+f.nombre+"\" a \""+destino+"\"?"))return;
+                          setMovs(prev=>prev.map(m=>_norm(m.obra)===_norm(f.nombre)?{...m,obra:destino}:m));
+                          setCaja(prev=>prev.map(m=>_norm(m.obra)===_norm(f.nombre)?{...m,obra:destino}:m));
+                          e.target.value="";
+                          show("Reasignados a "+destino);
+                        }} defaultValue="" style={{flex:1,minWidth:150,background:"#1a1510",border:"1px solid "+T.border,color:T.gold,borderRadius:6,padding:"6px 10px",fontSize:11,cursor:"pointer"}}>
+                          <option value="">→ Reasignar a obra real...</option>
+                          {obras.filter(o=>o.fase!=="cancelado").map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                        </select>
+                        <button onClick={()=>{
+                          if(!confirm("¿ELIMINAR "+f.count+" movimiento(s) de \""+f.nombre+"\"? Esta acción NO se puede deshacer."))return;
+                          setMovs(prev=>prev.filter(m=>_norm(m.obra)!==_norm(f.nombre)));
+                          setCaja(prev=>prev.filter(m=>_norm(m.obra)!==_norm(f.nombre)));
+                          show("Movimientos eliminados");
+                        }} style={{background:"rgba(231,76,60,.15)",border:"1px solid rgba(231,76,60,.3)",color:T.red,borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🗑 Eliminar</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Card>;
+            })()}
+
             {/* Detalle expandido de obra seleccionada */}
             {ctrlDetalle&&(()=>{
               const oMovs=finAll.filter(m=>_norm(m.obra)===_norm(ctrlDetalle));
