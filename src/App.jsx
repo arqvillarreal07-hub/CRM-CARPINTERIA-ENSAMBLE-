@@ -987,41 +987,87 @@ export default function App(){
       const cajaWeekTotal=cajaWeek.reduce((s,c)=>s+c.monto,0);
       const presupuesto=5000;
       const resta=presupuesto-cajaWeekTotal;
-      // Agrupar por semana
-      const weeks={};caja.filter(c=>c.status!=="rechazado").forEach(c=>{const d2=new Date(c.fecha+"T12:00:00");const dy=d2.getDay()||7;const mn=new Date(d2);mn.setDate(d2.getDate()-(dy-1));const wk=mn.toISOString().slice(0,10);if(!weeks[wk])weeks[wk]=[];weeks[wk].push(c);});
-      const wkKeys=Object.keys(weeks).sort().reverse();
+      // Ordenar: pendientes primero, luego por fecha descendente
+      const cajaSorted=[...caja].sort((a,b)=>{
+        const ap=a.status==="pendiente"?0:1;const bp=b.status==="pendiente"?0:1;
+        if(ap!==bp)return ap-bp;
+        return (b.fecha||"").localeCompare(a.fecha||"");
+      });
       return <div>
         <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
           <Card><Stat label="Total Caja Chica" value={$(tCaja)} color={T.orange}/></Card>
           <Card style={{background:"rgba(201,149,107,.06)",borderColor:"rgba(201,149,107,.15)"}}><Stat label="Esta Semana" value={$(cajaWeekTotal)} color={T.gold}/></Card>
           <Card><Stat label={"Presupuesto $"+presupuesto.toLocaleString()} value={$(resta)} color={resta>=0?T.green:T.red}/><Bar v={cajaWeekTotal} mx={presupuesto} c={cajaWeekTotal>presupuesto?T.red:T.green} h={4}/></Card>
-          {cajaPend>0&&<Card style={{borderColor:T.yellow+"33"}}><Stat label="Por Aprobar" value={cajaPend} color={T.yellow}/></Card>}
+          {cajaPend>0&&<Card style={{borderColor:T.yellow+"33",background:"rgba(241,196,15,.05)"}}><Stat label="🔔 Por Aprobar" value={cajaPend} color={T.yellow}/></Card>}
         </div>
         <button style={{...sB,marginBottom:10,marginTop:0,maxWidth:300}} onClick={()=>om("addCj")}>+ Gasto</button>
-        {wkKeys.map(wk=>{const items=weeks[wk];const wkTot=items.reduce((s,c)=>s+c.monto,0);return <div key={wk} style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"2px solid "+T.border,marginBottom:6}}>
-            <span style={{fontSize:11,fontWeight:700,color:T.muted}}>Semana del {fd(wk)}</span>
-            <span style={{fontSize:12,fontWeight:800,color:T.orange}}>{$(wkTot)}</span>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{items.map(c=><Card key={c.id} style={{borderColor:c.status==="pendiente"?T.yellow+"22":"transparent",padding:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
-              <div style={{flex:1}} onClick={()=>{if(c.ticket)om("verTicket",c);}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:600,fontSize:13}}>{c.concepto}</span><Badge s={c.status||"aprobado"}/></div>
-                <div style={{fontSize:10,color:T.dim,marginTop:2}}>{fd(c.fecha)} · {c.resp}{c.obra&&c.obra!=="General"?" · "+c.obra:""}</div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                {c.ticket&&c.ticket!=='[nube]'&&c.ticket.startsWith('data:')?<img src={c.ticket} style={{width:32,height:32,borderRadius:6,objectFit:"cover",border:"1px solid "+T.border,cursor:"pointer"}} onClick={()=>om("verTicket",c)} alt=""/>:c.ticket==='[nube]'&&<span style={{fontSize:10,color:T.muted}} title="Ticket guardado en la nube">☁️</span>}
-                <span style={{fontWeight:800,color:T.orange,fontSize:16}}>{$(c.monto)}</span>
-              </div>
-            </div>
-            <div style={{display:"flex",gap:4,marginTop:8,flexWrap:"wrap"}}>
-              {c.status==="pendiente"&&user.rol==="admin"&&<><button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"aprobado"}:x));show("Aprobado ✓");}} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#0a2e0a",color:T.green,fontWeight:700,fontSize:10,cursor:"pointer"}}>✓ Aprobar</button><button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"rechazado"}:x));show("Rechazado");}} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#2a0a0a",color:T.red,fontWeight:700,fontSize:10,cursor:"pointer"}}>✕ Rechazar</button></>}
-              {user.rol==="admin"&&<button onClick={()=>om("editCj",c)} style={{padding:"5px 10px",borderRadius:6,border:"1px solid "+T.border,background:"transparent",color:T.yellow,fontWeight:700,fontSize:10,cursor:"pointer"}}>✏️ Editar</button>}
-              {user.rol==="admin"&&<button onClick={()=>{if(confirm("¿Eliminar este gasto?")){setCaja(caja.filter(x=>x.id!==c.id));show("Eliminado");}}} style={{padding:"5px 10px",borderRadius:6,border:"1px solid "+T.red+"33",background:"transparent",color:T.red,fontWeight:700,fontSize:10,cursor:"pointer"}}>🗑</button>}
-            </div>
-          </Card>)}</div>
-        </div>})}
-        {caja.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin gastos registrados</div></Card>}
+
+        {/* ═══ TABLA ESTILO EXCEL ═══ */}
+        {caja.length===0?<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin gastos registrados</div></Card>:
+        <div style={{borderRadius:10,border:"1px solid "+T.border,overflow:"auto",background:"rgba(255,255,255,.01)"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?900:600,fontSize:12}}>
+            <thead>
+              <tr style={{background:"rgba(201,149,107,.08)",borderBottom:"2px solid "+T.border}}>
+                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:40}}>#</th>
+                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:85}}>Fecha</th>
+                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8}}>Concepto</th>
+                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:110}}>Responsable</th>
+                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:130}}>Obra</th>
+                <th style={{padding:"10px 8px",textAlign:"center",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:40}}>📷</th>
+                <th style={{padding:"10px 8px",textAlign:"right",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:100}}>Monto</th>
+                <th style={{padding:"10px 8px",textAlign:"center",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:90}}>Status</th>
+                {user.rol==="admin"&&<th style={{padding:"10px 8px",textAlign:"right",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:180}}>Acciones</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {cajaSorted.map((c,idx)=>{
+                const isP=c.status==="pendiente";
+                const isR=c.status==="rechazado";
+                const bg=isP?"rgba(241,196,15,.06)":isR?"rgba(231,76,60,.04)":(idx%2===0?"transparent":"rgba(255,255,255,.015)");
+                return <tr key={c.id} style={{background:bg,borderBottom:"1px solid "+T.line}}>
+                  <td style={{padding:"8px",color:T.dim,fontSize:10,fontFamily:"monospace"}}>{idx+1}</td>
+                  <td style={{padding:"8px",color:T.muted,fontSize:11,whiteSpace:"nowrap"}}>{fd(c.fecha)}</td>
+                  <td style={{padding:"8px"}}>
+                    <div style={{fontWeight:600,color:T.text}}>{c.concepto}</div>
+                    {isR&&<div style={{fontSize:9,color:T.red}}>RECHAZADO</div>}
+                  </td>
+                  <td style={{padding:"8px",fontSize:11,color:T.muted}}>{c.resp||"—"}</td>
+                  <td style={{padding:"8px",fontSize:10,color:T.gold,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:130}}>{c.obra||"General"}</td>
+                  <td style={{padding:"8px",textAlign:"center"}}>
+                    {c.ticket&&c.ticket!=='[nube]'&&c.ticket.startsWith('data:')?
+                      <img src={c.ticket} style={{width:28,height:28,borderRadius:4,objectFit:"cover",cursor:"pointer",border:"1px solid "+T.border}} onClick={()=>om("verTicket",c)} alt=""/>:
+                      c.ticket==='[nube]'?<span style={{fontSize:14,color:T.muted}} title="En la nube">☁️</span>:
+                      <span style={{color:T.dim,fontSize:10}}>—</span>
+                    }
+                  </td>
+                  <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.orange,fontSize:13,fontFamily:"monospace",whiteSpace:"nowrap"}}>{$(c.monto)}</td>
+                  <td style={{padding:"8px",textAlign:"center"}}>
+                    {isP?<span style={{background:"rgba(241,196,15,.15)",color:T.yellow,padding:"3px 10px",borderRadius:10,fontSize:9,fontWeight:800,border:"1px solid rgba(241,196,15,.3)",whiteSpace:"nowrap"}}>⏳ PENDIENTE</span>:
+                     isR?<span style={{background:"rgba(231,76,60,.15)",color:T.red,padding:"3px 10px",borderRadius:10,fontSize:9,fontWeight:800,whiteSpace:"nowrap"}}>✕ RECHAZADO</span>:
+                     <span style={{background:"rgba(76,175,80,.15)",color:T.green,padding:"3px 10px",borderRadius:10,fontSize:9,fontWeight:800,whiteSpace:"nowrap"}}>✓ APROBADO</span>}
+                  </td>
+                  {user.rol==="admin"&&<td style={{padding:"8px",textAlign:"right"}}>
+                    <div style={{display:"inline-flex",gap:3}}>
+                      {isP&&<>
+                        <button onClick={()=>{setCaja(prev=>prev.map(x=>x.id===c.id?{...x,status:"aprobado"}:x));show("Aprobado ✓");}} title="Aprobar" style={{padding:"5px 9px",borderRadius:5,border:"none",background:"#0a2e0a",color:T.green,fontWeight:800,fontSize:11,cursor:"pointer"}}>✓</button>
+                        <button onClick={()=>{setCaja(prev=>prev.map(x=>x.id===c.id?{...x,status:"rechazado"}:x));show("Rechazado");}} title="Rechazar" style={{padding:"5px 9px",borderRadius:5,border:"none",background:"#2a0a0a",color:T.red,fontWeight:800,fontSize:11,cursor:"pointer"}}>✕</button>
+                      </>}
+                      <button onClick={()=>om("editCj",c)} title="Editar" style={{padding:"5px 9px",borderRadius:5,border:"1px solid "+T.border,background:"transparent",color:T.yellow,fontSize:11,cursor:"pointer"}}>✏️</button>
+                      <button onClick={()=>{if(confirm("¿Eliminar este gasto?")){setCaja(prev=>prev.filter(x=>x.id!==c.id));show("Eliminado");}}} title="Eliminar" style={{padding:"5px 9px",borderRadius:5,border:"1px solid "+T.red+"33",background:"transparent",color:T.red,fontSize:11,cursor:"pointer"}}>🗑</button>
+                    </div>
+                  </td>}
+                </tr>;
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{background:"rgba(201,149,107,.05)",borderTop:"2px solid "+T.border}}>
+                <td colSpan={6} style={{padding:"10px 8px",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Total ({cajaSorted.length} gastos)</td>
+                <td style={{padding:"10px 8px",textAlign:"right",fontWeight:800,color:T.orange,fontSize:14,fontFamily:"monospace"}}>{$(cajaSorted.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0))}</td>
+                <td colSpan={user.rol==="admin"?2:1}></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>}
       </div>;
     })()}
 
