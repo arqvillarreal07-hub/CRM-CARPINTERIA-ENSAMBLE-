@@ -215,7 +215,7 @@ export default function App(){
   const cajaPend=caja.filter(c=>c.status==="pendiente").length;
   const tCot=obras.reduce((s,o)=>s+o.cotizado,0);
   const tEgrO=obras.reduce((s,o)=>s+o.egreso,0);
-  const pendA=auts.filter(a=>a.status==="pendiente").length;
+  const pendA=caja.filter(c=>c.status==="pendiente").length;
   const lowS=inv.filter(i=>i.stock<=i.minimo);
   const oAct=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
   const cotsPend=obras.filter(o=>o.fase==="cotizacion").length;
@@ -379,7 +379,16 @@ export default function App(){
         <div style={{fontSize:11,color:T.dim}}>{new Date().toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
       </div>
 
-      {pendA>0&&<Card onClick={()=>{go("finanzas");setSubTab("auth");}} style={{borderColor:T.yellow+"33",cursor:"pointer",marginBottom:8}}><span style={{fontWeight:700,color:T.yellow}}>🔔 {pendA} autorización(es) pendiente(s)</span></Card>}
+      {pendA>0&&<Card onClick={()=>go("cajachica")} style={{borderColor:T.yellow+"33",cursor:"pointer",marginBottom:8,background:"rgba(241,196,15,.05)"}}><span style={{fontWeight:700,color:T.yellow}}>🔔 {pendA} gasto(s) de Caja Chica esperando tu autorización · Clic para revisar</span></Card>}
+
+      {/* Botón Resumen Ejecutivo */}
+      <div onClick={()=>om("resumenEj")} style={{background:"linear-gradient(135deg,rgba(201,149,107,.15),rgba(201,149,107,.05))",border:"1px solid "+T.gold+"44",borderRadius:12,padding:"14px 18px",marginBottom:12,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:800,color:T.gold}}>🎯 Resumen Ejecutivo</div>
+          <div style={{fontSize:11,color:T.muted,marginTop:2}}>Todas las obras en una sola vista · Semáforo de salud</div>
+        </div>
+        <div style={{fontSize:20,color:T.gold}}>→</div>
+      </div>
 
       {/* KPIs principales */}
       <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
@@ -1091,6 +1100,78 @@ export default function App(){
     {modal==="editCj"&&md&&<ModalW title="Editar Gasto" onClose={cm}><div><Fl l="Concepto"><input style={sI} defaultValue={md.concepto} id="editCjConc"/></Fl><Fl l="Monto"><input type="number" style={sI} defaultValue={md.monto} id="editCjMonto"/></Fl><Fl l="Obra"><select style={sI} defaultValue={md.obra} id="editCjObra"><option value="">Seleccionar obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General</option></select></Fl><Fl l="Responsable"><input style={sI} defaultValue={md.resp} id="editCjResp"/></Fl><button style={{...sB,marginTop:8}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;const nr=document.getElementById("editCjResp").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,resp:nr||x.resp}:x));cm();show("Gasto actualizado ✓");}}>💾 Guardar Cambios</button>{md.status==="pendiente"&&user.rol==="admin"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}><button style={{...sB,background:"#0a2e0a",color:T.green,marginTop:0}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,status:"aprobado"}:x));cm();show("Aprobado ✓");}}>✓ Aprobar</button><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setCaja(caja.map(x=>x.id===md.id?{...x,status:"rechazado"}:x));cm();show("Rechazado");}}>✕ Rechazar</button></div>}</div></ModalW>}
     {modal==="addDoc"&&sub&&<ModalW title="Documento" onClose={cm}><DocForm onSave={d=>{const up={...sub,docs:[...(sub.docs||[]),{...d,id:(sub.docs?.length||0)+1,fecha:td(),size:"—"}]};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);cm();show("✓");}}/></ModalW>}
     {modal==="addCli"&&<ModalW title="Cliente" onClose={cm}><ClienteForm onSave={c=>{if(clis.some(x=>x.nombre.toLowerCase()===c.nombre.toLowerCase())){show("Este cliente ya existe");return;}setClis(prev=>[...prev,{...c,id:"C"+Date.now()}]);cm();show("✓");}}/></ModalW>}
+    {modal==="resumenEj"&&<ModalW title="🎯 Resumen Ejecutivo" onClose={cm}><div style={{maxHeight:"80vh",overflowY:"auto"}}>{(()=>{
+      const oActivas=obras.filter(o=>o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
+      const datos=oActivas.map(o=>{
+        const oIng=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);
+        const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
+        const margen=oIng-oGas;
+        const margenCot=o.cotizado-oGas;
+        const rentPct=o.cotizado>0?Math.round((margenCot/o.cotizado)*100):0;
+        const cobPct=o.cotizado>0?Math.round((oIng/o.cotizado)*100):0;
+        const gastPct=o.cotizado>0?Math.round((oGas/o.cotizado)*100):0;
+        // Semáforo: Verde=rentable+cobranza sana, Amarillo=alerta, Rojo=problema
+        let semaforo="🟢",alerta="";
+        if(rentPct<20&&rentPct>=0){semaforo="🟡";alerta="Margen bajo";}
+        if(rentPct<0){semaforo="🔴";alerta="¡Perdiendo dinero!";}
+        if(gastPct>cobPct+20){semaforo="🟡";alerta=alerta||"Gasto supera cobranza";}
+        if(gastPct>80&&cobPct<60){semaforo="🔴";alerta=alerta||"Cobranza atrasada";}
+        return{...o,oIng,oGas,margen,margenCot,rentPct,cobPct,gastPct,semaforo,alerta};
+      });
+      const verdes=datos.filter(d=>d.semaforo==="🟢").length;
+      const amarillas=datos.filter(d=>d.semaforo==="🟡").length;
+      const rojas=datos.filter(d=>d.semaforo==="🔴").length;
+      const totalCot=datos.reduce((s,d)=>s+d.cotizado,0);
+      const totalIng=datos.reduce((s,d)=>s+d.oIng,0);
+      const totalGas=datos.reduce((s,d)=>s+d.oGas,0);
+      const totalMar=totalCot-totalGas;
+      return <div>
+        {/* KPIs top */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:14}}>
+          <div style={{background:T.gold+"15",borderRadius:10,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontSize:15,fontWeight:800,color:T.gold}}>{$(totalCot)}</div></div>
+          <div style={{background:T.green+"15",borderRadius:10,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COBRADO</div><div style={{fontSize:15,fontWeight:800,color:T.green}}>{$(totalIng)}</div></div>
+          <div style={{background:T.red+"15",borderRadius:10,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>GASTADO</div><div style={{fontSize:15,fontWeight:800,color:T.red}}>{$(totalGas)}</div></div>
+          <div style={{background:(totalMar>=0?T.green:T.red)+"15",borderRadius:10,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>UTILIDAD</div><div style={{fontSize:15,fontWeight:800,color:totalMar>=0?T.green:T.red}}>{$(totalMar)}</div></div>
+        </div>
+        {/* Semáforo */}
+        <div style={{display:"flex",gap:8,marginBottom:12,padding:"10px 14px",background:"rgba(255,255,255,.03)",borderRadius:10}}>
+          <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:20}}>🟢</div><div style={{fontSize:18,fontWeight:800,color:T.green}}>{verdes}</div><div style={{fontSize:9,color:T.muted}}>Sanas</div></div>
+          <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:20}}>🟡</div><div style={{fontSize:18,fontWeight:800,color:T.yellow}}>{amarillas}</div><div style={{fontSize:9,color:T.muted}}>Alerta</div></div>
+          <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:20}}>🔴</div><div style={{fontSize:18,fontWeight:800,color:T.red}}>{rojas}</div><div style={{fontSize:9,color:T.muted}}>Problema</div></div>
+        </div>
+        {/* Lista de obras */}
+        <div style={{fontSize:10,color:T.gold,fontWeight:700,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>Obras activas ({datos.length})</div>
+        {datos.sort((a,b)=>{const order={"🔴":0,"🟡":1,"🟢":2};return order[a.semaforo]-order[b.semaforo];}).map(d=>
+          <div key={d.id} onClick={()=>{cm();setSub(d);go("obras",d);}} style={{background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderLeft:"4px solid "+(d.semaforo==="🔴"?T.red:d.semaforo==="🟡"?T.yellow:T.green),borderRadius:10,padding:"12px 14px",marginBottom:8,cursor:"pointer"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:14,fontWeight:800,display:"flex",alignItems:"center",gap:6}}>{d.semaforo} {d.nombre}</div>
+                <div style={{fontSize:10,color:T.muted,marginTop:2}}>{d.cliente||"Sin cliente"} · {d.fase}{d.alerta?" · ⚠️ "+d.alerta:""}</div>
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontSize:12,fontWeight:800,color:d.rentPct>=20?T.green:d.rentPct>=0?T.yellow:T.red}}>{d.rentPct}%</div>
+                <div style={{fontSize:9,color:T.muted}}>utilidad</div>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:5,marginBottom:8}}>
+              <div style={{textAlign:"center"}}><div style={{fontSize:8,color:T.muted}}>COT</div><div style={{fontSize:11,fontWeight:700,color:T.gold}}>{$(d.cotizado)}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:8,color:T.muted}}>COB</div><div style={{fontSize:11,fontWeight:700,color:T.green}}>{$(d.oIng)}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:8,color:T.muted}}>GAS</div><div style={{fontSize:11,fontWeight:700,color:T.red}}>{$(d.oGas)}</div></div>
+              <div style={{textAlign:"center"}}><div style={{fontSize:8,color:T.muted}}>MAR</div><div style={{fontSize:11,fontWeight:700,color:d.margenCot>=0?T.green:T.red}}>{$(d.margenCot)}</div></div>
+            </div>
+            {/* Doble barra: cobranza vs gasto */}
+            <div style={{marginBottom:3}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:T.muted,marginBottom:2}}><span>Cobrado {d.cobPct}%</span><span>Gastado {d.gastPct}%</span></div>
+              <div style={{position:"relative",background:"rgba(255,255,255,.05)",borderRadius:4,height:8,overflow:"hidden"}}>
+                <div style={{position:"absolute",top:0,left:0,bottom:0,width:Math.min(d.cobPct,100)+"%",background:T.green,opacity:0.8}}/>
+                <div style={{position:"absolute",top:0,left:0,bottom:0,width:Math.min(d.gastPct,100)+"%",background:T.red,opacity:0.5,mixBlendMode:"screen"}}/>
+              </div>
+            </div>
+          </div>
+        )}
+        {datos.length===0&&<div style={{textAlign:"center",padding:30,color:T.dim}}>No hay obras activas</div>}
+      </div>;
+    })()}</div></ModalW>}
     {modal==="addHerr"&&<ModalW title="🔧 Registrar Herramienta" onClose={cm}><HerramientaForm obras={obras} onSave={(h)=>{
       const oAct2=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
       const obrasTarget=h.distribuir==="todas"?oAct2.map(o=>o.nombre):(h.obrasSelec||[]);
