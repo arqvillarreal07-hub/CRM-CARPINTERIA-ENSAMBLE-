@@ -230,7 +230,7 @@ export default function App(){
   const ensureCli=(nombre)=>{if(!nombre)return;const n=nombre.trim();setClis(prev=>{if(prev.some(c=>c.nombre.toLowerCase()===n.toLowerCase()))return prev;return[...prev,{id:"C"+Date.now(),nombre:n,tel:"",email:"",dir:""}];});};
   const scanFile=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});const isPdf=file.type==="application/pdf";const content=[isPdf?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Analiza este documento/imagen de cotización de carpintería. Extrae TODOS los conceptos con su precio unitario y cantidad. Responde SOLO JSON array sin markdown: [{"desc":"descripción completa del concepto","precio":12345,"cant":1}]. Si un concepto tiene cantidad mayor a 1, ponla. Si no encuentras nada: []'}];const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content}]})});const data=await resp.json();const text=data.content?.map(i=>i.text||"").join("")||"[]";const items=JSON.parse(text.replace(/```json|```/g,"").trim());if(Array.isArray(items)&&items.length>0){setCotP(prev=>[...prev,...items.map((it,i)=>({id:"S-"+Date.now()+"-"+i,cat:"Escaneado",desc:it.desc||"Concepto",precio:Number(it.precio)||0,cant:Number(it.cant)||1}))]);show(items.length+" conceptos extraídos");}else show("Sin conceptos");}catch(e){show("Error al analizar");}setScanning(false);};
   const[subTab,setSubTab]=useState("");
-  const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");const[ctrlDetalle,setCtrlDetalle]=useState(null);
+  const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");const[ctrlDetalle,setCtrlDetalle]=useState(null);const[reFilt,setReFilt]=useState("todos");const[reSort,setReSort]=useState("urgencia");const[reBusq,setReBusq]=useState("");
   // ═══ FINANZAS COMPUTED ═══
   const finAll=(()=>{const a=[];movs.forEach((m,_idx)=>a.push({t:m.ing>0?"ing":"egr",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"",monto:m.ing>0?m.ing:m.egr,user:m.user||"",cat:m.cat||"",id:"m"+_idx,_idx:_idx,_kind:"movs",status:"aprobado",rec:m.recibo}));caja.forEach((c,_idx)=>a.push({t:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"",monto:c.monto,user:c.resp||"",cat:"Caja Chica",id:"c"+_idx,_idx:_idx,_kind:"caja",status:c.status||"aprobado",ticket:c.ticket,cajaId:c.id}));a.sort((x,y)=>y.fecha>x.fecha?1:y.fecha<x.fecha?-1:0);return a;})();
   const _norm=s=>(s||"").toLowerCase().replace(/\s+/g,' ').trim();
@@ -1282,76 +1282,179 @@ export default function App(){
     {modal==="editCj"&&md&&<ModalW title="Editar Gasto" onClose={cm}><div><Fl l="Concepto"><input style={sI} defaultValue={md.concepto} id="editCjConc"/></Fl><Fl l="Monto"><input type="number" style={sI} defaultValue={md.monto} id="editCjMonto"/></Fl><Fl l="Obra"><select style={sI} defaultValue={md.obra} id="editCjObra"><option value="">Seleccionar obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General</option></select></Fl><Fl l="Responsable"><input style={sI} defaultValue={md.resp} id="editCjResp"/></Fl><button style={{...sB,marginTop:8}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;const nr=document.getElementById("editCjResp").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,resp:nr||x.resp}:x));cm();show("Gasto actualizado ✓");}}>💾 Guardar Cambios</button>{md.status==="pendiente"&&user.rol==="admin"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}><button style={{...sB,background:"#0a2e0a",color:T.green,marginTop:0}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,status:"aprobado"}:x));cm();show("Aprobado ✓");}}>✓ Aprobar</button><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setCaja(caja.map(x=>x.id===md.id?{...x,status:"rechazado"}:x));cm();show("Rechazado");}}>✕ Rechazar</button></div>}</div></ModalW>}
     {modal==="addDoc"&&sub&&<ModalW title="Documento" onClose={cm}><DocForm onSave={d=>{const up={...sub,docs:[...(sub.docs||[]),{...d,id:(sub.docs?.length||0)+1,fecha:td(),size:"—"}]};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);cm();show("✓");}}/></ModalW>}
     {modal==="addCli"&&<ModalW title="Cliente" onClose={cm}><ClienteForm onSave={c=>{if(clis.some(x=>x.nombre.toLowerCase()===c.nombre.toLowerCase())){show("Este cliente ya existe");return;}setClis(prev=>[...prev,{...c,id:"C"+Date.now()}]);cm();show("✓");}}/></ModalW>}
-    {modal==="resumenEj"&&<ModalW title="🎯 Resumen Ejecutivo" onClose={cm}><div style={{maxHeight:"80vh",overflowY:"auto"}}>{(()=>{
+    {modal==="resumenEj"&&<ModalW title="🎯 Resumen Ejecutivo" onClose={cm}><div style={{maxHeight:"85vh",overflowY:"auto"}}>{(()=>{
       const oActivas=obras.filter(o=>o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
+      // Calcular datos + DIAGNÓSTICO por obra
       const datos=oActivas.map(o=>{
         const oIng=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);
         const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
-        const margen=oIng-oGas;
-        const margenCot=o.cotizado-oGas;
-        const rentPct=o.cotizado>0?Math.round((margenCot/o.cotizado)*100):0;
-        const cobPct=o.cotizado>0?Math.round((oIng/o.cotizado)*100):0;
-        const gastPct=o.cotizado>0?Math.round((oGas/o.cotizado)*100):0;
-        // Semáforo: Verde=rentable+cobranza sana, Amarillo=alerta, Rojo=problema
-        let semaforo="🟢",alerta="";
-        if(rentPct<20&&rentPct>=0){semaforo="🟡";alerta="Margen bajo";}
-        if(rentPct<0){semaforo="🔴";alerta="¡Perdiendo dinero!";}
-        if(gastPct>cobPct+20){semaforo="🟡";alerta=alerta||"Gasto supera cobranza";}
-        if(gastPct>80&&cobPct<60){semaforo="🔴";alerta=alerta||"Cobranza atrasada";}
-        return{...o,oIng,oGas,margen,margenCot,rentPct,cobPct,gastPct,semaforo,alerta};
+        const cotizado=o.cotizado||0;
+        const utilidadFinal=cotizado-oGas; // si cobras todo lo cotizado
+        const flujoActual=oIng-oGas; // caja disponible en este momento
+        const rentPct=cotizado>0?Math.round((utilidadFinal/cotizado)*100):null;
+        const cobPct=cotizado>0?Math.round((oIng/cotizado)*100):0;
+        const gastPct=cotizado>0?Math.round((oGas/cotizado)*100):0;
+        const porCobrar=cotizado-oIng;
+
+        // Diagnóstico profesional
+        const problemas=[];
+        const alertas=[];
+        const info=[];
+
+        // PROBLEMAS CRÍTICOS
+        if(cotizado===0)problemas.push("❗ Sin cotización capturada");
+        if(!o.cliente)problemas.push("❗ Sin cliente asignado");
+        if(cotizado>0&&rentPct<0)problemas.push("🔴 Margen NEGATIVO ("+rentPct+"%)");
+        if(cotizado>0&&gastPct>100)problemas.push("🔴 Gasto superó lo cotizado");
+        if(cotizado>0&&flujoActual<-10000)problemas.push("🔴 Flujo negativo: faltan "+$(Math.abs(flujoActual)));
+
+        // ALERTAS (situación a vigilar)
+        if(cotizado>0&&rentPct>=0&&rentPct<15)alertas.push("⚠️ Margen bajo ("+rentPct+"%)");
+        if(cotizado>0&&gastPct>cobPct+25)alertas.push("⚠️ Gastando más rápido que cobrando");
+        if(cotizado>0&&o.fase==="entregado"&&cobPct<100)alertas.push("⚠️ Entregada pero cobro incompleto ("+cobPct+"%)");
+        if(cotizado>0&&gastPct>80&&cobPct<60)alertas.push("⚠️ Cobranza atrasada vs avance de gasto");
+        if(cotizado>0&&porCobrar>50000&&cobPct<50)alertas.push("⚠️ Por cobrar: "+$(porCobrar));
+
+        // INFO
+        if(cotizado>0&&rentPct>=20)info.push("✓ Margen sano ("+rentPct+"%)");
+        if(cotizado>0&&cobPct>=90)info.push("✓ Casi cobrado completo");
+
+        // Nivel de urgencia numérico (0-100)
+        let urgencia=0;
+        if(cotizado===0)urgencia+=40;
+        if(!o.cliente)urgencia+=20;
+        if(rentPct!==null&&rentPct<0)urgencia+=100;
+        if(rentPct!==null&&rentPct>=0&&rentPct<15)urgencia+=30;
+        if(gastPct>cobPct+25)urgencia+=20;
+        if(flujoActual<-10000)urgencia+=50;
+        if(porCobrar>100000&&cobPct<50)urgencia+=15;
+
+        let estado="sana";
+        if(problemas.length>0)estado="problema";
+        else if(alertas.length>0)estado="alerta";
+
+        return{...o,oIng,oGas,cotizado,utilidadFinal,flujoActual,rentPct,cobPct,gastPct,porCobrar,problemas,alertas,info,urgencia,estado};
       });
-      const verdes=datos.filter(d=>d.semaforo==="🟢").length;
-      const amarillas=datos.filter(d=>d.semaforo==="🟡").length;
-      const rojas=datos.filter(d=>d.semaforo==="🔴").length;
+
+      // Totales
       const totalCot=datos.reduce((s,d)=>s+d.cotizado,0);
       const totalIng=datos.reduce((s,d)=>s+d.oIng,0);
       const totalGas=datos.reduce((s,d)=>s+d.oGas,0);
-      const totalMar=totalCot-totalGas;
+      const totalFlujo=totalIng-totalGas;
+      const totalPorCobrar=totalCot-totalIng;
+      const contador={sana:0,alerta:0,problema:0};
+      datos.forEach(d=>contador[d.estado]++);
+
+      // Filtros
+      let filtrados=datos;
+      if(reFilt==="problema")filtrados=filtrados.filter(d=>d.estado==="problema");
+      if(reFilt==="alerta")filtrados=filtrados.filter(d=>d.estado==="alerta");
+      if(reFilt==="sana")filtrados=filtrados.filter(d=>d.estado==="sana");
+      if(reFilt==="sincotizacion")filtrados=filtrados.filter(d=>d.cotizado===0);
+      if(reFilt==="sincliente")filtrados=filtrados.filter(d=>!d.cliente);
+      if(reFilt==="porcobrar")filtrados=filtrados.filter(d=>d.porCobrar>0);
+      if(reBusq){const q=reBusq.toLowerCase();filtrados=filtrados.filter(d=>d.nombre.toLowerCase().includes(q)||(d.cliente||"").toLowerCase().includes(q));}
+
+      // Ordenar
+      if(reSort==="urgencia")filtrados.sort((a,b)=>b.urgencia-a.urgencia);
+      if(reSort==="cotizado")filtrados.sort((a,b)=>b.cotizado-a.cotizado);
+      if(reSort==="utilidad")filtrados.sort((a,b)=>b.utilidadFinal-a.utilidadFinal);
+      if(reSort==="margen")filtrados.sort((a,b)=>(b.rentPct??-999)-(a.rentPct??-999));
+      if(reSort==="porcobrar")filtrados.sort((a,b)=>b.porCobrar-a.porCobrar);
+
       return <div>
-        {/* KPIs top */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:14}}>
-          <div style={{background:T.gold+"15",borderRadius:10,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontSize:15,fontWeight:800,color:T.gold}}>{$(totalCot)}</div></div>
-          <div style={{background:T.green+"15",borderRadius:10,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COBRADO</div><div style={{fontSize:15,fontWeight:800,color:T.green}}>{$(totalIng)}</div></div>
-          <div style={{background:T.red+"15",borderRadius:10,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>GASTADO</div><div style={{fontSize:15,fontWeight:800,color:T.red}}>{$(totalGas)}</div></div>
-          <div style={{background:(totalMar>=0?T.green:T.red)+"15",borderRadius:10,padding:"10px 12px",textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>UTILIDAD</div><div style={{fontSize:15,fontWeight:800,color:totalMar>=0?T.green:T.red}}>{$(totalMar)}</div></div>
+        {/* KPIs ejecutivos */}
+        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:12}}>
+          <div style={{background:T.gold+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.gold}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>COTIZADO</div><div style={{fontSize:16,fontWeight:800,color:T.gold}}>{$(totalCot)}</div><div style={{fontSize:9,color:T.dim}}>{datos.length} obras</div></div>
+          <div style={{background:T.green+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.green}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>COBRADO</div><div style={{fontSize:16,fontWeight:800,color:T.green}}>{$(totalIng)}</div><div style={{fontSize:9,color:T.green}}>{totalCot>0?Math.round(totalIng/totalCot*100):0}% del total</div></div>
+          <div style={{background:T.red+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.red}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>GASTADO</div><div style={{fontSize:16,fontWeight:800,color:T.red}}>{$(totalGas)}</div><div style={{fontSize:9,color:T.dim}}>{totalCot>0?Math.round(totalGas/totalCot*100):0}% del cotiz.</div></div>
+          <div style={{background:(totalFlujo>=0?T.green:T.red)+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+(totalFlujo>=0?T.green:T.red)}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>FLUJO</div><div style={{fontSize:16,fontWeight:800,color:totalFlujo>=0?T.green:T.red}}>{$(totalFlujo)}</div><div style={{fontSize:9,color:T.dim}}>caja actual</div></div>
+          <div style={{background:T.yellow+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.yellow}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>POR COBRAR</div><div style={{fontSize:16,fontWeight:800,color:T.yellow}}>{$(totalPorCobrar)}</div><div style={{fontSize:9,color:T.dim}}>pendiente</div></div>
         </div>
-        {/* Semáforo */}
-        <div style={{display:"flex",gap:8,marginBottom:12,padding:"10px 14px",background:"rgba(255,255,255,.03)",borderRadius:10}}>
-          <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:20}}>🟢</div><div style={{fontSize:18,fontWeight:800,color:T.green}}>{verdes}</div><div style={{fontSize:9,color:T.muted}}>Sanas</div></div>
-          <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:20}}>🟡</div><div style={{fontSize:18,fontWeight:800,color:T.yellow}}>{amarillas}</div><div style={{fontSize:9,color:T.muted}}>Alerta</div></div>
-          <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:20}}>🔴</div><div style={{fontSize:18,fontWeight:800,color:T.red}}>{rojas}</div><div style={{fontSize:9,color:T.muted}}>Problema</div></div>
+
+        {/* Semáforo clickeable (filtros) */}
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <div onClick={()=>setReFilt(reFilt==="problema"?"todos":"problema")} style={{flex:1,cursor:"pointer",background:reFilt==="problema"?T.red+"20":"rgba(231,76,60,.06)",border:"2px solid "+(reFilt==="problema"?T.red:"rgba(231,76,60,.2)"),borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:18}}>🔴</div><div style={{fontSize:20,fontWeight:800,color:T.red}}>{contador.problema}</div><div style={{fontSize:9,color:T.muted,fontWeight:700}}>EN PROBLEMA</div>
+          </div>
+          <div onClick={()=>setReFilt(reFilt==="alerta"?"todos":"alerta")} style={{flex:1,cursor:"pointer",background:reFilt==="alerta"?T.yellow+"20":"rgba(241,196,15,.06)",border:"2px solid "+(reFilt==="alerta"?T.yellow:"rgba(241,196,15,.2)"),borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:18}}>🟡</div><div style={{fontSize:20,fontWeight:800,color:T.yellow}}>{contador.alerta}</div><div style={{fontSize:9,color:T.muted,fontWeight:700}}>EN ALERTA</div>
+          </div>
+          <div onClick={()=>setReFilt(reFilt==="sana"?"todos":"sana")} style={{flex:1,cursor:"pointer",background:reFilt==="sana"?T.green+"20":"rgba(76,175,80,.06)",border:"2px solid "+(reFilt==="sana"?T.green:"rgba(76,175,80,.2)"),borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:18}}>🟢</div><div style={{fontSize:20,fontWeight:800,color:T.green}}>{contador.sana}</div><div style={{fontSize:9,color:T.muted,fontWeight:700}}>SANAS</div>
+          </div>
         </div>
+
+        {/* Filtros rápidos por datos sucios */}
+        <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+          <button onClick={()=>setReFilt("todos")} style={{padding:"5px 10px",borderRadius:16,border:"1px solid "+T.border,background:reFilt==="todos"?T.gold+"22":"transparent",color:reFilt==="todos"?T.gold:T.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>Todas ({datos.length})</button>
+          <button onClick={()=>setReFilt("sincotizacion")} style={{padding:"5px 10px",borderRadius:16,border:"1px solid "+T.border,background:reFilt==="sincotizacion"?T.red+"22":"transparent",color:reFilt==="sincotizacion"?T.red:T.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>❗ Sin cotizar ({datos.filter(d=>d.cotizado===0).length})</button>
+          <button onClick={()=>setReFilt("sincliente")} style={{padding:"5px 10px",borderRadius:16,border:"1px solid "+T.border,background:reFilt==="sincliente"?T.red+"22":"transparent",color:reFilt==="sincliente"?T.red:T.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>❗ Sin cliente ({datos.filter(d=>!d.cliente).length})</button>
+          <button onClick={()=>setReFilt("porcobrar")} style={{padding:"5px 10px",borderRadius:16,border:"1px solid "+T.border,background:reFilt==="porcobrar"?T.yellow+"22":"transparent",color:reFilt==="porcobrar"?T.yellow:T.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>💰 Por cobrar ({datos.filter(d=>d.porCobrar>0).length})</button>
+        </div>
+
+        {/* Búsqueda + ordenamiento */}
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <input value={reBusq} onChange={e=>setReBusq(e.target.value)} placeholder="🔍 Buscar obra o cliente..." style={{...sI,flex:1,padding:"8px 12px",fontSize:12}}/>
+          <select value={reSort} onChange={e=>setReSort(e.target.value)} style={{...sI,width:150,padding:"8px 10px",fontSize:11}}>
+            <option value="urgencia">🔥 Urgencia</option>
+            <option value="cotizado">💰 Cotizado</option>
+            <option value="utilidad">📈 Utilidad</option>
+            <option value="margen">📊 % Margen</option>
+            <option value="porcobrar">💵 Por cobrar</option>
+          </select>
+        </div>
+
+        {filtrados.length===0&&<div style={{textAlign:"center",padding:30,color:T.dim}}>Sin obras que coincidan con el filtro</div>}
+
         {/* Lista de obras */}
-        <div style={{fontSize:10,color:T.gold,fontWeight:700,letterSpacing:1,marginBottom:6,textTransform:"uppercase"}}>Obras activas ({datos.length})</div>
-        {datos.sort((a,b)=>{const order={"🔴":0,"🟡":1,"🟢":2};return order[a.semaforo]-order[b.semaforo];}).map(d=>
-          <div key={d.id} onClick={()=>{cm();setSub(d);go("obras",d);}} style={{background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderLeft:"4px solid "+(d.semaforo==="🔴"?T.red:d.semaforo==="🟡"?T.yellow:T.green),borderRadius:10,padding:"12px 14px",marginBottom:8,cursor:"pointer"}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+        {filtrados.map(d=>{
+          const borderC=d.estado==="problema"?T.red:d.estado==="alerta"?T.yellow:T.green;
+          return <div key={d.id} onClick={()=>{cm();setSub(d);go("obras",d);}} style={{background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderLeft:"4px solid "+borderC,borderRadius:10,padding:"12px 14px",marginBottom:8,cursor:"pointer",transition:"all .15s"}}>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,gap:8}}>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:14,fontWeight:800,display:"flex",alignItems:"center",gap:6}}>{d.semaforo} {d.nombre}</div>
-                <div style={{fontSize:10,color:T.muted,marginTop:2}}>{d.cliente||"Sin cliente"} · {d.fase}{d.alerta?" · ⚠️ "+d.alerta:""}</div>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>{d.nombre}</div>
+                <div style={{fontSize:10,color:T.muted,marginTop:1}}>{d.cliente||"⚠️ Sin cliente"} · {d.fase}</div>
               </div>
               <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{fontSize:12,fontWeight:800,color:d.rentPct>=20?T.green:d.rentPct>=0?T.yellow:T.red}}>{d.rentPct}%</div>
-                <div style={{fontSize:9,color:T.muted}}>utilidad</div>
+                {d.rentPct!==null?<>
+                  <div style={{fontSize:18,fontWeight:800,color:d.rentPct>=20?T.green:d.rentPct>=0?T.yellow:T.red,lineHeight:1}}>{d.rentPct>0?"+":""}{d.rentPct}%</div>
+                  <div style={{fontSize:8,color:T.muted,textTransform:"uppercase",letterSpacing:.5}}>utilidad final</div>
+                </>:<div style={{fontSize:10,color:T.red,fontWeight:700}}>Sin cotizar</div>}
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:5,marginBottom:8}}>
-              <div style={{textAlign:"center"}}><div style={{fontSize:8,color:T.muted}}>COT</div><div style={{fontSize:11,fontWeight:700,color:T.gold}}>{$(d.cotizado)}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:8,color:T.muted}}>COB</div><div style={{fontSize:11,fontWeight:700,color:T.green}}>{$(d.oIng)}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:8,color:T.muted}}>GAS</div><div style={{fontSize:11,fontWeight:700,color:T.red}}>{$(d.oGas)}</div></div>
-              <div style={{textAlign:"center"}}><div style={{fontSize:8,color:T.muted}}>MAR</div><div style={{fontSize:11,fontWeight:700,color:d.margenCot>=0?T.green:T.red}}>{$(d.margenCot)}</div></div>
+
+            {/* Diagnóstico */}
+            {(d.problemas.length>0||d.alertas.length>0)&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+              {d.problemas.map((p,i)=><span key={"p"+i} style={{fontSize:9,background:T.red+"15",color:T.red,padding:"3px 8px",borderRadius:10,fontWeight:700,border:"1px solid "+T.red+"30"}}>{p}</span>)}
+              {d.alertas.map((a,i)=><span key={"a"+i} style={{fontSize:9,background:T.yellow+"15",color:T.yellow,padding:"3px 8px",borderRadius:10,fontWeight:700,border:"1px solid "+T.yellow+"30"}}>{a}</span>)}
+            </div>}
+
+            {/* Números clave */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8,padding:"8px 0",borderTop:"1px solid "+T.line,borderBottom:"1px solid "+T.line}}>
+              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>COTIZADO</div><div style={{fontSize:12,fontWeight:700,color:T.gold}}>{$(d.cotizado)}</div></div>
+              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>COBRADO</div><div style={{fontSize:12,fontWeight:700,color:T.green}}>{$(d.oIng)}</div></div>
+              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>GASTADO</div><div style={{fontSize:12,fontWeight:700,color:T.red}}>{$(d.oGas)}</div></div>
+              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>UTIL. FINAL</div><div style={{fontSize:12,fontWeight:800,color:d.utilidadFinal>=0?T.green:T.red}}>{$(d.utilidadFinal)}</div></div>
             </div>
-            {/* Doble barra: cobranza vs gasto */}
-            <div style={{marginBottom:3}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:T.muted,marginBottom:2}}><span>Cobrado {d.cobPct}%</span><span>Gastado {d.gastPct}%</span></div>
-              <div style={{position:"relative",background:"rgba(255,255,255,.05)",borderRadius:4,height:8,overflow:"hidden"}}>
-                <div style={{position:"absolute",top:0,left:0,bottom:0,width:Math.min(d.cobPct,100)+"%",background:T.green,opacity:0.8}}/>
-                <div style={{position:"absolute",top:0,left:0,bottom:0,width:Math.min(d.gastPct,100)+"%",background:T.red,opacity:0.5,mixBlendMode:"screen"}}/>
+
+            {/* Flujo y por cobrar */}
+            {d.cotizado>0&&<div style={{display:"flex",gap:8,fontSize:10,marginBottom:6}}>
+              <div style={{flex:1}}><span style={{color:T.muted}}>Flujo actual:</span> <span style={{fontWeight:700,color:d.flujoActual>=0?T.green:T.red}}>{$(d.flujoActual)}</span></div>
+              <div style={{flex:1,textAlign:"right"}}><span style={{color:T.muted}}>Por cobrar:</span> <span style={{fontWeight:700,color:T.yellow}}>{$(d.porCobrar)}</span></div>
+            </div>}
+
+            {/* Barras de progreso */}
+            {d.cotizado>0&&<div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:T.muted,marginBottom:2}}><span>📥 Cobrado {d.cobPct}%</span><span>📤 Gastado {d.gastPct}%</span></div>
+              <div style={{display:"flex",gap:3}}>
+                <div style={{flex:1,background:"rgba(255,255,255,.05)",borderRadius:3,height:6,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(d.cobPct,100)+"%",background:T.green}}/></div>
+                <div style={{flex:1,background:"rgba(255,255,255,.05)",borderRadius:3,height:6,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(d.gastPct,100)+"%",background:T.red}}/></div>
               </div>
-            </div>
-          </div>
-        )}
-        {datos.length===0&&<div style={{textAlign:"center",padding:30,color:T.dim}}>No hay obras activas</div>}
+            </div>}
+          </div>;
+        })}
       </div>;
     })()}</div></ModalW>}
     {modal==="addHerr"&&<ModalW title="🔧 Registrar Herramienta" onClose={cm}><HerramientaForm obras={obras} onSave={(h)=>{
