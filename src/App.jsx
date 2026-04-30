@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { PieChart, Pie, Cell, BarChart, Bar as RBar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid } from "recharts";
+import { useState, useEffect, useRef } from "react";
 
 const GFONT_LINK = document.createElement('link');
 GFONT_LINK.rel = 'stylesheet';
@@ -10,7 +9,6 @@ if(typeof document!=='undefined' && !document.querySelector('link[href*="DM+Sans
    ENSAMBLE VILLARREAL — CRM v6.0 NUBE + MULTIUSUARIO
    ═══════════════════════════════════════════════════════════ */
 
-const APP_VERSION='2026-04-09-v2';
 // ═══ CONFIGURACIÓN NUBE (Supabase) ═══
 // Pega aquí tu URL y Key de Supabase (ver instrucciones)
 const SUPA_URL='https://zzxabnvjooosgqviucct.supabase.co';
@@ -23,24 +21,21 @@ const DB={
     // 1. Leer nube
     if(CLOUD){
       try{
-        const _ctrl=new AbortController();const _t=setTimeout(()=>_ctrl.abort(),5000);
-        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY},signal:_ctrl.signal});
-        clearTimeout(_t);
+        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
         if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0)cloudVal=j[0].value;_syncOk=true;}
-      }catch(e){if(e.name!=='AbortError')console.warn('DB nube:',e);}
+      }catch(e){console.warn('DB nube:',e);}
     }
     // 2. Leer local
     try{const v=localStorage.getItem('ev_'+k);if(v)localVal=JSON.parse(v);}catch{}
     // 3. Decidir: quedarse con el que tenga MÁS datos
     const cLen=Array.isArray(cloudVal)?cloudVal.length:(cloudVal?1:0);
     const lLen=Array.isArray(localVal)?localVal.length:(localVal?1:0);
-    const _stripTickets=arr=>k==='caja'&&Array.isArray(arr)?arr.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):arr;
     if(cLen>0&&lLen>0){
       // Ambos tienen datos: usar el que tenga más
-      if(cLen>=lLen){try{localStorage.setItem('ev_'+k,JSON.stringify(_stripTickets(cloudVal)));}catch{};return cloudVal;}
+      if(cLen>=lLen){try{localStorage.setItem('ev_'+k,JSON.stringify(cloudVal));}catch{};return cloudVal;}
       else{DB.set(k,localVal);return localVal;}
     }
-    if(cLen>0){const lite=_stripTickets(cloudVal);try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{};return cloudVal;}
+    if(cLen>0){const lite=k==='caja'&&Array.isArray(cloudVal)?cloudVal.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloudVal;try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{};return cloudVal;}
     if(lLen>0){if(CLOUD)DB.set(k,localVal);return localVal;}
     return def;
   },
@@ -49,8 +44,7 @@ const DB={
     const lite=k==='caja'&&Array.isArray(v)?v.map(c=>{if(c.ticket&&c.ticket.length>500)return{...c,ticket:'[nube]'};return c;}):v;
     try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch(e){console.warn('localStorage full for '+k+', clearing old...');try{localStorage.removeItem('ev_'+k);localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}
     if(CLOUD){const body=JSON.stringify({key:k,value:v});const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'};
-    const _send=()=>{const c=new AbortController();setTimeout(()=>c.abort(),8000);return fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body,signal:c.signal});};
-    _send().catch(()=>{setTimeout(()=>{_send().catch(()=>{});},5000);});}
+    fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body}).catch(()=>{setTimeout(()=>{fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body}).catch(e=>console.warn('DB.set retry fail:',e));},3000);});}
   }
 };
 
@@ -84,54 +78,8 @@ function Fl({l,children}){return <div style={{marginBottom:10}}><label style={{d
 function ReciboView({data}){return <div style={{background:"#fefcf9",color:"#222",borderRadius:8,padding:20,fontFamily:"Georgia,serif"}}><div style={{display:"flex",justifyContent:"space-between",borderBottom:"3px solid #1B5E20",paddingBottom:12,marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:10}}><img src={LOGO_IMG} style={{width:40,height:40,borderRadius:8,objectFit:"cover"}} alt=""/><div><div style={{fontSize:16,fontWeight:800,color:"#1B5E20"}}>ENSAMBLE VILLARREAL</div><div style={{fontSize:9,color:"#888"}}>CARPINTERÍA ARQUITECTÓNICA</div><div style={{fontSize:9,color:"#bbb"}}>Circuito Los Sauces 136 · 449 181 4651</div></div></div><div style={{textAlign:"right"}}><div style={{fontSize:14,fontWeight:700,color:"#1B5E20"}}>RECIBO</div><div style={{fontSize:16,fontWeight:800,color:"#1B5E20"}}>{data.recibo||data.id}</div></div></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12,marginBottom:14}}><div><span style={{color:"#999",fontSize:10}}>FECHA</span><div style={{fontWeight:600}}>{fd(data.fecha)}</div></div><div><span style={{color:"#999",fontSize:10}}>CLIENTE</span><div style={{fontWeight:600}}>{data.cliente||"—"}</div></div><div><span style={{color:"#999",fontSize:10}}>CONCEPTO</span><div style={{fontWeight:600}}>{data.concepto||"—"}</div></div><div><span style={{color:"#999",fontSize:10}}>OBRA</span><div style={{fontWeight:600}}>{data.obra||"—"}</div></div></div><div style={{background:"#E8F5E9",borderRadius:8,padding:"14px 18px",textAlign:"center"}}><div style={{fontSize:10,color:"#2E7D32",textTransform:"uppercase"}}>Monto Recibido</div><div style={{fontSize:28,fontWeight:800,color:"#1B5E20"}}>{$(data.monto||data.ing||0)}</div></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginTop:20,paddingTop:14,borderTop:"1px dashed #ccc"}}><div style={{textAlign:"center",borderTop:"1px solid #999",paddingTop:6,fontSize:10,color:"#999"}}>Firma cliente</div><div style={{textAlign:"center",borderTop:"1px solid #999",paddingTop:6,fontSize:10,color:"#999"}}>Ensamble Villarreal</div></div><div style={{textAlign:"center",marginTop:16,fontSize:8,color:"#ccc",fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div></div>;}
 function ObraForm({onSave,clientes,onNewCli}){const[f,sf]=useState({nombre:"",cliente:"",cotizado:"",inicio:td(),entrega:"",fase:"cotizacion"});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Cliente"><input list="cli-ob-list" style={sI} value={f.cliente} onChange={e=>sf({...f,cliente:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="cli-ob-list">{clientes.map(c=><option key={c.id} value={c.nombre}/>)}</datalist>{f.cliente&&!clientes.some(c=>c.nombre.toLowerCase()===f.cliente.toLowerCase())&&<div style={{fontSize:10,color:"#FF9800",marginTop:3}}>⚡ Se creará como nuevo cliente</div>}</Fl><Fl l="Monto"><input type="number" style={sI} value={f.cotizado} onChange={e=>sf({...f,cotizado:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Inicio"><input type="date" style={sI} value={f.inicio} onChange={e=>sf({...f,inicio:e.target.value})}/></Fl><Fl l="Entrega"><input type="date" style={sI} value={f.entrega} onChange={e=>sf({...f,entrega:e.target.value})}/></Fl></div><button style={sB} onClick={()=>f.nombre&&(()=>{if(f.cliente&&!clientes.some(c=>c.nombre.toLowerCase()===f.cliente.toLowerCase())&&onNewCli)onNewCli(f.cliente);onSave({...f,cotizado:Number(f.cotizado)||0,status:'cotizado',avance:0});})()}>Guardar</button></div>;}
 function IngForm({obras,movs,clis,onSave}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",ing:"",obra:""});const ob=obras.find(o=>o.nombre===f.obra);const pagado=ob?movs.filter(m=>m.ing>0&&m.obra===ob.nombre).reduce((s,m)=>s+m.ing,0):0;const a1=ob?Math.round(ob.cotizado*.6):0;const a2=ob?Math.round(ob.cotizado*.2):0;const a3=ob?Math.round(ob.cotizado*.2):0;const sugerido=ob?(pagado<a1?a1-pagado:pagado<a1+a2?a1+a2-pagado:pagado<ob.cotizado?ob.cotizado-pagado:0):0;const etapa=ob?(pagado<a1?"Anticipo 60%":pagado<a1+a2?"Avance 20%":"Entrega 20%"):"";return <div><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>{const selOb=obras.find(o=>o.nombre===e.target.value);sf({...f,obra:e.target.value,desc:"",prov:selOb&&selOb.cliente?selOb.cliente:f.prov});}}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}{o.cliente?" — "+o.cliente:""}</option>)}</select></Fl>{ob&&<div style={{background:"rgba(201,149,107,.08)",border:"1px solid rgba(201,149,107,.15)",borderRadius:10,padding:12,marginBottom:12}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold}}>{$(ob.cotizado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green}}>{$(pagado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:ob.cotizado-pagado>0?T.yellow:T.green}}>{$(ob.cotizado-pagado)}</div></div></div>{sugerido>0&&<div><div style={{fontSize:10,color:T.gold,fontWeight:700,marginBottom:4}}>Siguiente pago: {etapa}</div><div style={{display:"flex",gap:6}}>{[{l:etapa,v:sugerido},{l:"Total restante",v:ob.cotizado-pagado}].filter((x,i,a)=>i===0||x.v!==a[0].v).map(x=><button key={x.l} onClick={()=>sf({...f,ing:String(x.v),desc:x.l+" - "+ob.nombre,prov:ob.cliente||f.prov})} style={{flex:1,padding:"8px 6px",borderRadius:8,border:"1px solid "+T.gold+"33",background:Number(f.ing)===x.v?T.gold+"22":"transparent",color:Number(f.ing)===x.v?T.gold:T.muted,fontSize:11,fontWeight:700,cursor:"pointer"}}>{x.l}: {$(x.v)}</button>)}</div></div>}</div>}<Fl l="Recibido de"><input list="ing-cli-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Nombre del cliente"/><datalist id="ing-cli-list">{(clis||[]).map(c=><option key={c.id} value={c.nombre}/>)}</datalist></Fl><Fl l="Concepto"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})} placeholder="Ej: Anticipo 60%"/></Fl><Fl l="Monto"><input type="number" style={{...sI,fontSize:20,fontWeight:800,textAlign:"center"}} value={f.ing} onChange={e=>sf({...f,ing:e.target.value})} placeholder="$0"/></Fl><button style={{...sB,background:T.green,opacity:Number(f.ing)>0?1:.5}} onClick={()=>{const m=Number(f.ing);if(m>0){const desc=f.desc||f.prov||("Ingreso "+f.obra);onSave({...f,desc,ing:m,egr:0});}}}>💰 Registrar + Generar Recibo</button></div>;}
-function EgrForm({obras,provs,onSave,onNewProv}){
-  const CATS_EGR=["Material","Herrajes","Ferretería","Madera","Mano de obra","Nómina","Herramienta","Cancelería","Pintura","Acabados","Transporte","Renta","Servicios","IMSS","Otro"];
-  const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});
-  const[provOpen,setProvOpen]=useState(false);
-  const[provQ,setProvQ]=useState("");
-  const exists=provs.some(p=>p.nombre.toLowerCase()===f.prov.toLowerCase());
-  const provFilt=provQ?provs.filter(p=>p.nombre.toLowerCase().includes(provQ.toLowerCase())):provs;
-
-  const selectProv=(nombre)=>{sf({...f,prov:nombre});setProvOpen(false);setProvQ("");};
-
-  return <div>
-    {/* PROVEEDOR - Custom dropdown */}
-    <Fl l="Proveedor">
-      <div style={{position:"relative"}}>
-        <div onClick={()=>setProvOpen(!provOpen)} style={{...sI,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",minHeight:38}}>
-          <span style={{color:f.prov?T.text:T.muted}}>{f.prov||"Seleccionar proveedor..."}</span>
-          <span style={{color:T.muted,fontSize:10}}>{provOpen?"▲":"▼"}</span>
-        </div>
-        {provOpen&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:T.card,border:"1px solid "+T.border,borderRadius:8,zIndex:50,maxHeight:250,overflowY:"auto",boxShadow:"0 8px 24px rgba(0,0,0,.5)"}}>
-          <div style={{padding:6,borderBottom:"1px solid "+T.border,position:"sticky",top:0,background:T.card}}>
-            <input autoFocus value={provQ} onChange={e=>setProvQ(e.target.value)} placeholder="🔍 Buscar o escribir nuevo..." style={{...sI,fontSize:12,padding:"8px 10px"}}/>
-          </div>
-          {provFilt.map(p=><div key={p.id} onClick={()=>selectProv(p.nombre)} style={{padding:"8px 12px",cursor:"pointer",fontSize:12,borderBottom:"1px solid "+T.line,display:"flex",justifyContent:"space-between",alignItems:"center"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.1)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-            <span style={{fontWeight:600}}>{p.nombre}</span>
-            <span style={{fontSize:9,color:T.dim}}>{p.material||""}</span>
-          </div>)}
-          {provQ&&!provFilt.some(p=>p.nombre.toLowerCase()===provQ.toLowerCase())&&<div onClick={()=>selectProv(provQ)} style={{padding:"10px 12px",cursor:"pointer",borderTop:"1px solid "+T.border,background:"rgba(255,152,0,.06)"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,152,0,.12)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,152,0,.06)"}>
-            <span style={{color:T.orange,fontWeight:700,fontSize:12}}>＋ Crear "{provQ}" como nuevo proveedor</span>
-          </div>}
-          {provFilt.length===0&&!provQ&&<div style={{padding:12,color:T.dim,textAlign:"center",fontSize:11}}>Sin proveedores</div>}
-        </div>}
-      </div>
-      {f.prov&&!exists&&<div style={{fontSize:10,color:T.orange,marginTop:3}}>⚡ Nuevo proveedor — se creará al guardar</div>}
-      {f.prov&&<div style={{marginTop:3}}><button onClick={()=>{sf({...f,prov:""});}} style={{background:"none",border:"none",color:T.dim,fontSize:10,cursor:"pointer",padding:0}}>✕ Quitar proveedor</button></div>}
-    </Fl>
-    <Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})} placeholder="Qué se compró..."/></Fl>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-      <Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})} placeholder="$0"/></Fl>
-      <Fl l="Partida / Categoría"><select style={sI} value={f.cat} onChange={e=>sf({...f,cat:e.target.value})}>{CATS_EGR.map(c=><option key={c} value={c}>{c}</option>)}</select></Fl>
-    </div>
-    <Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">General</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl>
-    <button style={{...sB,background:T.red,color:"#fff",opacity:(f.desc&&Number(f.egr)>0)?1:.5}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0){if(f.prov&&!exists&&onNewProv)onNewProv(f.prov);onSave({...f,egr:m,ing:0});}}}>Registrar Egreso</button>
-  </div>;
-}
+function EgrForm({obras,provs,onSave,onNewProv}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});const exists=provs.some(p=>p.nombre.toLowerCase()===f.prov.toLowerCase());return <div><Fl l="Proveedor"><input list="prov-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="prov-list">{provs.map(p=> <option key={p.id} value={p.nombre}/>)}</datalist>{f.prov&&!exists&&<div style={{fontSize:10,color:T.orange,marginTop:3}}>⚡ Nuevo proveedor — se creará automáticamente</div>}</Fl><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})}/></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">General</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><button style={{...sB,background:T.red,color:"#fff"}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0){if(f.prov&&!exists&&onNewProv)onNewProv(f.prov);onSave({...f,egr:m,ing:0});}}}>Registrar Egreso</button></div>;}
 function CajaForm({onSave,users,obras}){const[f,sf]=useState({fecha:td(),concepto:"",monto:"",resp:"Taller",obra:"",ticket:""});const[scanning,setScanning]=useState(false);const scanTicket=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});sf(prev=>({...prev,ticket:"data:"+(file.type||"image/jpeg")+";base64,"+b64}));const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:500,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Este es un ticket/recibo de compra. Extrae: concepto (qué se compró, resumido), monto total. Responde SOLO JSON sin markdown: {"concepto":"x","monto":0}'}]}]})});const data=await resp.json();const text=data.content?.map(i=>i.text||"").join("")||"{}";const info=JSON.parse(text.replace(/```json|```/g,"").trim());if(info.concepto)sf(prev=>({...prev,concepto:info.concepto,monto:String(info.monto||"")}));}catch{}setScanning(false);};return <div><div style={{marginBottom:12}}><label style={{display:"block",padding:16,border:"2px dashed "+(scanning?T.blue:f.ticket?T.green:T.border),borderRadius:10,textAlign:"center",cursor:scanning?"wait":"pointer",background:scanning?"#0a1a33":f.ticket?"#0a1a0a":"#111"}}><input type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>{if(e.target.files[0])scanTicket(e.target.files[0]);}}/>{scanning?<div style={{color:T.blue,fontWeight:700}}>🔄 Leyendo ticket...</div>:f.ticket?<div><img src={f.ticket} style={{maxHeight:120,borderRadius:8,marginBottom:6}} alt=""/><div style={{fontSize:10,color:T.green,fontWeight:700}}>✅ Ticket cargado</div></div>:<div><div style={{fontSize:24}}>🧾</div><div style={{color:T.gold,fontWeight:700,fontSize:12}}>Escanear Ticket</div><div style={{fontSize:10,color:T.muted}}>Toma foto o sube imagen del ticket</div></div>}</label></div><Fl l="Concepto"><input style={sI} value={f.concepto} onChange={e=>sf({...f,concepto:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Responsable"><select style={sI} value={f.resp} onChange={e=>sf({...f,resp:e.target.value})}>{users.map(u=> <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">Seleccionar obra</option>{(obras||[]).map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General (sin obra)</option></select></Fl><button style={sB} onClick={()=>{if(f.concepto&&Number(f.monto)>0&&f.obra)onSave({...f,monto:Number(f.monto)});else if(!f.obra)show("Selecciona una obra");}}>Guardar</button></div>;}
-function MergeObraForm({obra,obras,movs,caja,onMerge}){const others=obras.filter(o=>o.id!==obra.id);const[target,setTarget]=useState(others[0]?.id||"");const tgt=others.find(o=>o.id===target);const srcMovs=movs.filter(m=>m.obra===obra.nombre);const srcCaja=caja.filter(c=>c.obra===obra.nombre);const total=srcMovs.length+srcCaja.length;return <div><div style={{background:"rgba(201,149,107,.08)",border:"1px solid rgba(201,149,107,.2)",borderRadius:10,padding:14,marginBottom:12}}><div style={{fontSize:10,color:T.gold,fontWeight:700,marginBottom:6}}>OBRA A ELIMINAR (origen)</div><div style={{fontSize:16,fontWeight:800}}>{obra.nombre}</div><div style={{fontSize:11,color:T.muted}}>{obra.cliente||"Sin cliente"} · {obra.fase} · {$(obra.cotizado)}</div><div style={{fontSize:11,color:T.yellow,marginTop:4}}>{total} movimiento(s) serán transferidos</div></div><Fl l="Mover movimientos a"><select style={sI} value={target} onChange={e=>setTarget(e.target.value)}>{others.map(o=><option key={o.id} value={o.id}>{o.nombre} — {o.cliente||"sin cliente"} ({$(o.cotizado)})</option>)}</select></Fl>{tgt&&<div style={{background:"rgba(76,175,80,.08)",border:"1px solid rgba(76,175,80,.2)",borderRadius:10,padding:14,marginBottom:12}}><div style={{fontSize:10,color:T.green,fontWeight:700,marginBottom:6}}>OBRA DESTINO</div><div style={{fontSize:16,fontWeight:800}}>{tgt.nombre}</div><div style={{fontSize:11,color:T.muted}}>{tgt.cliente||"Sin cliente"} · {tgt.fase} · {$(tgt.cotizado)}</div></div>}<div style={{background:"rgba(231,76,60,.06)",border:"1px solid rgba(231,76,60,.15)",borderRadius:8,padding:10,fontSize:11,color:T.red,marginBottom:10}}>⚠️ Esta acción moverá {total} movimientos de <b>{obra.nombre}</b> a <b>{tgt?.nombre}</b> y eliminará <b>{obra.nombre}</b> del sistema.</div><button style={{...sB,background:"#1a3a1a",color:T.green}} onClick={()=>{if(tgt&&confirm("¿Fusionar "+obra.nombre+" → "+tgt.nombre+"?"))onMerge(obra,tgt);}}>🔗 Fusionar Obras</button></div>;}
-function HerramientaForm({obras,onSave}){const oAct=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");const[f,sf]=useState({nombre:"",monto:"",fecha:td(),proveedor:"",distribuir:"todas",obrasSelec:oAct.map(o=>o.nombre)});const toggleObra=(n)=>{sf(prev=>({...prev,obrasSelec:prev.obrasSelec.includes(n)?prev.obrasSelec.filter(x=>x!==n):[...prev.obrasSelec,n]}));};const prorr=f.distribuir==="todas"&&oAct.length>0?Math.round((Number(f.monto)||0)/oAct.length):f.obrasSelec.length>0?Math.round((Number(f.monto)||0)/f.obrasSelec.length):Number(f.monto)||0;return <div><Fl l="Herramienta / Equipo"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})} placeholder="Ej: Taladro Dewalt, Sierra circular..."/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Monto total"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Fecha"><input type="date" style={sI} value={f.fecha} onChange={e=>sf({...f,fecha:e.target.value})}/></Fl></div><Fl l="Proveedor"><input style={sI} value={f.proveedor} onChange={e=>sf({...f,proveedor:e.target.value})} placeholder="Ferretería, Home Depot..."/></Fl><Fl l="Distribuir costo en"><select style={sI} value={f.distribuir} onChange={e=>sf({...f,distribuir:e.target.value})}><option value="todas">Todas las obras activas ({oAct.length})</option><option value="selec">Seleccionar obras</option></select></Fl>{f.distribuir==="selec"&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>{oAct.map(o=><button key={o.id} onClick={()=>toggleObra(o.nombre)} style={{padding:"4px 10px",borderRadius:6,border:"1px solid "+(f.obrasSelec.includes(o.nombre)?T.green+"66":T.border),background:f.obrasSelec.includes(o.nombre)?T.green+"15":"transparent",color:f.obrasSelec.includes(o.nombre)?T.green:T.muted,fontSize:10,fontWeight:600,cursor:"pointer"}}>{f.obrasSelec.includes(o.nombre)?"✓ ":""}{o.nombre}</button>)}</div>}{Number(f.monto)>0&&<div style={{background:"rgba(79,142,247,.08)",border:"1px solid rgba(79,142,247,.2)",borderRadius:8,padding:10,marginBottom:8}}><div style={{fontSize:10,color:T.blue,fontWeight:700,marginBottom:4}}>PRORRATEO</div><div style={{fontSize:12,color:T.text}}>{$(prorr)} por obra × {f.distribuir==="todas"?oAct.length:f.obrasSelec.length} obras = <b style={{color:T.orange}}>{$(Number(f.monto))}</b></div></div>}<button style={sB} onClick={()=>{if(f.nombre&&Number(f.monto)>0)onSave({...f,monto:Number(f.monto)});}}>🔧 Registrar</button></div>;}
-function EditMovForm({mov,obras,onSave,onDelete}){const[desc,setDesc]=useState(mov.desc||"");const[monto,setMonto]=useState(mov.monto||0);const[prov,setProv]=useState(mov.prov||"");const[obra,setObra]=useState(mov.obra||"");const[cat,setCat]=useState(mov.cat||"");return <div><Fl l="Concepto"><input style={sI} value={desc} onChange={e=>setDesc(e.target.value)}/></Fl><Fl l="Monto"><input type="number" style={sI} value={monto} onChange={e=>setMonto(Number(e.target.value))}/></Fl><Fl l="Proveedor / Cliente"><input style={sI} value={prov} onChange={e=>setProv(e.target.value)}/></Fl><Fl l="Obra"><select style={sI} value={obra} onChange={e=>setObra(e.target.value)}><option value="">Sin obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><Fl l="Categoría"><input style={sI} value={cat} onChange={e=>setCat(e.target.value)} placeholder="Material, Nómina, etc."/></Fl><button style={{...sB,marginTop:8}} onClick={()=>onSave(desc,monto,prov,obra,cat)}>💾 Guardar Cambios</button><button style={{...sB,background:"#2a0a0a",color:T.red,border:"1px solid "+T.red+"33"}} onClick={onDelete}> 🗑 Eliminar Movimiento</button></div>;}
 function ExtraForm({onSave}){const[f,sf]=useState({desc:"",monto:""});return <div><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><button style={{...sB,background:T.orange}} onClick={()=>{const m=Number(f.monto);if(f.desc&&m>0)onSave({desc:f.desc,monto:m});}}>Enviar</button></div>;}
 function ClienteForm({onSave}){const[f,sf]=useState({nombre:"",tel:"",email:"",dir:""});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Teléfono"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><Fl l="Email"><input style={sI} value={f.email} onChange={e=>sf({...f,email:e.target.value})}/></Fl></div><Fl l="Dirección"><input style={sI} value={f.dir} onChange={e=>sf({...f,dir:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave(f)}>Guardar</button></div>;}
 function DocForm({onSave}){const[f,sf]=useState({nombre:"",tipo:"plano",ext:"PDF"});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Tipo"><select style={sI} value={f.tipo} onChange={e=>sf({...f,tipo:e.target.value})}><option value="plano">Plano</option><option value="render">Render</option><option value="contrato">Contrato</option><option value="avance">Avance</option></select></Fl><button style={sB} onClick={()=>f.nombre&&onSave(f)}>Subir</button></div>;}
@@ -166,26 +114,24 @@ export default function App(){
   const[catalogo,setCatalogoR]=useState(CATALOGO_INIT);
   const[nominas,setNominasR]=useState([]);
   const[documentos,setDocumentosR]=useState([]);
-  const[herramientas,setHerramientasR]=useState([]);
-  const[archivadas,setArchivadasR]=useState([]);
   useEffect(()=>{(async()=>{
     if(CLOUD)setSyncStatus("Conectando a la nube...");
-    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[]),herramientas:await DB.get('herramientas',[]),archivadas:await DB.get('archivadas',[])};
+    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[])};
     if(CLOUD)setSyncStatus(_syncOk?"☁️ Nube sincronizada":"⚠️ Usando datos locales");
     // Datos ya viven en Supabase — no se tocan al actualizar el código
     if(!d.nominas||d.nominas.length===0)d.nominas=[{id:"N01",nombre:"Nómina Carpintería",monto:15000,frecuencia:"semanal",tipo:"Nómina"},{id:"N02",nombre:"Renta Carpintería",monto:11000,frecuencia:"mensual",tipo:"Renta"},{id:"N05",nombre:"IMSS",monto:16563,frecuencia:"mensual",tipo:"IMSS"},{id:"N06",nombre:"Luz Carpintería",monto:2500,frecuencia:"mensual",tipo:"Servicios"},{id:"N07",nombre:"Caja Chica Carpintería",monto:5000,frecuencia:"semanal",tipo:"Caja chica"},{id:"N08",nombre:"Francisco — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N09",nombre:"Erik — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N10",nombre:"Héctor — Carpintero",monto:3500,frecuencia:"semanal",tipo:"Nómina"},{id:"N11",nombre:"Barnizador",monto:3500,frecuencia:"semanal",tipo:"Nómina"}];
 
     // Fix duplicate obra IDs
     const seenIds=new Set();d.obras=d.obras.map(o=>{if(seenIds.has(o.id)){return{...o,id:"OB"+Date.now()+Math.random().toString(36).slice(2,6)};}seenIds.add(o.id);return o;});
-    setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setCatalogoR(d.catalogo);if(d.nominas)setNominasR(d.nominas);if(d.documentos)setDocumentosR(d.documentos);if(d.herramientas)setHerramientasR(d.herramientas);if(d.archivadas)setArchivadasR(d.archivadas);
+    setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setCatalogoR(d.catalogo);if(d.nominas)setNominasR(d.nominas);if(d.documentos)setDocumentosR(d.documentos);
     // Save fixed obras back if duplicates were found
     if(seenIds.size<d.obras.length)DB.set('obras',d.obras);
     setLoading(false);})();},[]);
   // Auto-sync cada 30s — PROTEGE escrituras recientes
   const _lastWrite=useRef({});
-  useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){if(_lastWrite.current[k]&&now-_lastWrite.current[k]<15000)continue;try{const _ctrl=new AbortController();const _t=setTimeout(()=>_ctrl.abort(),5000);const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY},signal:_ctrl.signal});clearTimeout(_t);if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0){const cloud=j[0].value;const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');const cLen=Array.isArray(cloud)?cloud.length:0;const lLen=Array.isArray(local)?local.length:0;if(cLen>lLen){const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;setter(cloud);try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}else if(lLen>cLen){DB.set(k,local);}}}}catch{}};}catch{}},30000);return()=>clearInterval(iv);},[]);
+  useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){if(_lastWrite.current[k]&&now-_lastWrite.current[k]<15000)continue;const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0){const cloud=j[0].value;const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');const cLen=Array.isArray(cloud)?cloud.length:0;const lLen=Array.isArray(local)?local.length:0;if(cLen>lLen){const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;setter(cloud);try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}else if(lLen>cLen){DB.set(k,local);}}}}}catch{}},30000);return()=>clearInterval(iv);},[]);
   const wrap=(raw,set,key)=>v=>{const n=typeof v==="function"?v(raw):v;set(n);_lastWrite.current[key]=Date.now();DB.set(key,n);};
-  const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos"),setHerramientas=wrap(herramientas,setHerramientasR,"herramientas"),setArchivadas=wrap(archivadas,setArchivadasR,"archivadas");
+  const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos");
   const cats=[...new Set(catalogo.map(c=>c.cat))];
   const[toast,setToast]=useState(null);
   const[cliTab,setCliTab]=useState("resumen");
@@ -209,14 +155,14 @@ export default function App(){
   const can=p=>user&&ROLES[user.rol].permisos.includes(p);
   const om=(t,d)=>{setModal(t);setMd(d||null);};
   const cm=()=>{setModal(null);setMd(null);};
-  const go=(s,d)=>{setSec(s);setSub(d||null);setMoreOpen(false);if(s==="finanzas"&&!subTab.match(/^(movs|caja|tablero|recibos|auth)$/))setSubTab("movs");if(s==="taller"&&!subTab.match(/^(inv|herram|provs|catalogo)$/))setSubTab("inv");};
+  const go=(s,d)=>{setSec(s);setSub(d||null);setMoreOpen(false);if(s==="finanzas"&&!subTab.match(/^(movs|caja|tablero|recibos|auth)$/))setSubTab("movs");if(s==="taller"&&!subTab.match(/^(inv|provs|catalogo)$/))setSubTab("inv");};
   const tIng=movs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);
   const tEgr=movs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0);
   const tCaja=caja.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
   const cajaPend=caja.filter(c=>c.status==="pendiente").length;
   const tCot=obras.reduce((s,o)=>s+o.cotizado,0);
   const tEgrO=obras.reduce((s,o)=>s+o.egreso,0);
-  const pendA=caja.filter(c=>c.status==="pendiente").length;
+  const pendA=auts.filter(a=>a.status==="pendiente").length;
   const lowS=inv.filter(i=>i.stock<=i.minimo);
   const oAct=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
   const cotsPend=obras.filter(o=>o.fase==="cotizacion").length;
@@ -230,46 +176,18 @@ export default function App(){
   const ensureCli=(nombre)=>{if(!nombre)return;const n=nombre.trim();setClis(prev=>{if(prev.some(c=>c.nombre.toLowerCase()===n.toLowerCase()))return prev;return[...prev,{id:"C"+Date.now(),nombre:n,tel:"",email:"",dir:""}];});};
   const scanFile=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});const isPdf=file.type==="application/pdf";const content=[isPdf?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Analiza este documento/imagen de cotización de carpintería. Extrae TODOS los conceptos con su precio unitario y cantidad. Responde SOLO JSON array sin markdown: [{"desc":"descripción completa del concepto","precio":12345,"cant":1}]. Si un concepto tiene cantidad mayor a 1, ponla. Si no encuentras nada: []'}];const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content}]})});const data=await resp.json();const text=data.content?.map(i=>i.text||"").join("")||"[]";const items=JSON.parse(text.replace(/```json|```/g,"").trim());if(Array.isArray(items)&&items.length>0){setCotP(prev=>[...prev,...items.map((it,i)=>({id:"S-"+Date.now()+"-"+i,cat:"Escaneado",desc:it.desc||"Concepto",precio:Number(it.precio)||0,cant:Number(it.cant)||1}))]);show(items.length+" conceptos extraídos");}else show("Sin conceptos");}catch(e){show("Error al analizar");}setScanning(false);};
   const[subTab,setSubTab]=useState("");
-  const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");const[ctrlDetalle,setCtrlDetalle]=useState(null);const[reFilt,setReFilt]=useState("todos");const[reSort,setReSort]=useState("urgencia");const[reBusq,setReBusq]=useState("");
+  const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");
   // ═══ FINANZAS COMPUTED ═══
-  const finAll=(()=>{const a=[];movs.forEach((m,_idx)=>a.push({t:m.ing>0?"ing":"egr",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"",monto:m.ing>0?m.ing:m.egr,user:m.user||"",cat:m.cat||"",id:"m"+_idx,_idx:_idx,_kind:"movs",status:"aprobado",rec:m.recibo}));caja.forEach((c,_idx)=>a.push({t:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"",monto:c.monto,user:c.resp||"",cat:"Caja Chica",id:"c"+_idx,_idx:_idx,_kind:"caja",status:c.status||"aprobado",ticket:c.ticket,cajaId:c.id}));a.sort((x,y)=>y.fecha>x.fecha?1:y.fecha<x.fecha?-1:0);return a;})();
-  const _norm=s=>(s||"").toLowerCase().replace(/\s+/g,' ').trim();
-  // Gastos indirectos del taller (no son de obras reales)
-  const _CATS_INDIRECTOS=["Nómina","Renta","IMSS","Servicios","Luz","Agua","Gas","Internet","Caja chica","Destajo","Nomina"];
-  const _NOMS_INDIRECTOS_OBRA=["carpinteria","taller","general","sin obra"];
-  const esIndirecto=(m)=>{
-    const cat=(m.cat||"").toLowerCase();
-    const obra=(m.obra||"").toLowerCase().trim();
-    if(_CATS_INDIRECTOS.map(x=>x.toLowerCase()).includes(cat))return true;
-    if(_NOMS_INDIRECTOS_OBRA.includes(obra))return true;
-    if(!obra)return true;
-    // Si la obra no coincide con una obra real del sistema, es indirecto
-    if(!obras.some(o=>_norm(o.nombre)===_norm(m.obra)))return true;
-    return false;
-  };
-  const finFilt=finAll.filter(m=>{
-    if(ff==="ing"&&m.t!=="ing")return false;
-    if(ff==="egr"&&(m.t==="ing"||m.t==="caja"))return false;
-    if(ff==="caja"&&m.t!=="caja")return false;
-    if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;
-    if(ff==="rec"&&!m.rec)return false;
-    if(ff==="directo"&&esIndirecto(m))return false;
-    if(ff==="indirecto"&&!esIndirecto(m))return false;
-    if(fObra){if(_norm(m.obra)!==_norm(fObra))return false;}
-    if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q)&&!m.cat.toLowerCase().includes(q))return false;}
-    return true;
-  });
+  const finAll=(()=>{const a=[];movs.forEach(m=>a.push({t:m.ing>0?"ing":"egr",fecha:m.fecha,desc:m.desc,prov:m.prov||"",obra:m.obra||"",monto:m.ing>0?m.ing:m.egr,user:m.user||"",cat:m.cat||"",id:"m"+m.id,status:"aprobado",rec:m.recibo}));caja.forEach(c=>a.push({t:"caja",fecha:c.fecha,desc:c.concepto,prov:"",obra:c.obra||"",monto:c.monto,user:c.resp||"",cat:"Caja Chica",id:"c"+c.id,status:c.status||"aprobado",ticket:c.ticket,cajaId:c.id}));a.sort((x,y)=>y.fecha>x.fecha?1:y.fecha<x.fecha?-1:0);return a;})();
+  const finFilt=finAll.filter(m=>{if(ff==="ing"&&m.t!=="ing")return false;if(ff==="egr"&&m.t==="ing")return false;if(ff==="caja"&&m.t!=="caja")return false;if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;if(ff==="rec"&&!m.rec)return false;if(fObra&&m.obra!==fObra)return false;if(fBusq){const q=fBusq.toLowerCase();if(!m.desc.toLowerCase().includes(q)&&!m.prov.toLowerCase().includes(q)&&!m.obra.toLowerCase().includes(q)&&!m.cat.toLowerCase().includes(q))return false;}return true;});
   const finIng=finFilt.filter(m=>m.t==="ing").reduce((s,m)=>s+m.monto,0);
   const finEgr=finFilt.filter(m=>m.t!=="ing").reduce((s,m)=>s+m.monto,0);
-  const obrasActivas=obras.map(o=>o.nombre);
-  // Solo mostrar obras REALES del sistema (no obras fantasma de movimientos viejos)
-  const finObras=obras.filter(o=>o.fase!=="cancelado").map(o=>o.nombre).sort();
+  const finObras=[...new Set(finAll.map(m=>m.obra).filter(Boolean))].sort();
   const allNav=[];
   if(can("dash"))allNav.push({key:"dash",icon:"🏠",label:"Inicio",grp:"neg"});
   if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
   if(can("cot")||can("obras")||can("obras_ver"))allNav.push({key:"cotizaciones",icon:"📋",label:"Cotizaciones",grp:"neg"});
   if(can("obras")||can("obras_ver"))allNav.push({key:"obras",icon:"🏗️",label:"Obras",grp:"neg"});
-  if(can("obras")||can("obras_ver"))allNav.push({key:"archivadas",icon:"📦",label:"Archivadas",grp:"neg"});
   if(can("money")||can("caja")||can("recibos")||can("anal"))allNav.push({key:"finanzas",icon:"💰",label:"Finanzas",grp:"fin"});
   if(can("caja"))allNav.push({key:"cajachica",icon:"🧾",label:"Caja Chica",grp:"fin"});
   allNav.push({key:"nominas",icon:"📅",label:"Nóminas",grp:"fin"});
@@ -369,145 +287,28 @@ export default function App(){
 
   // ═══ MAIN CONTENT ═══
   const content= <div style={{padding:D?"16px 24px":"6px 12px 80px",flex:1,overflowY:"auto"}}>
-    {sec==="dash"&&(()=>{
-      const totCobrado=movs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);
-      const totGastado=movs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
-      const porCobrar=tCot-totCobrado;
-      const margenGlobal=tCot-totGastado;
-      const balance=tIng-tEgr;
-
-      // Datos para gráfica de ingresos vs egresos por mes
-      const _MNAMES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-      const mesesData=(()=>{const map={};movs.forEach(m=>{const mes=m.fecha?.slice(0,7)||"";if(!mes)return;if(!map[mes])map[mes]={mes,ing:0,egr:0};if(m.ing>0)map[mes].ing+=m.ing;if(m.egr>0)map[mes].egr+=m.egr;});caja.filter(c=>c.status!=="rechazado").forEach(c=>{const mes=c.fecha?.slice(0,7)||"";if(!mes)return;if(!map[mes])map[mes]={mes,ing:0,egr:0};map[mes].egr+=c.monto;});return Object.values(map).sort((a,b)=>a.mes>b.mes?1:-1).map(m=>{const mi=parseInt(m.mes.slice(5))-1;return{...m,name:(_MNAMES[mi]||m.mes.slice(5))+" "+m.mes.slice(2,4),balance:m.ing-m.egr};});})();
-
-      // Datos para gráfica de obras (bar chart)
-      const obrasChart=oAct.filter(o=>{const oCob=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);return oCob>0||oGas>0;}).map(o=>{const oCob=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);return{name:o.nombre.length>10?o.nombre.slice(0,10)+"…":o.nombre,full:o.nombre,cobrado:oCob,gastado:oGas};});
-
-      // Datos para pie chart de categorías de gasto
-      const catMap={};movs.filter(m=>m.egr>0).forEach(m=>{const c=m.cat||"Sin cat.";catMap[c]=(catMap[c]||0)+m.egr;});caja.filter(c=>c.status!=="rechazado").forEach(c=>{catMap["Caja Chica"]=(catMap["Caja Chica"]||0)+c.monto;});
-      const pieData=Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,value])=>({name,value}));
-      const PIE_COLORS=[T.gold,"#4CAF50","#E05252","#42A5F5","#AB47BC","#FF9800","#26A69A","#E0529F"];
-
-      const ChartTooltipStyle={backgroundColor:"#1a1a1a",border:"1px solid #333",borderRadius:8,fontSize:11,color:"#e8e0d8"};
-
-      return <div>
-      {/* Bienvenida */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div><div style={{fontSize:20,fontWeight:800}}>Hola, {user?.nombre?.split(" ")[0]} 👋</div><div style={{fontSize:11,color:T.muted}}>Panel de control · Ensamble Villarreal</div></div>
-        <div style={{fontSize:11,color:T.dim}}>{new Date().toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+    {sec==="dash"&&<div>
+      <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Dashboard</div>
+      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
+        <Card onClick={()=>go("cotizaciones")} style={{cursor:"pointer"}}><Stat label="Cotizaciones" value={cotsPend} color={cotsPend>0?T.yellow:T.muted}/></Card>
+        <Card onClick={()=>go("obras")} style={{cursor:"pointer"}}><Stat label="Obras Activas" value={oAct.length} color={T.green}/></Card>
+        <Card><Stat label="Cotizado Total" value={$(tCot)} color={T.gold}/></Card>
+        <Card><Stat label="Balance" value={$(tIng-tEgr)} color={tIng-tEgr>=0?T.green:T.red}/></Card>
       </div>
-
-      {pendA>0&&<Card onClick={()=>go("cajachica")} style={{borderColor:T.yellow+"33",cursor:"pointer",marginBottom:8,background:"rgba(241,196,15,.05)"}}><span style={{fontWeight:700,color:T.yellow}}>🔔 {pendA} gasto(s) de Caja Chica esperando tu autorización · Clic para revisar</span></Card>}
-
-      {/* Botón Resumen Ejecutivo */}
-      <div onClick={()=>om("resumenEj")} style={{background:"linear-gradient(135deg,rgba(201,149,107,.15),rgba(201,149,107,.05))",border:"1px solid "+T.gold+"44",borderRadius:12,padding:"14px 18px",marginBottom:12,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div>
-          <div style={{fontSize:14,fontWeight:800,color:T.gold}}>🎯 Resumen Ejecutivo</div>
-          <div style={{fontSize:11,color:T.muted,marginTop:2}}>Todas las obras en una sola vista · Semáforo de salud</div>
+      {pendA>0&&<Card onClick={()=>{go("finanzas");setSubTab("auth");}} style={{borderColor:T.yellow+"33",cursor:"pointer"}}><span style={{fontWeight:700,color:T.yellow}}>🔔 {pendA} autorización(es) pendiente(s)</span></Card>}
+      {(()=>{const totCobrado=movs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);const totGastado=movs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);const porCobrar=tCot-totCobrado;const margenGlobal=tCot-totGastado;return <Card>
+        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:12,marginBottom:10}}>
+          <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Cobrado</div><div style={{fontSize:16,fontWeight:800,color:T.green}}>{$(totCobrado)}</div></div>
+          <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Gastado</div><div style={{fontSize:16,fontWeight:800,color:T.red}}>{$(totGastado)}</div></div>
+          <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Por Cobrar</div><div style={{fontSize:16,fontWeight:800,color:porCobrar>0?T.yellow:T.green}}>{$(porCobrar)}</div></div>
+          <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Utilidad Global</div><div style={{fontSize:16,fontWeight:800,color:margenGlobal>=0?T.green:T.red}}>{$(margenGlobal)}</div><div style={{fontSize:9,color:margenGlobal>=0?T.green:T.red}}>{tCot?pc(margenGlobal,tCot):0}%</div></div>
         </div>
-        <div style={{fontSize:20,color:T.gold}}>→</div>
-      </div>
-
-      {/* KPIs principales */}
-      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
-        <Card style={{borderLeft:"3px solid "+T.gold,padding:"14px 16px"}} onClick={()=>go("cotizaciones")}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Cotizado Total</div><div style={{fontSize:22,fontWeight:800,color:T.gold}}>{$(tCot)}</div><div style={{fontSize:10,color:T.dim}}>{obras.length} proyectos</div></Card>
-        <Card style={{borderLeft:"3px solid "+T.green,padding:"14px 16px"}} onClick={()=>go("finanzas")}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Ingresos</div><div style={{fontSize:22,fontWeight:800,color:T.green}}>{$(totCobrado)}</div><div style={{fontSize:10,color:T.green}}>{tCot?pc(totCobrado,tCot):0}% del cotizado</div></Card>
-        <Card style={{borderLeft:"3px solid "+T.red,padding:"14px 16px"}}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Egresos</div><div style={{fontSize:22,fontWeight:800,color:T.red}}>{$(totGastado)}</div><div style={{fontSize:10,color:T.dim}}>{movs.filter(m=>m.egr>0).length+caja.length} movimientos</div></Card>
-        <Card style={{borderLeft:"3px solid "+(balance>=0?T.green:T.red),padding:"14px 16px"}}><div style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Balance</div><div style={{fontSize:22,fontWeight:800,color:balance>=0?T.green:T.red}}>{$(balance)}</div><div style={{fontSize:10,color:margenGlobal>=0?T.green:T.red}}>Utilidad: {tCot?pc(margenGlobal,tCot):0}%</div></Card>
-      </div>
-
-      {/* Barra de progreso de cobranza */}
-      <Card style={{padding:"10px 16px",marginBottom:12}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-          <span style={{fontSize:10,color:T.muted}}>Avance de cobranza</span>
-          <span style={{fontSize:10,fontWeight:700,color:T.green}}>{tCot?pc(totCobrado,tCot):0}%</span>
-        </div>
-        <div style={{background:T.border,borderRadius:6,height:10,overflow:"hidden"}}>
-          <div style={{height:"100%",width:(tCot?Math.min(totCobrado/tCot*100,100):0)+"%",background:"linear-gradient(90deg,"+T.green+",#6BCB77)",borderRadius:6,transition:"width .5s"}}/>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:9,color:T.dim}}>
-          <span>Cobrado: {$(totCobrado)}</span><span>Por cobrar: {$(porCobrar)}</span><span>Total: {$(tCot)}</span>
-        </div>
-      </Card>
-
-      {/* Gráficas: Flujo mensual + Distribución de gastos */}
-      <div style={{display:"grid",gridTemplateColumns:D?"2fr 1fr":"1fr",gap:10,marginBottom:12}}>
-        <Card style={{padding:"14px 16px"}}>
-          <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>📈 Ingresos vs Egresos por Mes</div>
-          {mesesData.length>0?<ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={mesesData}>
-              <defs>
-                <linearGradient id="gIng" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.green} stopOpacity={0.3}/><stop offset="95%" stopColor={T.green} stopOpacity={0}/></linearGradient>
-                <linearGradient id="gEgr" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.red} stopOpacity={0.3}/><stop offset="95%" stopColor={T.red} stopOpacity={0}/></linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#222"/>
-              <XAxis dataKey="name" tick={{fill:T.muted,fontSize:10}} axisLine={false}/>
-              <YAxis tick={{fill:T.muted,fontSize:9}} axisLine={false} tickFormatter={v=>v>=1e6?(v/1e6).toFixed(1)+"M":v>=1e3?(v/1e3).toFixed(0)+"K":v}/>
-              <Tooltip contentStyle={ChartTooltipStyle} formatter={(v)=>$(v)}/>
-              <Area type="monotone" dataKey="ing" stroke={T.green} fill="url(#gIng)" strokeWidth={2} name="Ingresos"/>
-              <Area type="monotone" dataKey="egr" stroke={T.red} fill="url(#gEgr)" strokeWidth={2} name="Egresos"/>
-            </AreaChart>
-          </ResponsiveContainer>:<div style={{height:180,display:"flex",alignItems:"center",justifyContent:"center",color:T.dim}}>Sin datos aún</div>}
-        </Card>
-
-        <Card style={{padding:"14px 16px"}}>
-          <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>🍩 Distribución de Gastos</div>
-          {pieData.length>0?<div>
-            <ResponsiveContainer width="100%" height={140}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={2} dataKey="value">
-                  {pieData.map((entry,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]}/>)}
-                </Pie>
-                <Tooltip contentStyle={ChartTooltipStyle} formatter={(v)=>$(v)}/>
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center"}}>
-              {pieData.slice(0,6).map((d,i)=><span key={i} style={{fontSize:9,display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:PIE_COLORS[i%PIE_COLORS.length],display:"inline-block"}}/>{d.name}</span>)}
-            </div>
-          </div>:<div style={{height:140,display:"flex",alignItems:"center",justifyContent:"center",color:T.dim}}>Sin gastos</div>}
-        </Card>
-      </div>
-
-      {/* Gráfica de barras: Obras comparadas */}
-      {obrasChart.length>0&&<Card style={{padding:"14px 16px",marginBottom:12}}>
-        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>🏗️ Ingresos vs Egresos por Obra</div>
-        <ResponsiveContainer width="100%" height={Math.max(obrasChart.length*40+30,120)}>
-          <BarChart data={obrasChart} layout="vertical" barGap={2} margin={{left:10,right:10}}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#222" horizontal={false}/>
-            <YAxis dataKey="name" type="category" tick={{fill:T.muted,fontSize:10}} axisLine={false} width={90}/>
-            <XAxis type="number" tick={{fill:T.muted,fontSize:9}} axisLine={false} tickFormatter={v=>v>=1e6?(v/1e6).toFixed(1)+"M":v>=1e3?(v/1e3).toFixed(0)+"K":v}/>
-            <Tooltip contentStyle={ChartTooltipStyle} formatter={(v)=>$(v)}/>
-            <RBar dataKey="cobrado" fill={T.green} radius={[0,4,4,0]} name="Ingresos" barSize={14}/>
-            <RBar dataKey="gastado" fill={T.red} radius={[0,4,4,0]} name="Egresos" barSize={14}/>
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>}
-
-      {/* Proyectos en curso (mini cards) */}
-      <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Proyectos en Curso</div>
-      {oAct.length>0?<div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr":"1fr",gap:8,marginBottom:12}}>{oAct.map(o=>{const oCob=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);const oMar=oCob-oGas;return <Card key={o.id} onClick={()=>go("obras",o)} style={{cursor:"pointer",padding:"10px 14px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700,fontSize:13}}>{o.nombre}</span><span style={{fontSize:9,background:FCC[o.fase]+"33",color:FCC[o.fase],padding:"2px 8px",borderRadius:10,fontWeight:700}}>{FASES[o.fase]}</span></div>
-        <div style={{fontSize:10,color:T.muted,marginBottom:8}}>{o.cliente} · {$(o.cotizado)}</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-          <div style={{textAlign:"center",background:T.green+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Ingresos</div><div style={{fontSize:13,fontWeight:800,color:T.green}}>{$(oCob)}</div></div>
-          <div style={{textAlign:"center",background:T.red+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Egresos</div><div style={{fontSize:13,fontWeight:800,color:T.red}}>{$(oGas)}</div></div>
-          <div style={{textAlign:"center",background:(oMar>=0?T.green:T.red)+"10",borderRadius:6,padding:"6px 4px"}}><div style={{fontSize:8,color:T.muted}}>Margen</div><div style={{fontSize:13,fontWeight:800,color:oMar>=0?T.green:T.red}}>{$(oMar)}</div></div>
-        </div>
-        <div style={{marginTop:6}}><Bar v={o.avance} mx={100} c={FCC[o.fase]} h={5}/><div style={{fontSize:9,color:T.muted,textAlign:"right",marginTop:1}}>{o.avance}% avance</div></div>
-      </Card>})}</div>:<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin proyectos activos</div></Card>}
-
-      {/* Últimos movimientos */}
-      {movs.length>0&&<Card style={{padding:0,overflow:"hidden"}}>
-        <div style={{padding:"10px 14px",borderBottom:"1px solid "+T.border,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Últimos Movimientos</div>
-          <button onClick={()=>go("finanzas")} style={{fontSize:10,color:T.blue,background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Ver todos →</button>
-        </div>
-        {movs.slice(-6).reverse().map((m,i)=><div key={m.id} style={{display:"flex",justifyContent:"space-between",padding:"8px 14px",borderBottom:"1px solid "+T.line,background:i%2===0?"transparent":"rgba(255,255,255,.01)"}}>
-          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:m.ing>0?T.green:T.red,marginRight:4}}>{m.ing>0?"⬆":"⬇"}</span>{m.desc}</div><div style={{fontSize:9,color:T.dim}}>{fd(m.fecha)} · {m.obra||"General"}{m.cat?" · "+m.cat:""}</div></div>
-          <span style={{fontWeight:800,fontSize:13,color:m.ing>0?T.green:T.red,flexShrink:0}}>{m.ing>0?"+":"-"}{$(m.ing>0?m.ing:m.egr)}</span>
-        </div>)}
-      </Card>}
-    </div>;})()}
+        <div style={{display:"flex",gap:8,alignItems:"center"}}><div style={{flex:1}}><Bar v={totCobrado} mx={tCot||1} c={T.green} h={4}/></div><span style={{fontSize:9,color:T.muted,whiteSpace:"nowrap"}}>{tCot?pc(totCobrado,tCot):0}% cobrado</span></div>
+      </Card>;})()}
+      <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,margin:"10px 0 6px"}}>Proyectos en Curso</div>
+      {oAct.length>0?<div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{oAct.map(o=>{const oCob=movs.filter(m=>m.ing>0&&m.obra===o.nombre).reduce((s,m)=>s+m.ing,0);const oGas=movs.filter(m=>m.egr>0&&m.obra===o.nombre).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>c.obra===o.nombre&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);const oMar=o.cotizado-oGas;return <Card key={o.id} onClick={()=>go("obras",o)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontSize:10,background:FCC[o.fase]+"33",color:FCC[o.fase],padding:"1px 6px",borderRadius:8,fontWeight:700}}>{FASES[o.fase]}</span></div><div style={{fontSize:11,color:T.muted,marginBottom:6}}>{o.cliente} · {$(o.cotizado)}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:6}}><div><div style={{fontSize:8,color:T.muted}}>COBRADO</div><div style={{fontSize:12,fontWeight:700,color:T.green}}>{$(oCob)}</div></div><div><div style={{fontSize:8,color:T.muted}}>GASTADO</div><div style={{fontSize:12,fontWeight:700,color:T.red}}>{$(oGas)}</div></div><div><div style={{fontSize:8,color:T.muted}}>MARGEN</div><div style={{fontSize:12,fontWeight:700,color:oMar>=0?T.green:T.red}}>{$(oMar)}</div></div></div><Bar v={o.avance} mx={100} c={FCC[o.fase]}/><div style={{fontSize:9,color:T.muted,textAlign:"right",marginTop:2}}>{o.avance}%</div></Card>})}</div>:<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin proyectos activos</div></Card>}
+      {movs.length>0&&<div><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,margin:"12px 0 6px"}}>Últimos Movimientos</div>{movs.slice(-5).reverse().map(m=> <Card key={m.id}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600}}>{m.desc}</div><div style={{fontSize:10,color:T.dim}}>{fd(m.fecha)} · {m.prov} · {m.obra||"General"}</div></div><span style={{fontWeight:800,color:m.ing>0?T.green:T.red}}>{m.ing>0?"+":"-"}{$(m.ing>0?m.ing:m.egr)}</span></div></Card>)}</div>}
+    </div>}
 
     {sec==="cot"&&<div style={{maxWidth:700}}>
       {editObraId&&<div style={{background:"#2a2000",border:"1px solid #FFD54F44",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{color:T.yellow,fontWeight:700}}>✏️ Editando: {cotEmp||cotNom}</span><button onClick={()=>{setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");}} style={{background:"#333",border:"none",color:"#999",borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Cancelar</button></div>}
@@ -547,91 +348,6 @@ export default function App(){
       </div>;})()}
     </div>}
 
-    {sec==="archivadas"&&(()=>{
-      const[arSel,_ar]=[sub,setSub];
-      if(arSel){
-        const ar=arSel;
-        return <div style={{maxWidth:900}}>
-          <button onClick={()=>_ar(null)} style={{background:"none",border:"none",color:"#a78bfa",cursor:"pointer",fontSize:13,padding:0,marginBottom:12}}>← Volver a Archivadas</button>
-          <Card style={{borderLeft:"4px solid #a78bfa",marginBottom:12}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
-              <div>
-                <div style={{fontSize:22,fontWeight:800,marginBottom:4}}>📦 {ar.obra.nombre}</div>
-                <div style={{fontSize:12,color:T.muted}}>{ar.obra.cliente||"Sin cliente"} · Archivada el {new Date(ar.archivedAt).toLocaleDateString("es-MX")}{ar.archivedBy?" · por "+ar.archivedBy:""}</div>
-              </div>
-              <button onClick={()=>{
-                if(!confirm("¿Restaurar \""+ar.obra.nombre+"\" a obras activas? Los movimientos volverán al sistema."))return;
-                setObras(prev=>[...prev,{...ar.obra,fase:"produccion"}]);
-                setMovs(prev=>[...prev,...(ar.movs||[])]);
-                setCaja(prev=>[...prev,...(ar.caja||[])]);
-                setDocumentos(prev=>[...prev,...(ar.documentos||[])]);
-                setArchivadas(prev=>prev.filter(a=>a.archivedAt!==ar.archivedAt));
-                _ar(null);show("✅ Obra restaurada");go("obras");
-              }} style={{background:"rgba(38,166,154,.12)",border:"1px solid rgba(38,166,154,.3)",color:T.teal,borderRadius:8,padding:"8px 14px",fontSize:11,fontWeight:700,cursor:"pointer"}}>♻️ Restaurar</button>
-            </div>
-          </Card>
-          <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}}>
-            <Card style={{borderTop:"3px solid "+T.gold}}><div style={{fontSize:10,color:T.muted}}>COTIZADO</div><div style={{fontSize:18,fontWeight:800,color:T.gold}}>{$(ar.resumen.cotizado)}</div></Card>
-            <Card style={{borderTop:"3px solid "+T.green}}><div style={{fontSize:10,color:T.muted}}>INGRESOS</div><div style={{fontSize:18,fontWeight:800,color:T.green}}>{$(ar.resumen.cobrado)}</div></Card>
-            <Card style={{borderTop:"3px solid "+T.red}}><div style={{fontSize:10,color:T.muted}}>EGRESOS</div><div style={{fontSize:18,fontWeight:800,color:T.red}}>{$(ar.resumen.gastado)}</div></Card>
-            <Card style={{borderTop:"3px solid "+(ar.resumen.margen>=0?T.green:T.red)}}><div style={{fontSize:10,color:T.muted}}>MARGEN</div><div style={{fontSize:18,fontWeight:800,color:ar.resumen.margen>=0?T.green:T.red}}>{$(ar.resumen.margen)}</div></Card>
-          </div>
-          <Card style={{marginBottom:12}}>
-            <div style={{fontSize:11,color:T.gold,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>📋 Movimientos archivados ({(ar.movs||[]).length})</div>
-            {(ar.movs||[]).length===0?<div style={{color:T.dim,fontSize:12,textAlign:"center",padding:20}}>Sin movimientos</div>:
-            <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:400,overflowY:"auto"}}>
-              {(ar.movs||[]).sort((a,b)=>b.fecha>a.fecha?1:-1).map((m,i)=>
-                <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:i%2===0?"rgba(255,255,255,.02)":"transparent",borderRadius:6,fontSize:11}}>
-                  <div style={{flex:1,minWidth:0}}><div style={{fontWeight:600}}>{m.ing>0?"⬆":"⬇"} {m.desc}</div><div style={{fontSize:9,color:T.dim}}>{fd(m.fecha)}{m.prov?" · "+m.prov:""}{m.cat?" · "+m.cat:""}</div></div>
-                  <span style={{fontWeight:800,color:m.ing>0?T.green:T.red}}>{m.ing>0?"+":"-"}{$(m.ing>0?m.ing:m.egr)}</span>
-                </div>
-              )}
-            </div>}
-          </Card>
-          {(ar.caja||[]).length>0&&<Card style={{marginBottom:12}}>
-            <div style={{fontSize:11,color:T.gold,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>🧾 Caja chica archivada ({ar.caja.length})</div>
-            <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:300,overflowY:"auto"}}>
-              {ar.caja.map((c,i)=>
-                <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:i%2===0?"rgba(255,255,255,.02)":"transparent",borderRadius:6,fontSize:11}}>
-                  <div style={{flex:1}}><div style={{fontWeight:600}}>{c.concepto}</div><div style={{fontSize:9,color:T.dim}}>{c.fecha} · {c.resp||""}</div></div>
-                  <span style={{fontWeight:800,color:T.orange}}>-{$(c.monto)}</span>
-                </div>
-              )}
-            </div>
-          </Card>}
-        </div>;
-      }
-      return <div>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div>
-            <div style={{fontSize:18,fontWeight:800}}>📦 Obras Archivadas</div>
-            <div style={{fontSize:11,color:T.muted}}>Historial completo de obras terminadas</div>
-          </div>
-          <div style={{fontSize:11,color:T.muted}}>{archivadas.length} obra{archivadas.length!==1?"s":""}</div>
-        </div>
-        {archivadas.length===0?<Card style={{textAlign:"center",padding:40}}>
-          <div style={{fontSize:40,marginBottom:10}}>📦</div>
-          <div style={{color:T.muted,fontSize:14}}>No hay obras archivadas</div>
-          <div style={{color:T.dim,fontSize:11,marginTop:6}}>Cuando termines una obra, usa el botón "📦 Archivar" en su detalle</div>
-        </Card>:<div style={{display:"grid",gridTemplateColumns:G,gap:8}}>
-          {archivadas.sort((a,b)=>b.archivedAt>a.archivedAt?1:-1).map(ar=>
-            <Card key={ar.archivedAt} onClick={()=>_ar(ar)} style={{cursor:"pointer",borderLeft:"3px solid #a78bfa"}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <div style={{fontWeight:700,fontSize:13}}>{ar.obra.nombre}</div>
-                <span style={{fontSize:9,color:"#a78bfa"}}>📦</span>
-              </div>
-              <div style={{fontSize:10,color:T.muted,marginBottom:8}}>{ar.obra.cliente||"Sin cliente"} · {new Date(ar.archivedAt).toLocaleDateString("es-MX")}</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
-                <div><div style={{fontSize:8,color:T.muted}}>INGRESOS</div><div style={{fontSize:11,fontWeight:700,color:T.green}}>{$(ar.resumen.cobrado)}</div></div>
-                <div><div style={{fontSize:8,color:T.muted}}>EGRESOS</div><div style={{fontSize:11,fontWeight:700,color:T.red}}>{$(ar.resumen.gastado)}</div></div>
-                <div><div style={{fontSize:8,color:T.muted}}>MARGEN</div><div style={{fontSize:11,fontWeight:700,color:ar.resumen.margen>=0?T.green:T.red}}>{$(ar.resumen.margen)}</div></div>
-              </div>
-              <div style={{fontSize:9,color:T.dim,marginTop:6}}>{(ar.movs||[]).length} movs · {(ar.caja||[]).length} caja · {(ar.documentos||[]).length} docs</div>
-            </Card>
-          )}
-        </div>}
-      </div>;
-    })()}
     {sec==="obras"&&!sub&&<div>
       <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Obras en Proceso</div>
       {can("obras")&&<button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addOb")}>+ Nueva Obra</button>}
@@ -654,20 +370,20 @@ export default function App(){
 
       <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:8}}>
         <Card style={{background:"rgba(201,149,107,.06)",borderColor:"rgba(201,149,107,.15)"}}><Stat label="Presupuesto" value={$(sub.cotizado)} color={T.gold}/></Card>
-        <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Ingresos" value={$(pagCliente)} color={T.green}/><div style={{fontSize:9,color:T.muted,marginTop:2}}>{pc(pagCliente,sub.cotizado)}% del cotizado</div></Card>
-        <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Egresos" value={$(gastoTotal)} color={T.red}/><div style={{fontSize:9,color:T.muted,marginTop:2}}>{pc(gastoTotal,sub.cotizado)}% del presupuesto</div></Card>
+        <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Cobrado" value={$(pagCliente)} color={T.green}/><div style={{fontSize:9,color:T.muted,marginTop:2}}>{pc(pagCliente,sub.cotizado)}% cobrado</div></Card>
+        <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Gastado" value={$(gastoTotal)} color={T.red}/><div style={{fontSize:9,color:T.muted,marginTop:2}}>{pc(gastoTotal,sub.cotizado)}% del presupuesto</div></Card>
         <Card style={{background:margen>=0?"rgba(76,175,80,.06)":"rgba(231,76,60,.06)",borderColor:margen>=0?"rgba(76,175,80,.15)":"rgba(231,76,60,.15)"}}><Stat label="Margen / Utilidad" value={$(margen)} color={margen>=0?T.green:T.red}/><div style={{fontSize:9,color:margen>=0?T.green:T.red,marginTop:2,fontWeight:700}}>{rentPct}% rentabilidad</div></Card>
       </div>
 
       <Card><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Flujo del Cliente</div>
-        <div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Ingresos: {$(pagCliente)}</span><span style={{color:restaCliente>0?T.yellow:T.green,fontWeight:700}}>Falta: {$(restaCliente)}</span></div><Bar v={pagCliente} mx={sub.cotizado} c={T.green} h={6}/></div>
+        <div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Cobrado: {$(pagCliente)}</span><span style={{color:restaCliente>0?T.yellow:T.green,fontWeight:700}}>Falta: {$(restaCliente)}</span></div><Bar v={pagCliente} mx={sub.cotizado} c={T.green} h={6}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           {[{l:"Anticipo 60%",v:a1,ok:pagCliente>=a1},{l:"Avance 20%",v:a2,ok:pagCliente>=a1+a2},{l:"Entrega 20%",v:a3,ok:pagCliente>=sub.cotizado}].map((e,i)=><div key={i} style={{textAlign:"center",padding:10,borderRadius:10,background:e.ok?"rgba(76,175,80,.06)":"rgba(255,255,255,.025)",border:"1px solid "+(e.ok?"rgba(76,175,80,.15)":T.border)}}><div style={{fontSize:9,color:T.muted}}>{e.l}</div><div style={{fontSize:16,fontWeight:800,color:e.ok?T.green:T.text}}>{$(e.v)}</div><div style={{fontSize:9,color:e.ok?T.green:T.muted,marginTop:2}}>{e.ok?"✅ Recibido":"⏳ Pendiente"}</div></div>)}
         </div>
       </Card>
 
       <Card><div style={{fontSize:10,color:T.red,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Costos del Proyecto</div>
-        <div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Egresos: {$(gastoTotal)}</span><span style={{color:gastoTotal>sub.cotizado?T.red:T.green,fontWeight:700}}>Disponible: {$(sub.cotizado-gastoTotal)}</span></div><Bar v={gastoTotal} mx={sub.cotizado} c={gastoTotal>sub.cotizado?T.red:T.orange} h={6}/></div>
+        <div style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Gastado: {$(gastoTotal)}</span><span style={{color:gastoTotal>sub.cotizado?T.red:T.green,fontWeight:700}}>Disponible: {$(sub.cotizado-gastoTotal)}</span></div><Bar v={gastoTotal} mx={sub.cotizado} c={gastoTotal>sub.cotizado?T.red:T.orange} h={6}/></div>
         {catArr.length>0?<div>{catArr.map(([cat,total],i)=><div key={cat} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+T.border}}><div style={{flex:1}}><div style={{fontWeight:600,fontSize:12}}>{cat}</div><Bar v={total} mx={gastoTotal} c={T.orange} h={3}/></div><div style={{textAlign:"right",minWidth:90}}><span style={{fontWeight:800,color:T.red}}>{$(total)}</span><div style={{fontSize:9,color:T.muted}}>{pc(total,gastoTotal)}%</div></div></div>)}</div>:<div style={{textAlign:"center",padding:16,color:T.muted}}>Sin gastos registrados</div>}
       </Card>
 
@@ -681,7 +397,7 @@ export default function App(){
 
       <Card><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Estatus del Proyecto</div><div style={{display:"flex",gap:2,marginBottom:12,overflowX:"auto"}}>{FASE_ORD.map((f,i)=>{const cur=FASE_ORD.indexOf(sub.fase);const done=i<=cur;return <div key={f} style={{flex:1,textAlign:"center",minWidth:D?0:60}}><div style={{width:"100%",height:4,borderRadius:2,background:done?FCC[f]:T.border,marginBottom:4}}/><div style={{fontSize:9,color:done?FCC[f]:T.dim,fontWeight:done?700:400}}>{FASES[f]}</div></div>})}</div>{user.rol==="admin"&&<div><div style={{fontSize:10,color:T.muted,marginBottom:6}}>Cambiar estatus:</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{FASE_ORD.map(f=><button key={f} onClick={()=>{const up={...sub,fase:f,status:f==="cotizacion"?"cotizado":f==="entregado"?"completado":"en_proceso"};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show(FASES[f]+" ✓");}} style={{padding:"6px 12px",borderRadius:8,border:sub.fase===f?"2px solid "+FCC[f]:"1px solid "+T.border,background:sub.fase===f?FCC[f]+"22":"transparent",color:sub.fase===f?FCC[f]:T.muted,fontSize:10,fontWeight:sub.fase===f?700:400,cursor:"pointer"}}>{FASES[f]}</button>)}<button onClick={()=>{const up={...sub,fase:"cancelado",status:"cancelado"};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show("Cancelado");}} style={{padding:"6px 12px",borderRadius:8,border:sub.fase==="cancelado"?"2px solid "+FCC.cancelado:"1px solid "+T.border,background:sub.fase==="cancelado"?FCC.cancelado+"22":"transparent",color:sub.fase==="cancelado"?FCC.cancelado:T.dim,fontSize:10,cursor:"pointer"}}>Cancelado</button></div></div>}</Card>
 
-      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:8}}><button style={{...sB,background:"rgba(38,166,154,.08)",color:T.teal,border:"1px solid "+T.teal+"33",marginTop:0}} onClick={()=>{if(sub.cliente){const cn=sub.cliente.toLowerCase();let cli=clis.find(c=>c.nombre.toLowerCase()===cn);if(!cli){cli={id:"C"+Date.now(),nombre:sub.cliente,tel:"",email:"",dir:""};ensureCli(sub.cliente);cli=clis.find(c2=>c2.nombre.toLowerCase()===sub.cliente.toLowerCase())||cli;}go("clis",cli);}else{show("Esta obra no tiene cliente asignado");}}}>👤 Estado de Cuenta</button><button style={{...sB,background:"#1a1510",color:T.gold,border:"1px solid "+T.gold+"44",marginTop:0}} onClick={()=>{setCotP(sub.partidas||[]);setCotNom(sub.cliente||"");setCotEmp(sub.nombre||"");setConIva(sub.conIva!==false);setEditObraId(sub.id);setSub(null);go("cot");}}>📝 Editar Cotización</button><button style={{...sB,background:"#0a1a0a",color:T.green,border:"1px solid "+T.green+"44",marginTop:0}} onClick={()=>openPdfCot(sub)}>📄 Generar PDF</button><button style={{...sB,background:"#1a1a2a",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0}} onClick={()=>{const dup={...sub,id:"OB"+Date.now(),nombre:sub.nombre+" (copia)",fase:"cotizacion",status:"cotizado",avance:0,partidas:(sub.partidas||[]).map(p=>({...p,id:"C-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)})),extras:[],pagos:[],docs:[],bitacora:[]};setObras(prev=>[...prev,dup]);show("Duplicada como cotización ✓");go("cotizaciones");}}>📋 Duplicar</button><button style={{...sB,background:"#1a1a0a",color:T.yellow,border:"1px solid "+T.yellow+"33",marginTop:0}} onClick={()=>om("mergeOb",sub)}>🔗 Fusionar</button><button style={{...sB,background:"rgba(168,139,250,.1)",color:"#a78bfa",border:"1px solid rgba(168,139,250,.33)",marginTop:0}} onClick={()=>om("archivarOb",sub)}>📦 Archivar</button><button style={{...sB,background:"#1a0a0a",color:T.red,border:"1px solid "+T.red+"33",marginTop:0}} onClick={()=>om("delOb",sub)}>🗑 Eliminar</button></div>
+      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:8}}><button style={{...sB,background:"rgba(38,166,154,.08)",color:T.teal,border:"1px solid "+T.teal+"33",marginTop:0}} onClick={()=>{if(sub.cliente){const cn=sub.cliente.toLowerCase();let cli=clis.find(c=>c.nombre.toLowerCase()===cn);if(!cli){cli={id:"C"+Date.now(),nombre:sub.cliente,tel:"",email:"",dir:""};ensureCli(sub.cliente);cli=clis.find(c2=>c2.nombre.toLowerCase()===sub.cliente.toLowerCase())||cli;}go("clis",cli);}else{show("Esta obra no tiene cliente asignado");}}}>👤 Estado de Cuenta</button><button style={{...sB,background:"#1a1510",color:T.gold,border:"1px solid "+T.gold+"44",marginTop:0}} onClick={()=>{setCotP(sub.partidas||[]);setCotNom(sub.cliente||"");setCotEmp(sub.nombre||"");setConIva(sub.conIva!==false);setEditObraId(sub.id);setSub(null);go("cot");}}>📝 Editar Cotización</button><button style={{...sB,background:"#0a1a0a",color:T.green,border:"1px solid "+T.green+"44",marginTop:0}} onClick={()=>openPdfCot(sub)}>📄 Generar PDF</button><button style={{...sB,background:"#1a1a2a",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0}} onClick={()=>{const dup={...sub,id:"OB"+Date.now(),nombre:sub.nombre+" (copia)",fase:"cotizacion",status:"cotizado",avance:0,partidas:(sub.partidas||[]).map(p=>({...p,id:"C-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)})),extras:[],pagos:[],docs:[],bitacora:[]};setObras(prev=>[...prev,dup]);show("Duplicada como cotización ✓");go("cotizaciones");}}>📋 Duplicar</button><button style={{...sB,background:"#1a0a0a",color:T.red,border:"1px solid "+T.red+"33",marginTop:0}} onClick={()=>om("delOb",sub)}>🗑 Eliminar</button></div>
 
       {(sub.partidas||[]).length>0&&<Card><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:10,color:T.gold,fontWeight:700}}>PARTIDAS ({sub.partidas.length})</div></div>{sub.partidas.map((p,i)=> <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+T.border,fontSize:12}}><div style={{flex:1}}>{p.id&&<b style={{color:T.gold}}>{p.id} </b>}{p.desc}{p.cant>1&&<span style={{color:T.muted}}> ×{p.cant}</span>}</div><div style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:T.muted,fontSize:11}}>$</span><input inputMode="numeric" value={p.precio||""} onFocus={e=>e.target.select()} onChange={e=>{const np=Number(e.target.value.replace(/[^0-9]/g,""))||0;const newP=[...sub.partidas];newP[i]={...newP[i],precio:np};const newSub=newP.reduce((s,x)=>s+x.precio*x.cant,0);const up={...sub,partidas:newP,subtotal:newSub,cotizado:sub.conIva!==false?Math.round(newSub*1.16):newSub};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);}} style={{background:"transparent",border:"1px solid "+T.border,borderRadius:6,color:T.text,fontSize:13,fontWeight:700,width:80,textAlign:"right",padding:"4px 6px",outline:"none"}}/></div></div>)}<div style={{borderTop:"2px solid "+T.border,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between",fontWeight:800,color:T.gold}}><span>TOTAL{sub.conIva!==false?" (IVA incl.)":""}</span><span>{$(sub.cotizado)}</span></div></Card>}
 
@@ -703,55 +419,13 @@ export default function App(){
       <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{movs.filter(m=>["Nómina","Renta","IMSS","Destajo"].includes(m.cat)).slice().reverse().map(m=> <Card key={m.id}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600}}>{m.desc}</div><div style={{fontSize:10,color:T.dim}}>{fd(m.fecha)} · {m.cat}</div></div><span style={{fontWeight:700,color:T.red}}>{$(m.egr)}</span></div></Card>)}</div>
     </div>}
 
-    {sec==="taller"&&<div style={{display:"flex",gap:4,marginBottom:12}}>{[{k:"inv",l:"📦 Inventario"},{k:"herram",l:"🔧 Herramientas"},{k:"provs",l:"🤝 Proveedores"},{k:"catalogo",l:"📋 Catálogo"}].map(t=><button key={t.k} onClick={()=>setSubTab(t.k)} style={{padding:"8px 14px",borderRadius:10,border:subTab===t.k?"2px solid "+T.gold:"1px solid "+T.border,background:subTab===t.k?"#1a1510":"transparent",color:subTab===t.k?T.gold:T.muted,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{t.l}</button>)}</div>}
+    {sec==="taller"&&<div style={{display:"flex",gap:4,marginBottom:12}}>{[{k:"inv",l:"Inventario"},{k:"provs",l:"Proveedores"},{k:"catalogo",l:"Catálogo"}].map(t=><button key={t.k} onClick={()=>setSubTab(t.k)} style={{padding:"8px 14px",borderRadius:10,border:subTab===t.k?"2px solid "+T.gold:"1px solid "+T.border,background:subTab===t.k?"#1a1510":"transparent",color:subTab===t.k?T.gold:T.muted,cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{t.l}</button>)}</div>}
     {sec==="taller"&&subTab==="inv"&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addInv")}>+ Material</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{inv.sort((a,b)=>(a.stock<=a.minimo?0:1)-(b.stock<=b.minimo?0:1)).map(it=> <Card key={it.id} style={{borderLeft:it.stock<=it.minimo?"3px solid "+T.red:"none"}}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700}}>{it.nombre}</div><div style={{fontSize:10,color:T.dim}}>{it.cat} · {$(it.precio)}/{it.unidad}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:18,fontWeight:800,color:it.stock<=it.minimo?T.red:T.green}}>{it.stock}</div><div style={{fontSize:9,color:T.muted}}>min:{it.minimo}</div></div></div><Bar v={it.stock} mx={it.minimo*3} c={it.stock<=it.minimo?T.red:T.green}/></Card>)}</div></div>}
 
-    {sec==="taller"&&subTab==="herram"&&(()=>{
-      const oAct2=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
-      const totHerr=herramientas.reduce((s,h)=>s+h.monto,0);
-      return <div>
-        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
-          <Card style={{borderTop:"3px solid "+T.orange}}><div style={{fontSize:18,fontWeight:800,color:T.text}}>{$(totHerr)}</div><div style={{fontSize:10,color:T.muted}}>Total en Herramientas</div></Card>
-          <Card><div style={{fontSize:18,fontWeight:800,color:T.text}}>{herramientas.length}</div><div style={{fontSize:10,color:T.muted}}>Herramientas registradas</div></Card>
-          {oAct2.length>0&&<Card><div style={{fontSize:18,fontWeight:800,color:T.blue}}>{$(Math.round(totHerr/oAct2.length))}</div><div style={{fontSize:10,color:T.muted}}>Costo prorrateado / obra</div></Card>}
-        </div>
-        <button style={{...sB,marginBottom:10,marginTop:0,background:"#1a2a1a",color:T.green,maxWidth:300}} onClick={()=>om("addHerr")}>🔧 + Registrar Herramienta</button>
-        {herramientas.length===0&&<Card><div style={{textAlign:"center",padding:20,color:T.dim}}>Sin herramientas registradas</div></Card>}
-        <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>
-        {herramientas.sort((a,b)=>b.fecha>a.fecha?1:-1).map(h=>{
-          const numObras=(h.obras||[]).length;
-          const prorr=numObras>0?Math.round(h.monto/numObras):h.monto;
-          return <Card key={h.id}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-              <div><div style={{fontWeight:700,fontSize:13}}>{h.nombre}</div><div style={{fontSize:10,color:T.dim}}>{h.fecha} · {h.proveedor||"Sin prov."}</div></div>
-              <div style={{textAlign:"right"}}><div style={{fontSize:16,fontWeight:800,color:T.orange}}>{$(h.monto)}</div></div>
-            </div>
-            <div style={{fontSize:10,color:T.muted,marginBottom:4}}>Prorrateado en {numObras} obra{numObras!==1?"s":""}: <span style={{color:T.blue,fontWeight:700}}>{$(prorr)}/obra</span></div>
-            <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
-              {(h.obras||[]).map(o=><span key={o} style={{fontSize:9,background:T.gold+"15",color:T.gold,padding:"2px 6px",borderRadius:6}}>{o}</span>)}
-            </div>
-            {user.rol==="admin"&&<div style={{marginTop:6,display:"flex",gap:4}}>
-              <button onClick={()=>{if(confirm("¿Eliminar esta herramienta y sus egresos?")){setHerramientas(herramientas.filter(x=>x.id!==h.id));setMovs(movs.filter(x=>x.herrId!==h.id));show("Eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer"}}>🗑</button>
-            </div>}
-          </Card>;
-        })}
-        </div>
-      </div>;
-    })()}
-
-    {sec==="taller"&&subTab==="provs"&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addProv")}>+ Proveedor</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{provs.map(p=>{const pMvs=movs.filter(m=>m.egr>0&&m.prov===p.nombre);const pTot=pMvs.reduce((s,m)=>s+m.egr,0);const pObs=[...new Set(pMvs.map(m=>m.obra).filter(Boolean))];return <Card key={p.id}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div><div style={{fontWeight:700}}>{p.nombre}</div><div style={{fontSize:11,color:T.muted}}>{p.contacto}{p.tel&&" · "+p.tel}</div></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,color:T.red}}>{$(pTot)}</div><div style={{fontSize:9,color:T.muted}}>{pMvs.length} compras</div></div></div><div style={{fontSize:11,color:T.muted}}>{p.material} · {[...Array(p.calif||0)].map((_,i)=><span key={i}>⭐</span>)}</div>{pObs.length>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border,display:"flex",flexWrap:"wrap",gap:4}}>{pObs.map(o=><span key={o} style={{fontSize:9,background:T.gold+"15",color:T.gold,padding:"2px 6px",borderRadius:6}}>{o}</span>)}</div>}{p.credito>0&&<div style={{fontSize:10,color:T.blue,marginTop:4}}>Crédito: {p.credito} días</div>}{user.rol==="admin"&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border}}><button onClick={()=>{if(confirm("¿Eliminar proveedor "+p.nombre+"? Los movimientos NO se borran.")){setProvs(provs.filter(x=>x.id!==p.id));show("Proveedor eliminado");}}} style={{background:"rgba(231,76,60,.08)",border:"1px solid rgba(231,76,60,.15)",color:T.red,borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer",fontWeight:600}}>🗑 Eliminar</button></div>}</Card>})}</div></div>}
+    {sec==="taller"&&subTab==="provs"&&<div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addProv")}>+ Proveedor</button><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{provs.map(p=>{const pMvs=movs.filter(m=>m.egr>0&&m.prov===p.nombre);const pTot=pMvs.reduce((s,m)=>s+m.egr,0);const pObs=[...new Set(pMvs.map(m=>m.obra).filter(Boolean))];return <Card key={p.id}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><div><div style={{fontWeight:700}}>{p.nombre}</div><div style={{fontSize:11,color:T.muted}}>{p.contacto}{p.tel&&" · "+p.tel}</div></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,color:T.red}}>{$(pTot)}</div><div style={{fontSize:9,color:T.muted}}>{pMvs.length} compras</div></div></div><div style={{fontSize:11,color:T.muted}}>{p.material} · {[...Array(p.calif||0)].map((_,i)=><span key={i}>⭐</span>)}</div>{pObs.length>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border,display:"flex",flexWrap:"wrap",gap:4}}>{pObs.map(o=><span key={o} style={{fontSize:9,background:T.gold+"15",color:T.gold,padding:"2px 6px",borderRadius:6}}>{o}</span>)}</div>}{p.credito>0&&<div style={{fontSize:10,color:T.blue,marginTop:4}}>Crédito: {p.credito} días</div>}</Card>})}</div></div>}
 
 
     {sec==="finanzas"&&<div>
-        {/* ═══ TABS FINANZAS ═══ */}
-        <div style={{display:"flex",gap:4,marginBottom:12,background:T.card,borderRadius:10,padding:3,border:"1px solid "+T.border}}>
-          {[{k:"movs",l:"📊 Movimientos"},{k:"control",l:"🏗️ Control por Obra"}].map(t=>
-            <button key={t.k} onClick={()=>setSubTab(t.k)} style={{flex:1,padding:"9px 8px",fontSize:12,fontWeight:700,border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",background:subTab===t.k||(!subTab&&t.k==="movs")?T.gold:"transparent",color:subTab===t.k||(!subTab&&t.k==="movs")?"#000":T.muted}}>{t.l}</button>
-          )}
-        </div>
-
-        {/* ═══ TAB: MOVIMIENTOS ═══ */}
-        {(subTab==="movs"||!subTab)&&<div>
         <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
           <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Ingresos" value={$(finIng)} color={T.green}/></Card>
           <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Egresos" value={$(finEgr)} color={T.red}/></Card>
@@ -761,9 +435,10 @@ export default function App(){
         <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
           <button style={{...sB,background:"#1a3a1a",color:T.green,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addIng")}>+ Ingreso</button>
           <button style={{...sB,background:"#3a1a1a",color:T.red,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addEgr")}>+ Egreso</button>
+          <button style={{...sB,background:"rgba(255,255,255,.04)",color:T.gold,border:"1px solid "+T.gold+"33",marginTop:0,maxWidth:200,padding:"10px 16px"}} onClick={()=>{const rows=[["Fecha","Tipo","Concepto","Proveedor/Cliente","Obra","Categoría","Ingreso","Egreso","Usuario","Status"]];finFilt.forEach(m=>{rows.push([m.fecha,m.t==="ing"?"Ingreso":m.t==="egr"?"Egreso":m.t==="caja"?"Caja Chica":"Otro",'"'+(m.desc||"").replace(/"/g,"'")+'"','"'+(m.prov||"").replace(/"/g,"'")+'"','"'+(m.obra||"").replace(/"/g,"'")+'"','"'+(m.cat||"").replace(/"/g,"'")+'"',m.ing||"",m.egr||"",'"'+(m.user||"").replace(/"/g,"'")+'"',m.status||"aprobado"]);});const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Finanzas_Ensamble_"+td()+".csv";a.click();URL.revokeObjectURL(url);show("📥 Exportado "+finFilt.length+" movimientos");}}>📥 Exportar Excel</button>
         </div>
         <div style={{display:"flex",gap:4,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
-          {[{k:"todo",l:"Todo",c:T.gold},{k:"directo",l:"🏗 Costos de Obra",c:T.gold},{k:"indirecto",l:"🏭 Taller/Fijos",c:T.purple},{k:"ing",l:"⬆ Ingresos",c:T.green},{k:"egr",l:"⬇ Egresos",c:T.red},{k:"caja",l:"🧾 Caja Chica",c:T.orange},{k:"nom",l:"📅 Nóminas",c:T.purple},{k:"rec",l:"🧾 Recibos",c:T.blue}].map(f=>
+          {[{k:"todo",l:"Todo",c:T.gold},{k:"ing",l:"⬆ Ingresos",c:T.green},{k:"egr",l:"⬇ Egresos",c:T.red},{k:"caja",l:"🧾 Caja Chica",c:T.orange},{k:"nom",l:"📅 Nóminas",c:T.purple},{k:"rec",l:"🧾 Recibos",c:T.blue}].map(f=>
             <button key={f.k} onClick={()=>setFf(f.k)} style={{padding:"6px 14px",borderRadius:20,border:ff===f.k?"2px solid "+f.c:"1px solid "+T.border,background:ff===f.k?f.c+"18":"transparent",color:ff===f.k?f.c:T.muted,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{f.l}</button>
           )}
         </div>
@@ -772,7 +447,6 @@ export default function App(){
           <select style={{...sI,width:D?200:130,padding:"8px",fontSize:11}} value={fObra} onChange={e=>setFObra(e.target.value)}><option value="">Todas las obras</option>{finObras.map(o=><option key={o} value={o}>{o}</option>)}</select>
           {(ff!=="todo"||fObra||fBusq)&&<button onClick={()=>{setFf("todo");setFObra("");setFBusq("");}} style={{background:"rgba(255,255,255,.06)",border:"1px solid "+T.border,color:T.muted,borderRadius:8,padding:"8px 12px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>✗ Limpiar</button>}
         </div>
-        {(ff!=="todo"||fObra||fBusq)&&<div style={{background:"rgba(201,149,107,.08)",border:"1px solid rgba(201,149,107,.2)",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:11,color:T.gold,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>🔍 Mostrando <b>{finFilt.length}</b> de {finAll.length} movimientos{ff!=="todo"?" · Tipo: "+(ff==="ing"?"Ingresos":ff==="egr"?"Egresos":ff==="caja"?"Caja Chica":ff==="nom"?"Nóminas":"Recibos"):""}{fObra?" · Obra: "+fObra:""}{fBusq?' · Búsqueda: "'+fBusq+'"':""}</div>}
         <div style={{borderRadius:12,border:"1px solid "+T.border,overflow:"hidden"}}>
           {D&&<div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 120px 90px 70px 100px 60px",padding:"10px 12px",background:"rgba(201,149,107,.04)",borderBottom:"2px solid "+T.border,fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:.8}}>
             <span>Fecha</span><span>Concepto</span><span>Proveedor</span><span>Obra</span><span>Quien</span><span>Status</span><span style={{textAlign:"right"}}>Monto</span><span></span>
@@ -787,7 +461,7 @@ export default function App(){
               <span style={{fontSize:10,color:T.dim}}>{m.user}</span>
               <div>{isP&&user.rol==="admin"?<div style={{display:"flex",gap:2}}><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button></div>:<Badge s={m.status}/>}</div>
               <div style={{textAlign:"right",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>{m.ticket&&<span style={{color:T.blue,fontSize:10}}>📷</span>}{m.rec&&<span style={{color:T.green,fontSize:9}}>{m.rec}</span>}<span style={{fontWeight:800,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</span></div>
-              <div>{user.rol==="admin"&&<div style={{display:"flex",gap:3}}><button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"rgba(255,255,255,.06)",border:"none",color:T.yellow,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Editar">✏️</button><button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar este movimiento?")){if(m._kind==="caja"){setCaja(prev=>prev.filter((x,i)=>i!==m._idx));}else{setMovs(prev=>prev.filter((x,i)=>i!==m._idx));}show("Eliminado ✓");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Eliminar">🗑</button></div>}</div>
+              <div>{user.rol==="admin"&&<div style={{display:"flex",gap:3}}><button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"rgba(255,255,255,.06)",border:"none",color:T.yellow,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Editar">✏️</button><button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar este movimiento?")){if(m.t==="caja"){setCaja(caja.filter(x=>x.id!==m.cajaId));}else{setMovs(movs.filter(x=>"m"+x.id!==m.id));}show("Eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Eliminar">🗑</button></div>}</div>
             </div>
             :<Card key={m.id} onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}} style={{marginBottom:4,padding:10,background:isP?"rgba(241,196,15,.04)":"transparent"}}>
               <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
@@ -795,206 +469,11 @@ export default function App(){
                   <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}><span style={{color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"⬆":"⬇"}</span><span style={{fontWeight:700,fontSize:13}}>{m.desc}</span><Badge s={m.status}/>{isP&&user.rol==="admin"&&<><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"2px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"2px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button></>}</div>
                   <div style={{fontSize:10,color:T.dim,marginTop:2}}>{fd(m.fecha)} {m.prov&&"· "+m.prov} {m.obra&&"· "+m.obra} {m.user&&"· "+m.user}</div>
                 </div>
-                <div style={{textAlign:"right"}}><div style={{fontWeight:800,fontSize:15,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</div>{m.ticket&&<div style={{fontSize:9,color:T.blue}}>📷 ticket</div>}{user.rol==="admin"&&<div style={{display:"flex",gap:6,marginTop:4}}><button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"#1a1a0a",border:"1px solid "+T.border,color:T.yellow,borderRadius:6,padding:"3px 10px",fontSize:10,cursor:"pointer",fontWeight:600}}>✏️ Editar</button><button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar este movimiento?")){if(m._kind==="caja"){setCaja(prev=>prev.filter((x,i)=>i!==m._idx));}else{setMovs(prev=>prev.filter((x,i)=>i!==m._idx));}show("Eliminado ✓");}}} style={{background:"#2a0a0a",border:"none",color:T.red,borderRadius:6,padding:"3px 10px",fontSize:10,cursor:"pointer"}}>🗑</button></div>}</div>
+                <div style={{textAlign:"right"}}><div style={{fontWeight:800,fontSize:15,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</div>{m.ticket&&<div style={{fontSize:9,color:T.blue}}>📷 ticket</div>}{user.rol==="admin"&&<div style={{display:"flex",gap:6,marginTop:4}}><button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"#1a1a0a",border:"1px solid "+T.border,color:T.yellow,borderRadius:6,padding:"3px 10px",fontSize:10,cursor:"pointer",fontWeight:600}}>✏️ Editar</button><button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar este movimiento?")){if(m.t==="caja"){setCaja(caja.filter(x=>x.id!==m.cajaId));}else{setMovs(movs.filter(x=>"m"+x.id!==m.id));}show("Eliminado");}}} style={{background:"#2a0a0a",border:"none",color:T.red,borderRadius:6,padding:"3px 10px",fontSize:10,cursor:"pointer"}}>🗑</button></div>}</div>
               </div>
             </Card>
           })}
         </div>
-        </div>}
-
-        {/* ═══ TAB: CONTROL POR OBRA ═══ */}
-        {subTab==="control"&&(()=>{
-          const obrasConMovs=obras.filter(o=>o.fase!=="cancelado").map(o=>{
-            const oIng=finAll.filter(m=>m.t==="ing"&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.monto,0);
-            const oEgr=finAll.filter(m=>m.t!=="ing"&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.monto,0);
-            const margen=oIng-oEgr;
-            const utilPct=oIng>0?Math.round((margen/oIng)*100):0;
-            const cobPct=o.cotizado>0?Math.round((oIng/o.cotizado)*100):0;
-            return {...o,oIng,oEgr,margen,utilPct,cobPct};
-          }).filter(o=>o.oIng>0||o.oEgr>0||o.cotizado>0);
-          const totIng=obrasConMovs.reduce((s,o)=>s+o.oIng,0);
-          const totEgr=obrasConMovs.reduce((s,o)=>s+o.oEgr,0);
-          const totCot=obrasConMovs.reduce((s,o)=>s+o.cotizado,0);
-          return <div>
-            {/* Resumen global */}
-            <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:14}}>
-              <Card style={{background:"rgba(201,149,107,.06)",borderTop:"3px solid "+T.gold}}><div style={{fontSize:20,fontWeight:800,color:T.text}}>{$(totCot)}</div><div style={{fontSize:10,color:T.muted}}>Total Cotizado</div></Card>
-              <Card style={{background:"rgba(76,175,80,.06)",borderTop:"3px solid "+T.green}}><div style={{fontSize:20,fontWeight:800,color:T.green}}>{$(totIng)}</div><div style={{fontSize:10,color:T.muted}}>Total Ingresos</div><div style={{fontSize:10,color:T.green}}>{totCot>0?Math.round(totIng/totCot*100):0}% del cotizado</div></Card>
-              <Card style={{background:"rgba(231,76,60,.06)",borderTop:"3px solid "+T.red}}><div style={{fontSize:20,fontWeight:800,color:T.red}}>{$(totEgr)}</div><div style={{fontSize:10,color:T.muted}}>Total Egresos</div></Card>
-              <Card style={{borderTop:"3px solid "+(totIng-totEgr>=0?T.green:T.red)}}><div style={{fontSize:20,fontWeight:800,color:totIng-totEgr>=0?T.green:T.red}}>{$(totIng-totEgr)}</div><div style={{fontSize:10,color:T.muted}}>Utilidad Bruta</div></Card>
-            </div>
-
-            {/* Tabla por obra */}
-            <Card style={{overflow:"hidden"}}>
-              <div style={{padding:"12px 14px",borderBottom:"2px solid "+T.border,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{fontSize:13,fontWeight:800,color:T.text}}>📊 Control Financiero por Obra</div>
-                <div style={{fontSize:10,color:T.muted}}>{obrasConMovs.length} obras</div>
-              </div>
-              {D&&<div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px 60px",padding:"8px 14px",background:"rgba(201,149,107,.04)",borderBottom:"1px solid "+T.border,fontSize:9,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:.8}}>
-                <span>Obra</span><span style={{textAlign:"right"}}>Cotizado</span><span style={{textAlign:"right"}}>Ingresos</span><span style={{textAlign:"right"}}>Egresos</span><span style={{textAlign:"right"}}>Margen</span><span style={{textAlign:"right"}}>% Util</span><span style={{textAlign:"right"}}>% Cobro</span>
-              </div>}
-              {obrasConMovs.sort((a,b)=>b.oIng-a.oIng).map((o,idx)=>{
-                const mCol=o.margen>=0?T.green:T.red;
-                const uCol=o.utilPct>=20?T.green:o.utilPct>=0?T.orange:T.red;
-                return D?
-                <div key={o.id} onClick={()=>setCtrlDetalle(ctrlDetalle===o.nombre?null:o.nombre)} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px 90px 70px 60px",padding:"10px 14px",borderBottom:"1px solid "+T.line,cursor:"pointer",alignItems:"center",background:idx%2===0?"transparent":"rgba(255,255,255,.01)"}}>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:12}}>{o.nombre}</div>
-                    <div style={{fontSize:9,color:T.dim}}>{o.cliente||""} {o.fase?("· "+o.fase):""}</div>
-                  </div>
-                  <span style={{textAlign:"right",fontSize:12,color:T.gold,fontWeight:600}}>{$(o.cotizado)}</span>
-                  <span style={{textAlign:"right",fontSize:12,color:T.green,fontWeight:600}}>{$(o.oIng)}</span>
-                  <span style={{textAlign:"right",fontSize:12,color:T.red,fontWeight:600}}>{$(o.oEgr)}</span>
-                  <span style={{textAlign:"right",fontSize:12,color:mCol,fontWeight:800}}>{$(o.margen)}</span>
-                  <span style={{textAlign:"right"}}><span style={{padding:"2px 6px",borderRadius:10,fontSize:10,fontWeight:700,background:uCol+"18",color:uCol}}>{o.utilPct}%</span></span>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{background:T.border,borderRadius:3,height:6,width:"100%",overflow:"hidden"}}><div style={{height:"100%",width:Math.min(o.cobPct,100)+"%",background:T.green,borderRadius:3}}/></div>
-                    <div style={{fontSize:8,color:T.muted,marginTop:1}}>{o.cobPct}%</div>
-                  </div>
-                </div>
-                :<Card key={o.id} onClick={()=>setCtrlDetalle(ctrlDetalle===o.nombre?null:o.nombre)} style={{marginBottom:6,padding:10,cursor:"pointer"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                    <div><div style={{fontWeight:700,fontSize:13}}>{o.nombre}</div><div style={{fontSize:9,color:T.dim}}>{o.cliente||""}</div></div>
-                    <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:uCol+"18",color:uCol,height:"fit-content"}}>{o.utilPct}%</span>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
-                    <div><div style={{fontSize:9,color:T.muted}}>Cotizado</div><div style={{fontWeight:700,fontSize:11,color:T.gold}}>{$(o.cotizado)}</div></div>
-                    <div><div style={{fontSize:9,color:T.muted}}>Ingresos</div><div style={{fontWeight:700,fontSize:11,color:T.green}}>{$(o.oIng)}</div></div>
-                    <div><div style={{fontSize:9,color:T.muted}}>Egresos</div><div style={{fontWeight:700,fontSize:11,color:T.red}}>{$(o.oEgr)}</div></div>
-                    <div><div style={{fontSize:9,color:T.muted}}>Margen</div><div style={{fontWeight:700,fontSize:11,color:mCol}}>{$(o.margen)}</div></div>
-                  </div>
-                  <div style={{background:T.border,borderRadius:3,height:5,marginTop:6,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(o.cobPct,100)+"%",background:T.green,borderRadius:3}}/></div>
-                  <div style={{fontSize:8,color:T.muted,marginTop:2}}>Cobrado: {o.cobPct}% del cotizado</div>
-                </Card>;
-              })}
-              {obrasConMovs.length===0&&<div style={{padding:30,textAlign:"center",color:T.dim}}>Sin obras con movimientos financieros</div>}
-            </Card>
-
-            {/* ═══ OBRAS FANTASMA: movimientos con obras que no existen ═══ */}
-            {(()=>{
-              const obrasSistema=new Set(obras.map(o=>_norm(o.nombre)));
-              const fantasmas={};
-              finAll.forEach(m=>{
-                const on=(m.obra||"").trim();
-                if(!on)return;
-                if(!obrasSistema.has(_norm(on))){
-                  if(!fantasmas[on])fantasmas[on]={nombre:on,count:0,total:0,ing:0,egr:0,movs:[]};
-                  fantasmas[on].count++;
-                  fantasmas[on].total+=m.monto;
-                  if(m.t==="ing")fantasmas[on].ing+=m.monto;else fantasmas[on].egr+=m.monto;
-                  fantasmas[on].movs.push(m);
-                }
-              });
-              const fantList=Object.values(fantasmas).sort((a,b)=>b.total-a.total);
-              if(fantList.length===0)return null;
-              return <Card style={{marginTop:12,borderTop:"3px solid "+T.red}}>
-                <div style={{padding:"12px 14px",borderBottom:"1px solid "+T.border}}>
-                  <div style={{fontSize:13,fontWeight:800,color:T.red,marginBottom:4}}>⚠️ Obras Fantasma ({fantList.length})</div>
-                  <div style={{fontSize:10,color:T.muted}}>Movimientos que apuntan a obras que NO existen en tu sistema. Reasigna a una obra real o elimina los movimientos.</div>
-                </div>
-                <div style={{padding:10}}>
-                  {fantList.map((f,idx)=>
-                    <div key={f.nombre} style={{background:"rgba(231,76,60,.06)",border:"1px solid rgba(231,76,60,.15)",borderRadius:10,padding:"10px 12px",marginBottom:6}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6,marginBottom:8}}>
-                        <div style={{flex:1,minWidth:200}}>
-                          <div style={{fontWeight:700,fontSize:13,color:T.text}}>🚫 "{f.nombre}"</div>
-                          <div style={{fontSize:10,color:T.muted,marginTop:2}}>{f.count} movimiento{f.count!==1?"s":""}{f.ing>0?" · Ingresos: "+$(f.ing):""}{f.egr>0?" · Egresos: "+$(f.egr):""}</div>
-                        </div>
-                      </div>
-                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                        <select onChange={e=>{
-                          const destino=e.target.value;
-                          if(!destino)return;
-                          if(!confirm("¿Reasignar "+f.count+" movimiento(s) de \""+f.nombre+"\" a \""+destino+"\"?"))return;
-                          setMovs(prev=>prev.map(m=>_norm(m.obra)===_norm(f.nombre)?{...m,obra:destino}:m));
-                          setCaja(prev=>prev.map(m=>_norm(m.obra)===_norm(f.nombre)?{...m,obra:destino}:m));
-                          e.target.value="";
-                          show("Reasignados a "+destino);
-                        }} defaultValue="" style={{flex:1,minWidth:150,background:"#1a1510",border:"1px solid "+T.border,color:T.gold,borderRadius:6,padding:"6px 10px",fontSize:11,cursor:"pointer"}}>
-                          <option value="">→ Reasignar a obra real...</option>
-                          {obras.filter(o=>o.fase!=="cancelado").map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-                        </select>
-                        <button onClick={()=>{
-                          if(!confirm("¿ELIMINAR "+f.count+" movimiento(s) de \""+f.nombre+"\"? Esta acción NO se puede deshacer."))return;
-                          setMovs(prev=>prev.filter(m=>_norm(m.obra)!==_norm(f.nombre)));
-                          setCaja(prev=>prev.filter(m=>_norm(m.obra)!==_norm(f.nombre)));
-                          show("Movimientos eliminados");
-                        }} style={{background:"rgba(231,76,60,.15)",border:"1px solid rgba(231,76,60,.3)",color:T.red,borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🗑 Eliminar</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </Card>;
-            })()}
-
-            {/* Detalle expandido de obra seleccionada */}
-            {ctrlDetalle&&(()=>{
-              const oMovs=finAll.filter(m=>_norm(m.obra)===_norm(ctrlDetalle));
-              const oIngs=oMovs.filter(m=>m.t==="ing");
-              const oEgrs=oMovs.filter(m=>m.t!=="ing");
-              const tI=oIngs.reduce((s,m)=>s+m.monto,0);
-              const tE=oEgrs.reduce((s,m)=>s+m.monto,0);
-              // Desglose por categoría
-              const catMap={};oEgrs.forEach(m=>{const c=m.cat||"Sin categoría";if(!catMap[c])catMap[c]=0;catMap[c]+=m.monto;});
-              const cats=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
-              const catCols={"Material":T.orange,"Herramienta":T.blue,"Nómina":"#AB47BC","Renta":"#8B949E","IMSS":"#E0529F","Caja Chica":"#FF9800","Destajo":"#26A69A","Herrajes":"#52C4E0","Ferretería":"#6B7C5E"};
-              const ob=obras.find(o=>_norm(o.nombre)===_norm(ctrlDetalle));
-              return <Card style={{marginTop:10,borderTop:"3px solid "+T.gold}}>
-                <div style={{padding:"12px 14px",borderBottom:"1px solid "+T.border,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div><div style={{fontSize:14,fontWeight:800}}>{ctrlDetalle}</div><div style={{fontSize:10,color:T.muted}}>{ob?.cliente||""} · {ob?.fase||""}</div></div>
-                  <div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>{setFObra(ctrlDetalle);setSubTab("movs");setFf("todo");}} style={{padding:"5px 10px",background:T.gold+"18",border:"1px solid "+T.gold+"44",color:T.gold,borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer"}}>📋 Ver movimientos</button>
-                    <button onClick={()=>setCtrlDetalle(null)} style={{padding:"5px 8px",background:"transparent",border:"1px solid "+T.border,color:T.muted,borderRadius:6,fontSize:11,cursor:"pointer"}}>✕</button>
-                  </div>
-                </div>
-                <div style={{padding:14}}>
-                  {/* KPIs de esta obra */}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>
-                    <div style={{background:T.gold+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Cotizado</div><div style={{fontSize:15,fontWeight:800,color:T.gold}}>{$(ob?.cotizado||0)}</div></div>
-                    <div style={{background:T.green+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Ingresos</div><div style={{fontSize:15,fontWeight:800,color:T.green}}>{$(tI)}</div></div>
-                    <div style={{background:T.red+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Egresos</div><div style={{fontSize:15,fontWeight:800,color:T.red}}>{$(tE)}</div></div>
-                    <div style={{background:(tI-tE>=0?T.green:T.red)+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>Margen</div><div style={{fontSize:15,fontWeight:800,color:tI-tE>=0?T.green:T.red}}>{$(tI-tE)}</div></div>
-                  </div>
-
-                  {/* Desglose de egresos por categoría */}
-                  <div style={{fontSize:10,fontWeight:700,color:T.gold,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Desglose de gastos por partida</div>
-                  {cats.length===0&&<div style={{color:T.dim,fontSize:11,padding:10}}>Sin egresos registrados</div>}
-                  {cats.map(([cat,monto])=>{
-                    const pct=tE>0?Math.round(monto/tE*100):0;
-                    const col=catCols[cat]||T.muted;
-                    return <div key={cat} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"1px solid "+T.line}}>
-                      <div style={{width:10,height:10,borderRadius:3,background:col,flexShrink:0}}/>
-                      <div style={{flex:1,fontSize:12,fontWeight:600}}>{cat}</div>
-                      <div style={{fontSize:11,color:T.muted,minWidth:40,textAlign:"right"}}>{pct}%</div>
-                      <div style={{width:D?120:60,background:T.border,borderRadius:3,height:8,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:col,borderRadius:3}}/></div>
-                      <div style={{fontSize:12,fontWeight:800,color:T.red,minWidth:80,textAlign:"right"}}>{$(monto)}</div>
-                    </div>;
-                  })}
-                  {tE>0&&<div style={{display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4,borderTop:"2px solid "+T.border}}>
-                    <span style={{fontWeight:800,fontSize:12}}>TOTAL EGRESOS</span>
-                    <span style={{fontWeight:800,fontSize:14,color:T.red}}>{$(tE)}</span>
-                  </div>}
-
-                  {/* Últimos movimientos */}
-                  <div style={{fontSize:10,fontWeight:700,color:T.gold,letterSpacing:1,textTransform:"uppercase",marginTop:14,marginBottom:6}}>Últimos movimientos</div>
-                  {oMovs.slice(0,10).map((m,i)=>
-                    <div key={m.id} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid "+T.line,fontSize:11}}>
-                      <div style={{display:"flex",gap:6,alignItems:"center",flex:1,minWidth:0}}>
-                        <span style={{color:m.t==="ing"?T.green:T.red,fontSize:10}}>{m.t==="ing"?"⬆":"⬇"}</span>
-                        <span style={{fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.desc}</span>
-                        {m.cat&&<span style={{fontSize:8,color:T.muted,background:T.border,padding:"1px 4px",borderRadius:3,flexShrink:0}}>{m.cat}</span>}
-                      </div>
-                      <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-                        <span style={{color:T.dim,fontSize:10}}>{m.fecha?.slice(5)}</span>
-                        <span style={{fontWeight:800,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </Card>;
-            })()}
-          </div>;
-        })()}
     </div>}
 
     {(sec==="finanzas"&&subTab==="caja"||sec==="cajachica")&&(()=>{
@@ -1003,87 +482,41 @@ export default function App(){
       const cajaWeekTotal=cajaWeek.reduce((s,c)=>s+c.monto,0);
       const presupuesto=5000;
       const resta=presupuesto-cajaWeekTotal;
-      // Ordenar: pendientes primero, luego por fecha descendente
-      const cajaSorted=[...caja].sort((a,b)=>{
-        const ap=a.status==="pendiente"?0:1;const bp=b.status==="pendiente"?0:1;
-        if(ap!==bp)return ap-bp;
-        return (b.fecha||"").localeCompare(a.fecha||"");
-      });
+      // Agrupar por semana
+      const weeks={};caja.filter(c=>c.status!=="rechazado").forEach(c=>{const d2=new Date(c.fecha+"T12:00:00");const dy=d2.getDay()||7;const mn=new Date(d2);mn.setDate(d2.getDate()-(dy-1));const wk=mn.toISOString().slice(0,10);if(!weeks[wk])weeks[wk]=[];weeks[wk].push(c);});
+      const wkKeys=Object.keys(weeks).sort().reverse();
       return <div>
         <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
           <Card><Stat label="Total Caja Chica" value={$(tCaja)} color={T.orange}/></Card>
           <Card style={{background:"rgba(201,149,107,.06)",borderColor:"rgba(201,149,107,.15)"}}><Stat label="Esta Semana" value={$(cajaWeekTotal)} color={T.gold}/></Card>
           <Card><Stat label={"Presupuesto $"+presupuesto.toLocaleString()} value={$(resta)} color={resta>=0?T.green:T.red}/><Bar v={cajaWeekTotal} mx={presupuesto} c={cajaWeekTotal>presupuesto?T.red:T.green} h={4}/></Card>
-          {cajaPend>0&&<Card style={{borderColor:T.yellow+"33",background:"rgba(241,196,15,.05)"}}><Stat label="🔔 Por Aprobar" value={cajaPend} color={T.yellow}/></Card>}
+          {cajaPend>0&&<Card style={{borderColor:T.yellow+"33"}}><Stat label="Por Aprobar" value={cajaPend} color={T.yellow}/></Card>}
         </div>
         <button style={{...sB,marginBottom:10,marginTop:0,maxWidth:300}} onClick={()=>om("addCj")}>+ Gasto</button>
-
-        {/* ═══ TABLA ESTILO EXCEL ═══ */}
-        {caja.length===0?<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin gastos registrados</div></Card>:
-        <div style={{borderRadius:10,border:"1px solid "+T.border,overflow:"auto",background:"rgba(255,255,255,.01)"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?900:600,fontSize:12}}>
-            <thead>
-              <tr style={{background:"rgba(201,149,107,.08)",borderBottom:"2px solid "+T.border}}>
-                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:40}}>#</th>
-                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:85}}>Fecha</th>
-                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8}}>Concepto</th>
-                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:110}}>Responsable</th>
-                <th style={{padding:"10px 8px",textAlign:"left",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:130}}>Obra</th>
-                <th style={{padding:"10px 8px",textAlign:"center",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:40}}>📷</th>
-                <th style={{padding:"10px 8px",textAlign:"right",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:100}}>Monto</th>
-                <th style={{padding:"10px 8px",textAlign:"center",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:90}}>Status</th>
-                {user.rol==="admin"&&<th style={{padding:"10px 8px",textAlign:"right",fontSize:9,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,width:180}}>Acciones</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {cajaSorted.map((c,idx)=>{
-                const isP=c.status==="pendiente";
-                const isR=c.status==="rechazado";
-                const bg=isP?"rgba(241,196,15,.06)":isR?"rgba(231,76,60,.04)":(idx%2===0?"transparent":"rgba(255,255,255,.015)");
-                return <tr key={c.id} style={{background:bg,borderBottom:"1px solid "+T.line}}>
-                  <td style={{padding:"8px",color:T.dim,fontSize:10,fontFamily:"monospace"}}>{idx+1}</td>
-                  <td style={{padding:"8px",color:T.muted,fontSize:11,whiteSpace:"nowrap"}}>{fd(c.fecha)}</td>
-                  <td style={{padding:"8px"}}>
-                    <div style={{fontWeight:600,color:T.text}}>{c.concepto}</div>
-                    {isR&&<div style={{fontSize:9,color:T.red}}>RECHAZADO</div>}
-                  </td>
-                  <td style={{padding:"8px",fontSize:11,color:T.muted}}>{c.resp||"—"}</td>
-                  <td style={{padding:"8px",fontSize:10,color:T.gold,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:130}}>{c.obra||"General"}</td>
-                  <td style={{padding:"8px",textAlign:"center"}}>
-                    {c.ticket&&c.ticket!=='[nube]'&&c.ticket.startsWith('data:')?
-                      <img src={c.ticket} style={{width:28,height:28,borderRadius:4,objectFit:"cover",cursor:"pointer",border:"1px solid "+T.border}} onClick={()=>om("verTicket",c)} alt=""/>:
-                      c.ticket==='[nube]'?<span style={{fontSize:14,color:T.muted}} title="En la nube">☁️</span>:
-                      <span style={{color:T.dim,fontSize:10}}>—</span>
-                    }
-                  </td>
-                  <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.orange,fontSize:13,fontFamily:"monospace",whiteSpace:"nowrap"}}>{$(c.monto)}</td>
-                  <td style={{padding:"8px",textAlign:"center"}}>
-                    {isP?<span style={{background:"rgba(241,196,15,.15)",color:T.yellow,padding:"3px 10px",borderRadius:10,fontSize:9,fontWeight:800,border:"1px solid rgba(241,196,15,.3)",whiteSpace:"nowrap"}}>⏳ PENDIENTE</span>:
-                     isR?<span style={{background:"rgba(231,76,60,.15)",color:T.red,padding:"3px 10px",borderRadius:10,fontSize:9,fontWeight:800,whiteSpace:"nowrap"}}>✕ RECHAZADO</span>:
-                     <span style={{background:"rgba(76,175,80,.15)",color:T.green,padding:"3px 10px",borderRadius:10,fontSize:9,fontWeight:800,whiteSpace:"nowrap"}}>✓ APROBADO</span>}
-                  </td>
-                  {user.rol==="admin"&&<td style={{padding:"8px",textAlign:"right"}}>
-                    <div style={{display:"inline-flex",gap:3}}>
-                      {isP&&<>
-                        <button onClick={()=>{setCaja(prev=>prev.map(x=>x.id===c.id?{...x,status:"aprobado"}:x));show("Aprobado ✓");}} title="Aprobar" style={{padding:"5px 9px",borderRadius:5,border:"none",background:"#0a2e0a",color:T.green,fontWeight:800,fontSize:11,cursor:"pointer"}}>✓</button>
-                        <button onClick={()=>{setCaja(prev=>prev.map(x=>x.id===c.id?{...x,status:"rechazado"}:x));show("Rechazado");}} title="Rechazar" style={{padding:"5px 9px",borderRadius:5,border:"none",background:"#2a0a0a",color:T.red,fontWeight:800,fontSize:11,cursor:"pointer"}}>✕</button>
-                      </>}
-                      <button onClick={()=>om("editCj",c)} title="Editar" style={{padding:"5px 9px",borderRadius:5,border:"1px solid "+T.border,background:"transparent",color:T.yellow,fontSize:11,cursor:"pointer"}}>✏️</button>
-                      <button onClick={()=>{if(confirm("¿Eliminar este gasto?")){setCaja(prev=>prev.filter(x=>x.id!==c.id));show("Eliminado");}}} title="Eliminar" style={{padding:"5px 9px",borderRadius:5,border:"1px solid "+T.red+"33",background:"transparent",color:T.red,fontSize:11,cursor:"pointer"}}>🗑</button>
-                    </div>
-                  </td>}
-                </tr>;
-              })}
-            </tbody>
-            <tfoot>
-              <tr style={{background:"rgba(201,149,107,.05)",borderTop:"2px solid "+T.border}}>
-                <td colSpan={6} style={{padding:"10px 8px",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:1}}>Total ({cajaSorted.length} gastos)</td>
-                <td style={{padding:"10px 8px",textAlign:"right",fontWeight:800,color:T.orange,fontSize:14,fontFamily:"monospace"}}>{$(cajaSorted.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0))}</td>
-                <td colSpan={user.rol==="admin"?2:1}></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>}
+        {wkKeys.map(wk=>{const items=weeks[wk];const wkTot=items.reduce((s,c)=>s+c.monto,0);return <div key={wk} style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"2px solid "+T.border,marginBottom:6}}>
+            <span style={{fontSize:11,fontWeight:700,color:T.muted}}>Semana del {fd(wk)}</span>
+            <span style={{fontSize:12,fontWeight:800,color:T.orange}}>{$(wkTot)}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{items.map(c=><Card key={c.id} style={{borderColor:c.status==="pendiente"?T.yellow+"22":"transparent",padding:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+              <div style={{flex:1}} onClick={()=>{if(c.ticket)om("verTicket",c);}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:600,fontSize:13}}>{c.concepto}</span><Badge s={c.status||"aprobado"}/></div>
+                <div style={{fontSize:10,color:T.dim,marginTop:2}}>{fd(c.fecha)} · {c.resp}{c.obra&&c.obra!=="General"?" · "+c.obra:""}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                {c.ticket&&<img src={c.ticket} style={{width:32,height:32,borderRadius:6,objectFit:"cover",border:"1px solid "+T.border,cursor:"pointer"}} onClick={()=>om("verTicket",c)} alt=""/>}
+                <span style={{fontWeight:800,color:T.orange,fontSize:16}}>{$(c.monto)}</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:4,marginTop:8,flexWrap:"wrap"}}>
+              {c.status==="pendiente"&&user.rol==="admin"&&<><button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"aprobado"}:x));show("Aprobado ✓");}} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#0a2e0a",color:T.green,fontWeight:700,fontSize:10,cursor:"pointer"}}>✓ Aprobar</button><button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"rechazado"}:x));show("Rechazado");}} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#2a0a0a",color:T.red,fontWeight:700,fontSize:10,cursor:"pointer"}}>✕ Rechazar</button></>}
+              {user.rol==="admin"&&<button onClick={()=>om("editCj",c)} style={{padding:"5px 10px",borderRadius:6,border:"1px solid "+T.border,background:"transparent",color:T.yellow,fontWeight:700,fontSize:10,cursor:"pointer"}}>✏️ Editar</button>}
+              {user.rol==="admin"&&<button onClick={()=>{if(confirm("¿Eliminar este gasto?")){setCaja(caja.filter(x=>x.id!==c.id));show("Eliminado");}}} style={{padding:"5px 10px",borderRadius:6,border:"1px solid "+T.red+"33",background:"transparent",color:T.red,fontWeight:700,fontSize:10,cursor:"pointer"}}>🗑</button>}
+            </div>
+          </Card>)}</div>
+        </div>})}
+        {caja.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin gastos registrados</div></Card>}
       </div>;
     })()}
 
@@ -1096,7 +529,7 @@ export default function App(){
       {(()=>{const c=sub;const cn=c.nombre.toLowerCase();const cOb=obras.filter(o=>(o.cliente||"").toLowerCase()===cn);const cPag=movs.filter(m=>m.ing>0&&cOb.some(o=>o.nombre===m.obra)).reduce((s,m)=>s+m.ing,0);const cTot=cOb.reduce((s,o)=>s+(o.cotizado||0),0);
       const selOb=cliObraTab?cOb.find(o=>o.id===cliObraTab):null;
       return <div>
-        <Card><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontSize:22,fontWeight:800,marginBottom:4}}>{c.nombre}</div><div style={{fontSize:12,color:T.muted}}>{c.tel&&"📱 "+c.tel}{c.email&&" · "+c.email}</div>{c.dir&&<div style={{fontSize:12,color:T.muted}}>📍 {c.dir}</div>}</div>{user.rol==="admin"&&<button onClick={()=>{if(confirm("¿Eliminar al cliente "+c.nombre+"? Los movimientos financieros NO se borran.")){setClis(clis.filter(x=>x.id!==c.id));setSub(null);show("Cliente eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.25)",color:T.red,borderRadius:6,padding:"5px 10px",fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>🗑 Eliminar</button>}</div></Card>
+        <Card><div style={{fontSize:22,fontWeight:800,marginBottom:4}}>{c.nombre}</div><div style={{fontSize:12,color:T.muted}}>{c.tel&&"📱 "+c.tel}{c.email&&" · "+c.email}</div>{c.dir&&<div style={{fontSize:12,color:T.muted}}>📍 {c.dir}</div>}</Card>
         <div style={{display:"flex",gap:4,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
           <button onClick={()=>setCliObraTab(null)} style={{padding:"8px 16px",borderRadius:20,border:!cliObraTab?"2px solid "+T.gold:"1px solid "+T.border,background:!cliObraTab?T.gold+"18":"transparent",color:!cliObraTab?T.gold:T.muted,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>📊 Resumen Total</button>
           {cOb.map(o=><button key={o.id} onClick={()=>setCliObraTab(o.id)} style={{padding:"8px 16px",borderRadius:20,border:cliObraTab===o.id?"2px solid "+FCC[o.fase]:"1px solid "+T.border,background:cliObraTab===o.id?FCC[o.fase]+"18":"transparent",color:cliObraTab===o.id?FCC[o.fase]:T.muted,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>🏗️ {o.nombre}</button>)}
@@ -1230,266 +663,20 @@ export default function App(){
     {modal==="cat"&&<ModalW title="Catálogo" onClose={cm}>{cats.map(cat=> <div key={cat} style={{marginBottom:12}}><div style={{fontSize:11,color:T.gold,fontWeight:700,borderBottom:"1px solid "+T.border,paddingBottom:3,marginBottom:4}}>{cat}</div>{catalogo.filter(c=>c.cat===cat).map(item=> <div key={item.id} onClick={()=>{addCotP(item);show(item.id+" +");}} style={{display:"flex",justifyContent:"space-between",padding:"10px 8px",borderBottom:"1px solid "+T.border,cursor:"pointer"}}><span><b style={{color:T.gold}}>{item.id}</b> {item.desc}</span><span style={{color:T.muted}}>{$(item.precio)} <span style={{color:T.green}}>+</span></span></div>)}</div>)}</ModalW>}
         {modal==="addNom"&&<ModalW title="Nuevo Pago Fijo" onClose={cm}><div><Fl l="Nombre"><input style={sI} id="nomNom" placeholder="Ej: Nómina Erik"/></Fl><Fl l="Monto"><input type="number" style={sI} id="nomMon"/></Fl><Fl l="Frecuencia"><select style={sI} id="nomFreq"><option value="semanal">Semanal</option><option value="quincenal">Quincenal</option><option value="mensual">Mensual</option></select></Fl><Fl l="Tipo"><select style={sI} id="nomTipo"><option value="Nómina">Nómina</option><option value="Renta">Renta</option><option value="Servicios">Servicios</option><option value="IMSS">IMSS</option><option value="Destajo">Destajo</option><option value="Otro">Otro</option></select></Fl><button style={sB} onClick={()=>{const n=document.getElementById("nomNom").value;const m=Number(document.getElementById("nomMon").value);const f=document.getElementById("nomFreq").value;const t=document.getElementById("nomTipo").value;if(n&&m>0){setNominas(prev=>[...prev,{id:"N"+Date.now(),nombre:n,monto:m,frecuencia:f,tipo:t}]);cm();show("Pago fijo creado");}}}>Guardar</button></div></ModalW>}
     {modal==="addOb"&&<ModalW title="Nueva Obra" onClose={cm}><ObraForm clientes={clis} onNewCli={nombre=>ensureCli(nombre)} onSave={o=>{setObras(prev=>[...prev,{...o,id:"OB"+String(prev.length+1).padStart(2,"0"),egreso:0,extras:[],pagos:[],docs:[],bitacora:[]}]);cm();show("Obra ✓");}}/></ModalW>}
-    {modal==="editMov"&&md&&<ModalW title="Editar Movimiento" onClose={cm}><EditMovForm key={md.id} mov={md} obras={obras} onSave={(nd,nm,np,no,nc)=>{if(md._kind==="caja"){setCaja(prev=>prev.map((x,i)=>i===md._idx?{...x,concepto:nd||x.concepto,monto:nm||x.monto,obra:no,resp:np||x.resp}:x));}else{setMovs(prev=>prev.map((x,i)=>i===md._idx?{...x,desc:nd||x.desc,ing:md.t==="ing"?(nm||x.ing):0,egr:md.t!=="ing"?(nm||x.egr):0,prov:np,obra:no,cat:nc}:x));}cm();show("Actualizado ✓");}} onDelete={()=>{if(confirm("¿Eliminar este movimiento?")){if(md._kind==="caja"){setCaja(prev=>prev.filter((x,i)=>i!==md._idx));}else{setMovs(prev=>prev.filter((x,i)=>i!==md._idx));}cm();show("Eliminado ✓");}}}/></ModalW>}
+    {modal==="editMov"&&md&&<ModalW title="Editar Movimiento" onClose={cm}><div><Fl l="Concepto"><input style={sI} defaultValue={md.desc} id="emDesc"/></Fl><Fl l="Monto"><input type="number" style={sI} defaultValue={md.monto} id="emMonto"/></Fl><Fl l="Proveedor / Cliente"><input style={sI} defaultValue={md.prov||""} id="emProv"/></Fl><Fl l="Obra"><select style={sI} defaultValue={md.obra||""} id="emObra"><option value="">Sin obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><Fl l="Categoría"><input style={sI} defaultValue={md.cat||""} id="emCat" placeholder="Material, Nómina, etc."/></Fl><button style={{...sB,marginTop:8}} onClick={()=>{const nd=document.getElementById("emDesc").value;const nm=Number(document.getElementById("emMonto").value);const np=document.getElementById("emProv").value;const no=document.getElementById("emObra").value;const nc=document.getElementById("emCat").value;if(md.t==="caja"){setCaja(caja.map(x=>x.id===md.cajaId?{...x,concepto:nd||x.concepto,monto:nm||x.monto,obra:no,resp:np||x.resp}:x));}else{setMovs(movs.map(x=>{if("m"+x.id===md.id){return {...x,desc:nd||x.desc,ing:md.t==="ing"?(nm||x.ing):0,egr:md.t!=="ing"?(nm||x.egr):0,prov:np,obra:no,cat:nc};}return x;}));}cm();show("Actualizado ✓");}}>💾 Guardar Cambios</button><button style={{...sB,background:"#2a0a0a",color:T.red,border:"1px solid "+T.red+"33"}} onClick={()=>{if(confirm("¿Eliminar este movimiento?")){if(md.t==="caja"){setCaja(caja.filter(x=>x.id!==md.cajaId));}else{setMovs(movs.filter(x=>"m"+x.id!==md.id));}cm();show("Eliminado");}}}> 🗑 Eliminar Movimiento</button></div></ModalW>}
     {modal==="delOb"&&md&&<ModalW title="Eliminar Proyecto" onClose={cm}><div style={{textAlign:"center",padding:"10px 0"}}><div style={{fontSize:40,marginBottom:10}}>⚠️</div><div style={{fontSize:16,fontWeight:700,marginBottom:6}}>¿Eliminar "{md.nombre}"?</div><div style={{fontSize:12,color:T.muted,marginBottom:16}}>Se eliminará el proyecto, sus partidas, documentos, bitácora y extras. Los movimientos financieros NO se borran.</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setObras(prev=>prev.filter(o=>o.id!==md.id));setSub(null);cm();show("Proyecto eliminado");}}>🗑 Sí, eliminar</button><button style={{...sB,background:"#222",color:T.muted,marginTop:0}} onClick={cm}>Cancelar</button></div></div></ModalW>}
-    {modal==="archivarOb"&&md&&<ModalW title="📦 Archivar Obra" onClose={cm}>{(()=>{
-      const oMovs=movs.filter(m=>_norm(m.obra)===_norm(md.nombre));
-      const oCaja=caja.filter(c=>_norm(c.obra)===_norm(md.nombre));
-      const oDocs=documentos.filter(d=>_norm(d.obra)===_norm(md.nombre));
-      const oIng=oMovs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);
-      const oEgr=oMovs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0)+oCaja.reduce((s,c)=>s+c.monto,0);
-      const margen=oIng-oEgr;
-      return <div>
-        <div style={{background:"rgba(168,139,250,.08)",border:"1px solid rgba(168,139,250,.2)",borderRadius:10,padding:14,marginBottom:12}}>
-          <div style={{fontSize:15,fontWeight:800,marginBottom:4}}>📦 "{md.nombre}"</div>
-          <div style={{fontSize:11,color:T.muted}}>{md.cliente||"Sin cliente"} · {md.fase}</div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-          <div style={{background:T.gold+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontSize:14,fontWeight:800,color:T.gold}}>{$(md.cotizado)}</div></div>
-          <div style={{background:T.green+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>INGRESOS</div><div style={{fontSize:14,fontWeight:800,color:T.green}}>{$(oIng)}</div></div>
-          <div style={{background:T.red+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>EGRESOS</div><div style={{fontSize:14,fontWeight:800,color:T.red}}>{$(oEgr)}</div></div>
-          <div style={{background:(margen>=0?T.green:T.red)+"10",borderRadius:8,padding:10,textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>MARGEN</div><div style={{fontSize:14,fontWeight:800,color:margen>=0?T.green:T.red}}>{$(margen)}</div></div>
-        </div>
-        <div style={{background:"rgba(255,255,255,.03)",borderRadius:10,padding:12,marginBottom:12}}>
-          <div style={{fontSize:11,color:T.muted,marginBottom:6}}>Se archivarán:</div>
-          <div style={{fontSize:12,color:T.text,lineHeight:1.8}}>
-            ✓ {oMovs.length} movimientos (ingresos/egresos)<br/>
-            ✓ {oCaja.length} gastos de caja chica<br/>
-            ✓ {oDocs.length} documentos<br/>
-            ✓ Bitácora, extras y partidas completas
-          </div>
-        </div>
-        <div style={{background:"rgba(79,142,247,.08)",border:"1px solid rgba(79,142,247,.2)",borderRadius:8,padding:10,fontSize:11,color:T.blue,marginBottom:12}}>ℹ️ La información queda guardada permanentemente. Puedes restaurarla cuando quieras desde "📦 Archivadas".</div>
-        <button style={{...sB,background:"#1a1030",color:"#a78bfa",border:"1px solid rgba(168,139,250,.33)",width:"100%"}} onClick={()=>{
-          if(!confirm("¿Archivar \""+md.nombre+"\"? Los datos se moverán a Archivadas."))return;
-          const snapshot={
-            obra:{...md},
-            movs:oMovs,
-            caja:oCaja,
-            documentos:oDocs,
-            resumen:{cotizado:md.cotizado,cobrado:oIng,gastado:oEgr,margen:margen},
-            archivedAt:new Date().toISOString(),
-            archivedBy:user?.nombre||"",
-          };
-          setArchivadas(prev=>[snapshot,...(prev||[])]);
-          // Remover de activos
-          setObras(prev=>prev.filter(o=>o.id!==md.id));
-          setMovs(prev=>prev.filter(m=>_norm(m.obra)!==_norm(md.nombre)));
-          setCaja(prev=>prev.filter(c=>_norm(c.obra)!==_norm(md.nombre)));
-          setDocumentos(prev=>prev.filter(d=>_norm(d.obra)!==_norm(md.nombre)));
-          setSub(null);cm();show("✅ Obra archivada");go("archivadas");
-        }}>📦 Archivar Obra</button>
-      </div>;
-    })()}</ModalW>}
-    {modal==="mergeOb"&&md&&<ModalW title="🔗 Fusionar Obra Duplicada" onClose={cm}><MergeObraForm obra={md} obras={obras} movs={movs} caja={caja} onMerge={(source,target)=>{
-      const srcName=source.nombre;const tgtName=target.nombre;
-      // Mover todos los movimientos de source a target
-      setMovs(prev=>prev.map(m=>m.obra===srcName?{...m,obra:tgtName}:m));
-      setCaja(prev=>prev.map(c=>c.obra===srcName?{...c,obra:tgtName}:c));
-      // Sumar cotizado si source tiene
-      if(source.cotizado>0&&target.cotizado===0){setObras(prev=>prev.map(o=>o.id===target.id?{...o,cotizado:source.cotizado,cliente:source.cliente||o.cliente}:o));}
-      // Eliminar la obra duplicada
-      setObras(prev=>prev.filter(o=>o.id!==source.id));
-      setSub(null);cm();show("✅ Obras fusionadas: "+srcName+" → "+tgtName);
-    }}/></ModalW>}
-    {modal==="addIng"&&<ModalW title="Registrar Ingreso" onClose={cm}><IngForm obras={obras} movs={movs} clis={clis} onSave={m=>{const rid=genRec(m);setMovs(prev=>[...prev,{...m,id:(Math.max(0,...prev.map(x=>x.id||0))+1),user:user.nombre}]);try{saveDoc("recibo","Recibo "+rid,m.prov,m.obra,m.ing,{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}catch{}cm();om("vRec",{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}}/></ModalW>}
-    {modal==="addEgr"&&<ModalW title="Egreso" onClose={cm}><EgrForm obras={obras} provs={provs} onNewProv={nombre=>{setProvs(prev=>[...prev,{id:"P"+String(prev.length+1).padStart(2,"0"),nombre,contacto:"",tel:"",material:"",credito:0,total:0,calif:3}]);}} onSave={m=>{setMovs(prev=>[...prev,{...m,id:(Math.max(0,...prev.map(x=>x.id||0))+1),user:user.nombre}]);cm();show("Egreso ✓");}}/></ModalW>}
-    {modal==="addCj"&&<ModalW title="Gasto Caja Chica" onClose={cm}><CajaForm users={users} obras={obras} onSave={c=>{setCaja(prev=>[...prev,{...c,id:(Math.max(0,...prev.map(x=>x.id||0))+1),status:user.rol==="admin"?"aprobado":"pendiente"}]);cm();show(user.rol==="admin"?"Gasto registrado":"Enviado para aprobación");}}/></ModalW>}
+    {modal==="addIng"&&<ModalW title="Registrar Ingreso" onClose={cm}><IngForm obras={obras} movs={movs} clis={clis} onSave={m=>{const rid=genRec(m);setMovs(prev=>[...prev,{...m,id:prev.length+1,user:user.nombre}]);try{saveDoc("recibo","Recibo "+rid,m.prov,m.obra,m.ing,{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}catch{}cm();om("vRec",{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}}/></ModalW>}
+    {modal==="addEgr"&&<ModalW title="Egreso" onClose={cm}><EgrForm obras={obras} provs={provs} onNewProv={nombre=>{setProvs(prev=>[...prev,{id:"P"+String(prev.length+1).padStart(2,"0"),nombre,contacto:"",tel:"",material:"",credito:0,total:0,calif:3}]);}} onSave={m=>{setMovs(prev=>[...prev,{...m,id:prev.length+1,user:user.nombre}]);cm();show("Egreso ✓");}}/></ModalW>}
+    {modal==="addCj"&&<ModalW title="Gasto Caja Chica" onClose={cm}><CajaForm users={users} obras={obras} onSave={c=>{setCaja(prev=>[...prev,{...c,id:prev.length+1,status:user.rol==="admin"?"aprobado":"pendiente"}]);cm();show(user.rol==="admin"?"Gasto registrado":"Enviado para aprobación");}}/></ModalW>}
     {modal==="editCj"&&md&&<ModalW title="Editar Gasto" onClose={cm}><div><Fl l="Concepto"><input style={sI} defaultValue={md.concepto} id="editCjConc"/></Fl><Fl l="Monto"><input type="number" style={sI} defaultValue={md.monto} id="editCjMonto"/></Fl><Fl l="Obra"><select style={sI} defaultValue={md.obra} id="editCjObra"><option value="">Seleccionar obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General</option></select></Fl><Fl l="Responsable"><input style={sI} defaultValue={md.resp} id="editCjResp"/></Fl><button style={{...sB,marginTop:8}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;const nr=document.getElementById("editCjResp").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,resp:nr||x.resp}:x));cm();show("Gasto actualizado ✓");}}>💾 Guardar Cambios</button>{md.status==="pendiente"&&user.rol==="admin"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}><button style={{...sB,background:"#0a2e0a",color:T.green,marginTop:0}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,status:"aprobado"}:x));cm();show("Aprobado ✓");}}>✓ Aprobar</button><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setCaja(caja.map(x=>x.id===md.id?{...x,status:"rechazado"}:x));cm();show("Rechazado");}}>✕ Rechazar</button></div>}</div></ModalW>}
     {modal==="addDoc"&&sub&&<ModalW title="Documento" onClose={cm}><DocForm onSave={d=>{const up={...sub,docs:[...(sub.docs||[]),{...d,id:(sub.docs?.length||0)+1,fecha:td(),size:"—"}]};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);cm();show("✓");}}/></ModalW>}
     {modal==="addCli"&&<ModalW title="Cliente" onClose={cm}><ClienteForm onSave={c=>{if(clis.some(x=>x.nombre.toLowerCase()===c.nombre.toLowerCase())){show("Este cliente ya existe");return;}setClis(prev=>[...prev,{...c,id:"C"+Date.now()}]);cm();show("✓");}}/></ModalW>}
-    {modal==="resumenEj"&&<ModalW title="🎯 Resumen Ejecutivo" onClose={cm}><div style={{maxHeight:"85vh",overflowY:"auto"}}>{(()=>{
-      const oActivas=obras.filter(o=>o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
-      // Calcular datos + DIAGNÓSTICO por obra
-      const datos=oActivas.map(o=>{
-        const oIng=movs.filter(m=>m.ing>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.ing,0);
-        const oGas=movs.filter(m=>m.egr>0&&_norm(m.obra)===_norm(o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>_norm(c.obra)===_norm(o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
-        const cotizado=o.cotizado||0;
-        const utilidadFinal=cotizado-oGas; // si cobras todo lo cotizado
-        const flujoActual=oIng-oGas; // caja disponible en este momento
-        const rentPct=cotizado>0?Math.round((utilidadFinal/cotizado)*100):null;
-        const cobPct=cotizado>0?Math.round((oIng/cotizado)*100):0;
-        const gastPct=cotizado>0?Math.round((oGas/cotizado)*100):0;
-        const porCobrar=cotizado-oIng;
-
-        // Diagnóstico profesional
-        const problemas=[];
-        const alertas=[];
-        const info=[];
-
-        // PROBLEMAS CRÍTICOS
-        if(cotizado===0)problemas.push("❗ Sin cotización capturada");
-        if(!o.cliente)problemas.push("❗ Sin cliente asignado");
-        if(cotizado>0&&rentPct<0)problemas.push("🔴 Margen NEGATIVO ("+rentPct+"%)");
-        if(cotizado>0&&gastPct>100)problemas.push("🔴 Gasto superó lo cotizado");
-        if(cotizado>0&&flujoActual<-10000)problemas.push("🔴 Flujo negativo: faltan "+$(Math.abs(flujoActual)));
-
-        // ALERTAS (situación a vigilar)
-        if(cotizado>0&&rentPct>=0&&rentPct<15)alertas.push("⚠️ Margen bajo ("+rentPct+"%)");
-        if(cotizado>0&&gastPct>cobPct+25)alertas.push("⚠️ Gastando más rápido que cobrando");
-        if(cotizado>0&&o.fase==="entregado"&&cobPct<100)alertas.push("⚠️ Entregada pero cobro incompleto ("+cobPct+"%)");
-        if(cotizado>0&&gastPct>80&&cobPct<60)alertas.push("⚠️ Cobranza atrasada vs avance de gasto");
-        if(cotizado>0&&porCobrar>50000&&cobPct<50)alertas.push("⚠️ Por cobrar: "+$(porCobrar));
-
-        // INFO
-        if(cotizado>0&&rentPct>=20)info.push("✓ Margen sano ("+rentPct+"%)");
-        if(cotizado>0&&cobPct>=90)info.push("✓ Casi cobrado completo");
-
-        // Nivel de urgencia numérico (0-100)
-        let urgencia=0;
-        if(cotizado===0)urgencia+=40;
-        if(!o.cliente)urgencia+=20;
-        if(rentPct!==null&&rentPct<0)urgencia+=100;
-        if(rentPct!==null&&rentPct>=0&&rentPct<15)urgencia+=30;
-        if(gastPct>cobPct+25)urgencia+=20;
-        if(flujoActual<-10000)urgencia+=50;
-        if(porCobrar>100000&&cobPct<50)urgencia+=15;
-
-        let estado="sana";
-        if(problemas.length>0)estado="problema";
-        else if(alertas.length>0)estado="alerta";
-
-        return{...o,oIng,oGas,cotizado,utilidadFinal,flujoActual,rentPct,cobPct,gastPct,porCobrar,problemas,alertas,info,urgencia,estado};
-      });
-
-      // Totales
-      const totalCot=datos.reduce((s,d)=>s+d.cotizado,0);
-      const totalIng=datos.reduce((s,d)=>s+d.oIng,0);
-      const totalGas=datos.reduce((s,d)=>s+d.oGas,0);
-      const totalFlujo=totalIng-totalGas;
-      const totalPorCobrar=totalCot-totalIng;
-      const contador={sana:0,alerta:0,problema:0};
-      datos.forEach(d=>contador[d.estado]++);
-
-      // Filtros
-      let filtrados=datos;
-      if(reFilt==="problema")filtrados=filtrados.filter(d=>d.estado==="problema");
-      if(reFilt==="alerta")filtrados=filtrados.filter(d=>d.estado==="alerta");
-      if(reFilt==="sana")filtrados=filtrados.filter(d=>d.estado==="sana");
-      if(reFilt==="sincotizacion")filtrados=filtrados.filter(d=>d.cotizado===0);
-      if(reFilt==="sincliente")filtrados=filtrados.filter(d=>!d.cliente);
-      if(reFilt==="porcobrar")filtrados=filtrados.filter(d=>d.porCobrar>0);
-      if(reBusq){const q=reBusq.toLowerCase();filtrados=filtrados.filter(d=>d.nombre.toLowerCase().includes(q)||(d.cliente||"").toLowerCase().includes(q));}
-
-      // Ordenar
-      if(reSort==="urgencia")filtrados.sort((a,b)=>b.urgencia-a.urgencia);
-      if(reSort==="cotizado")filtrados.sort((a,b)=>b.cotizado-a.cotizado);
-      if(reSort==="utilidad")filtrados.sort((a,b)=>b.utilidadFinal-a.utilidadFinal);
-      if(reSort==="margen")filtrados.sort((a,b)=>(b.rentPct??-999)-(a.rentPct??-999));
-      if(reSort==="porcobrar")filtrados.sort((a,b)=>b.porCobrar-a.porCobrar);
-
-      return <div>
-        {/* KPIs ejecutivos */}
-        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:12}}>
-          <div style={{background:T.gold+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.gold}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>COTIZADO</div><div style={{fontSize:16,fontWeight:800,color:T.gold}}>{$(totalCot)}</div><div style={{fontSize:9,color:T.dim}}>{datos.length} obras</div></div>
-          <div style={{background:T.green+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.green}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>INGRESOS</div><div style={{fontSize:16,fontWeight:800,color:T.green}}>{$(totalIng)}</div><div style={{fontSize:9,color:T.green}}>{totalCot>0?Math.round(totalIng/totalCot*100):0}% del total</div></div>
-          <div style={{background:T.red+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.red}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>EGRESOS</div><div style={{fontSize:16,fontWeight:800,color:T.red}}>{$(totalGas)}</div><div style={{fontSize:9,color:T.dim}}>{totalCot>0?Math.round(totalGas/totalCot*100):0}% del cotiz.</div></div>
-          <div style={{background:(totalFlujo>=0?T.green:T.red)+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+(totalFlujo>=0?T.green:T.red)}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>FLUJO</div><div style={{fontSize:16,fontWeight:800,color:totalFlujo>=0?T.green:T.red}}>{$(totalFlujo)}</div><div style={{fontSize:9,color:T.dim}}>caja actual</div></div>
-          <div style={{background:T.yellow+"12",borderRadius:10,padding:"10px 12px",borderLeft:"3px solid "+T.yellow}}><div style={{fontSize:9,color:T.muted,fontWeight:700}}>POR COBRAR</div><div style={{fontSize:16,fontWeight:800,color:T.yellow}}>{$(totalPorCobrar)}</div><div style={{fontSize:9,color:T.dim}}>pendiente</div></div>
-        </div>
-
-        {/* Semáforo clickeable (filtros) */}
-        <div style={{display:"flex",gap:6,marginBottom:10}}>
-          <div onClick={()=>setReFilt(reFilt==="problema"?"todos":"problema")} style={{flex:1,cursor:"pointer",background:reFilt==="problema"?T.red+"20":"rgba(231,76,60,.06)",border:"2px solid "+(reFilt==="problema"?T.red:"rgba(231,76,60,.2)"),borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:18}}>🔴</div><div style={{fontSize:20,fontWeight:800,color:T.red}}>{contador.problema}</div><div style={{fontSize:9,color:T.muted,fontWeight:700}}>EN PROBLEMA</div>
-          </div>
-          <div onClick={()=>setReFilt(reFilt==="alerta"?"todos":"alerta")} style={{flex:1,cursor:"pointer",background:reFilt==="alerta"?T.yellow+"20":"rgba(241,196,15,.06)",border:"2px solid "+(reFilt==="alerta"?T.yellow:"rgba(241,196,15,.2)"),borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:18}}>🟡</div><div style={{fontSize:20,fontWeight:800,color:T.yellow}}>{contador.alerta}</div><div style={{fontSize:9,color:T.muted,fontWeight:700}}>EN ALERTA</div>
-          </div>
-          <div onClick={()=>setReFilt(reFilt==="sana"?"todos":"sana")} style={{flex:1,cursor:"pointer",background:reFilt==="sana"?T.green+"20":"rgba(76,175,80,.06)",border:"2px solid "+(reFilt==="sana"?T.green:"rgba(76,175,80,.2)"),borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
-            <div style={{fontSize:18}}>🟢</div><div style={{fontSize:20,fontWeight:800,color:T.green}}>{contador.sana}</div><div style={{fontSize:9,color:T.muted,fontWeight:700}}>SANAS</div>
-          </div>
-        </div>
-
-        {/* Filtros rápidos por datos sucios */}
-        <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
-          <button onClick={()=>setReFilt("todos")} style={{padding:"5px 10px",borderRadius:16,border:"1px solid "+T.border,background:reFilt==="todos"?T.gold+"22":"transparent",color:reFilt==="todos"?T.gold:T.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>Todas ({datos.length})</button>
-          <button onClick={()=>setReFilt("sincotizacion")} style={{padding:"5px 10px",borderRadius:16,border:"1px solid "+T.border,background:reFilt==="sincotizacion"?T.red+"22":"transparent",color:reFilt==="sincotizacion"?T.red:T.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>❗ Sin cotizar ({datos.filter(d=>d.cotizado===0).length})</button>
-          <button onClick={()=>setReFilt("sincliente")} style={{padding:"5px 10px",borderRadius:16,border:"1px solid "+T.border,background:reFilt==="sincliente"?T.red+"22":"transparent",color:reFilt==="sincliente"?T.red:T.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>❗ Sin cliente ({datos.filter(d=>!d.cliente).length})</button>
-          <button onClick={()=>setReFilt("porcobrar")} style={{padding:"5px 10px",borderRadius:16,border:"1px solid "+T.border,background:reFilt==="porcobrar"?T.yellow+"22":"transparent",color:reFilt==="porcobrar"?T.yellow:T.muted,fontSize:10,fontWeight:700,cursor:"pointer"}}>💰 Por cobrar ({datos.filter(d=>d.porCobrar>0).length})</button>
-        </div>
-
-        {/* Búsqueda + ordenamiento */}
-        <div style={{display:"flex",gap:6,marginBottom:10}}>
-          <input value={reBusq} onChange={e=>setReBusq(e.target.value)} placeholder="🔍 Buscar obra o cliente..." style={{...sI,flex:1,padding:"8px 12px",fontSize:12}}/>
-          <select value={reSort} onChange={e=>setReSort(e.target.value)} style={{...sI,width:150,padding:"8px 10px",fontSize:11}}>
-            <option value="urgencia">🔥 Urgencia</option>
-            <option value="cotizado">💰 Cotizado</option>
-            <option value="utilidad">📈 Utilidad</option>
-            <option value="margen">📊 % Margen</option>
-            <option value="porcobrar">💵 Por cobrar</option>
-          </select>
-        </div>
-
-        {filtrados.length===0&&<div style={{textAlign:"center",padding:30,color:T.dim}}>Sin obras que coincidan con el filtro</div>}
-
-        {/* Lista de obras */}
-        {filtrados.map(d=>{
-          const borderC=d.estado==="problema"?T.red:d.estado==="alerta"?T.yellow:T.green;
-          return <div key={d.id} onClick={()=>{cm();setSub(d);go("obras",d);}} style={{background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderLeft:"4px solid "+borderC,borderRadius:10,padding:"12px 14px",marginBottom:8,cursor:"pointer",transition:"all .15s"}}>
-            {/* Header */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,gap:8}}>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:15,fontWeight:800,color:T.text}}>{d.nombre}</div>
-                <div style={{fontSize:10,color:T.muted,marginTop:1}}>{d.cliente||"⚠️ Sin cliente"} · {d.fase}</div>
-              </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
-                {d.rentPct!==null?<>
-                  <div style={{fontSize:18,fontWeight:800,color:d.rentPct>=20?T.green:d.rentPct>=0?T.yellow:T.red,lineHeight:1}}>{d.rentPct>0?"+":""}{d.rentPct}%</div>
-                  <div style={{fontSize:8,color:T.muted,textTransform:"uppercase",letterSpacing:.5}}>utilidad final</div>
-                </>:<div style={{fontSize:10,color:T.red,fontWeight:700}}>Sin cotizar</div>}
-              </div>
-            </div>
-
-            {/* Diagnóstico */}
-            {(d.problemas.length>0||d.alertas.length>0)&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
-              {d.problemas.map((p,i)=><span key={"p"+i} style={{fontSize:9,background:T.red+"15",color:T.red,padding:"3px 8px",borderRadius:10,fontWeight:700,border:"1px solid "+T.red+"30"}}>{p}</span>)}
-              {d.alertas.map((a,i)=><span key={"a"+i} style={{fontSize:9,background:T.yellow+"15",color:T.yellow,padding:"3px 8px",borderRadius:10,fontWeight:700,border:"1px solid "+T.yellow+"30"}}>{a}</span>)}
-            </div>}
-
-            {/* Números clave */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:8,padding:"8px 0",borderTop:"1px solid "+T.line,borderBottom:"1px solid "+T.line}}>
-              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>COTIZADO</div><div style={{fontSize:12,fontWeight:700,color:T.gold}}>{$(d.cotizado)}</div></div>
-              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>INGRESOS</div><div style={{fontSize:12,fontWeight:700,color:T.green}}>{$(d.oIng)}</div></div>
-              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>EGRESOS</div><div style={{fontSize:12,fontWeight:700,color:T.red}}>{$(d.oGas)}</div></div>
-              <div><div style={{fontSize:8,color:T.muted,fontWeight:700}}>UTIL. FINAL</div><div style={{fontSize:12,fontWeight:800,color:d.utilidadFinal>=0?T.green:T.red}}>{$(d.utilidadFinal)}</div></div>
-            </div>
-
-            {/* Flujo y por cobrar */}
-            {d.cotizado>0&&<div style={{display:"flex",gap:8,fontSize:10,marginBottom:6}}>
-              <div style={{flex:1}}><span style={{color:T.muted}}>Flujo actual:</span> <span style={{fontWeight:700,color:d.flujoActual>=0?T.green:T.red}}>{$(d.flujoActual)}</span></div>
-              <div style={{flex:1,textAlign:"right"}}><span style={{color:T.muted}}>Por cobrar:</span> <span style={{fontWeight:700,color:T.yellow}}>{$(d.porCobrar)}</span></div>
-            </div>}
-
-            {/* Barras de progreso */}
-            {d.cotizado>0&&<div>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:T.muted,marginBottom:2}}><span>📥 Cobrado {d.cobPct}%</span><span>📤 Gastado {d.gastPct}%</span></div>
-              <div style={{display:"flex",gap:3}}>
-                <div style={{flex:1,background:"rgba(255,255,255,.05)",borderRadius:3,height:6,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(d.cobPct,100)+"%",background:T.green}}/></div>
-                <div style={{flex:1,background:"rgba(255,255,255,.05)",borderRadius:3,height:6,overflow:"hidden"}}><div style={{height:"100%",width:Math.min(d.gastPct,100)+"%",background:T.red}}/></div>
-              </div>
-            </div>}
-          </div>;
-        })}
-      </div>;
-    })()}</div></ModalW>}
-    {modal==="addHerr"&&<ModalW title="🔧 Registrar Herramienta" onClose={cm}><HerramientaForm obras={obras} onSave={(h)=>{
-      const oAct2=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
-      const obrasTarget=h.distribuir==="todas"?oAct2.map(o=>o.nombre):(h.obrasSelec||[]);
-      const herrId="H"+Date.now();
-      const herrRecord={id:herrId,nombre:h.nombre,monto:h.monto,fecha:h.fecha,proveedor:h.proveedor,obras:obrasTarget};
-      setHerramientas(prev=>[herrRecord,...prev]);
-      // Crear egresos prorrateados por obra
-      if(obrasTarget.length>0){const prorr=Math.round(h.monto/obrasTarget.length);obrasTarget.forEach(oNombre=>{setMovs(prev=>[...prev,{id:(Math.max(0,...prev.map(x=>x.id||0))+1),fecha:h.fecha,desc:"🔧 "+h.nombre,prov:h.proveedor||"",obra:oNombre,ing:0,egr:prorr,cat:"Herramienta",user:user?.nombre||"",herrId}]);});}
-      else{setMovs(prev=>[...prev,{id:(Math.max(0,...prev.map(x=>x.id||0))+1),fecha:h.fecha,desc:"🔧 "+h.nombre,prov:h.proveedor||"",obra:"General",ing:0,egr:h.monto,cat:"Herramienta",user:user?.nombre||"",herrId}]);}
-      cm();show("Herramienta registrada + egresos creados");
-    }}/></ModalW>}
     {modal==="addInv"&&<ModalW title="Material" onClose={cm}><InvForm onSave={i=>{setInv(prev=>[...prev,{...i,id:"I"+String(prev.length+1)}]);cm();show("✓");}}/></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+String(prev.length+1).padStart(2,"0")}]);cm();show("✓");}}/></ModalW>}
     {modal==="addUser"&&<ModalW title="Usuario" onClose={cm}><UserForm obras={obras} onSave={u=>{setUsers(prev=>[...prev,{...u,id:Math.max(...prev.map(x=>x.id))+1}]);cm();show("Usuario ✓");}}/></ModalW>}
     {modal==="setPin"&&md&&<ModalW title={"🔒 PIN de "+md.nombre} onClose={cm}><div style={{textAlign:"center"}}><div style={{fontSize:13,color:T.muted,marginBottom:14}}>{md.pin?"Cambiar PIN actual":"Crear PIN de 4 dígitos"}</div><input type="number" id="newPinInput" defaultValue="" placeholder="0000" style={{...sI,textAlign:"center",fontSize:28,fontWeight:800,letterSpacing:12,maxWidth:200,margin:"0 auto"}} maxLength={4}/><button style={sB} onClick={()=>{const v=document.getElementById("newPinInput").value;if(v.length===4){setUsers(users.map(u=>u.id===md.id?{...u,pin:v}:u));cm();show("PIN asignado 🔒");}else show("Debe ser de 4 dígitos");}}>Guardar PIN</button>{md.pin&&<button style={{...sB,background:"#2a1111",color:T.red,border:"1px solid #3a1a1a"}} onClick={()=>{setUsers(users.map(u=>u.id===md.id?{...u,pin:""}:u));cm();show("PIN eliminado 🔓");}}>Quitar PIN</button>}</div></ModalW>}
     {modal==="vRec"&&md&&<ModalW title={"Recibo "+md.id} onClose={cm}><div><div id="reciboForPrint"><ReciboView data={md}/></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}><button style={{...sB,background:"#0a2e0a",color:T.green,marginTop:0}} onClick={()=>{const el=document.getElementById("reciboForPrint");const w2=window.open("","","width=600,height=500");w2.document.write("<html><head><title>Recibo "+md.id+"</title><style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#222}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");w2.document.close();w2.print();}}>🖨️ Imprimir / PDF</button><button style={{...sB,background:"#1a1a2a",color:T.blue,marginTop:0}} onClick={()=>{const txt="*RECIBO "+md.id+"*%0A%0ACliente: "+encodeURIComponent(md.cliente||"")+" %0AConcepto: "+encodeURIComponent(md.concepto||"")+" %0AObra: "+encodeURIComponent(md.obra||"")+" %0A*Monto: "+encodeURIComponent($(md.monto))+"*%0A%0A_Ensamble Villarreal_%0ACarpintería Arquitectónica%0ATel: 449 181 4651";window.open("https://wa.me/?text="+txt);}}>📲 Enviar WhatsApp</button></div></div></ModalW>}
-    {modal==="verTicket"&&md&&<ModalW title={"🧾 "+md.concepto} onClose={cm}><div style={{textAlign:"center"}}>{md.ticket&&md.ticket!=='[nube]'&&md.ticket.startsWith('data:')?<img src={md.ticket} style={{maxWidth:"100%",borderRadius:10,marginBottom:12}} alt="Ticket"/>:md.ticket==='[nube]'&&<div style={{padding:20,color:T.muted,fontSize:12}}>☁️ El ticket está guardado en la nube. Recarga la página para verlo.</div>}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,textAlign:"left"}}><div><div style={{fontSize:10,color:T.muted}}>CONCEPTO</div><div style={{fontWeight:700}}>{md.concepto}</div></div><div><div style={{fontSize:10,color:T.muted}}>MONTO</div><div style={{fontWeight:800,color:T.orange,fontSize:20}}>{$(md.monto)}</div></div><div><div style={{fontSize:10,color:T.muted}}>FECHA</div><div>{fd(md.fecha)}</div></div><div><div style={{fontSize:10,color:T.muted}}>RESPONSABLE</div><div>{md.resp}</div></div></div></div></ModalW>}
+    {modal==="verTicket"&&md&&<ModalW title={"🧾 "+md.concepto} onClose={cm}><div style={{textAlign:"center"}}>{md.ticket&&<img src={md.ticket} style={{maxWidth:"100%",borderRadius:10,marginBottom:12}} alt="Ticket"/>}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,textAlign:"left"}}><div><div style={{fontSize:10,color:T.muted}}>CONCEPTO</div><div style={{fontWeight:700}}>{md.concepto}</div></div><div><div style={{fontSize:10,color:T.muted}}>MONTO</div><div style={{fontWeight:800,color:T.orange,fontSize:20}}>{$(md.monto)}</div></div><div><div style={{fontSize:10,color:T.muted}}>FECHA</div><div>{fd(md.fecha)}</div></div><div><div style={{fontSize:10,color:T.muted}}>RESPONSABLE</div><div>{md.resp}</div></div></div></div></ModalW>}
     {modal==="recC"&&md&&<ModalW title="Recibo" onClose={cm}><ReciboView data={md}/></ModalW>}
     {modal==="solEx"&&<ModalW title="Extra" onClose={cm}><ExtraForm onSave={e=>{cm();show("Enviado");}}/></ModalW>}
     {modal==="pdfCli"&&md&&<div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(0,0,0,.85)",display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:16}} onClick={cm}><div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:700,margin:"20px auto"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><button onClick={()=>{const el=document.getElementById("pdfCli");const w2=window.open("","","width=800,height=600");w2.document.write("<html><head><title>Estado de Cuenta "+md.ob.nombre+"</title><style>body{font-family:Arial,sans-serif;color:#222;margin:0;padding:30px}table{width:100%;border-collapse:collapse}th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #ddd}th{background:#1B5E20;color:#fff;font-size:11px}.r{text-align:right}.b{font-weight:700}@media print{body{padding:20px}}</style></head><body>"+el.innerHTML+"</body></html>");w2.document.close();w2.print();}} style={{...sB,maxWidth:200,marginTop:0,background:T.green,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>🖨️ Imprimir / PDF</button><div style={{display:"flex",gap:6}}><button onClick={()=>{const txt="*ESTADO DE CUENTA*%0A"+encodeURIComponent(md.ob.nombre)+"%0ACliente: "+encodeURIComponent(md.cli.nombre)+"%0A%0AMonto pactado: "+encodeURIComponent($(md.ob.cotizado))+"%0APagado: "+encodeURIComponent($(md.obPag))+"%0AResta: "+encodeURIComponent($(md.ob.cotizado-md.obPag))+"%0A%0A"+md.estData.map(e=>encodeURIComponent(e.nombre+": "+$(e.monto)+" - "+(e.cumplido?"Pagado":"Falta "+$(e.falta)))).join("%0A")+"%0A%0A_Ensamble Villarreal_%0ATel: 449 181 4651";window.open("https://wa.me/"+(md.cli.tel?md.cli.tel.replace(/\D/g,""):"")+"?text="+txt);}} style={{...sB,maxWidth:180,marginTop:0,background:"#1a3a1a",color:T.green,border:"1px solid "+T.green+"33"}}>📲 WhatsApp</button><button onClick={cm} style={{background:"#333",border:"none",color:"#aaa",borderRadius:20,width:32,height:32,cursor:"pointer",fontSize:16}}>✕</button></div></div>
