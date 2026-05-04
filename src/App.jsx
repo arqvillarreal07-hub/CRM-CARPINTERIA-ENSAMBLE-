@@ -441,7 +441,7 @@ export default function App(){
           <button style={{...sB,background:"#1a3a1a",color:T.green,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addIng")}>+ Ingreso</button>
           <button style={{...sB,background:"#3a1a1a",color:T.red,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addEgr")}>+ Egreso</button>
           <button style={{...sB,background:"rgba(255,255,255,.04)",color:T.gold,border:"1px solid "+T.gold+"33",marginTop:0,maxWidth:200,padding:"10px 16px"}} onClick={()=>{const rows=[["Fecha","Tipo","Concepto","Proveedor/Cliente","Obra","Categoría","Ingreso","Egreso","Usuario","Status"]];finFilt.forEach(m=>{rows.push([m.fecha,m.t==="ing"?"Ingreso":m.t==="egr"?"Egreso":m.t==="caja"?"Caja Chica":"Otro",'"'+(m.desc||"").replace(/"/g,"'")+'"','"'+(m.prov||"").replace(/"/g,"'")+'"','"'+(m.obra||"").replace(/"/g,"'")+'"','"'+(m.cat||"").replace(/"/g,"'")+'"',m.t==="ing"?m.monto:"",m.t!=="ing"?m.monto:"",'"'+(m.user||"").replace(/"/g,"'")+'"',m.status||"aprobado"]);});const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Finanzas_Ensamble_"+td()+".csv";a.click();URL.revokeObjectURL(url);show("📥 Exportado "+finFilt.length+" movimientos");}}>📥 Exportar</button>
-          <button style={{...sB,background:"rgba(255,255,255,.04)",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0,maxWidth:200,padding:"10px 16px"}} onClick={()=>{const inp=document.createElement("input");inp.type="file";inp.accept=".csv,.txt";inp.onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const txt=ev.target.result;const lines=txt.split("\n").filter(l=>l.trim());if(lines.length<2){show("Archivo vacío");return;}const header=lines[0].toLowerCase();const isValid=header.includes("fecha")&&(header.includes("ingreso")||header.includes("egreso")||header.includes("monto"));if(!isValid){show("Formato inválido. Usa: Fecha,Tipo,Concepto,Proveedor,Obra,Categoría,Ingreso,Egreso");return;}const parsed=[];for(let i=1;i<lines.length;i++){const parts=[];let inQ=false,cur="";for(const ch of lines[i]){if(ch==='"'){inQ=!inQ;}else if(ch===","&&!inQ){parts.push(cur.trim());cur="";}else{cur+=ch;}}parts.push(cur.trim());const[fecha,tipo,desc,prov,obra,cat,ing,egr]=parts;if(!fecha)continue;parsed.push({fecha:fecha||td(),desc:desc||"Importado",prov:prov||"",obra:obra||"",cat:cat||"",ing:Number(ing)||0,egr:Number(egr)||0});}if(parsed.length===0){show("No se encontraron movimientos");return;}om("importPreview",parsed);}catch(er){show("Error al leer: "+er.message);}};reader.readAsText(file,"UTF-8");};inp.click();}}>📤 Importar CSV</button>
+          <button style={{...sB,background:"rgba(255,255,255,.04)",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0,maxWidth:200,padding:"10px 16px"}} onClick={()=>{const inp=document.createElement("input");inp.type="file";inp.accept=".csv,.txt";inp.onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const txt=ev.target.result;const lines=txt.split("\n").filter(l=>l.trim());if(lines.length<2){show("Archivo vacío");return;}const header=lines[0].toLowerCase();const isValid=header.includes("fecha")&&(header.includes("ingreso")||header.includes("egreso")||header.includes("monto"));if(!isValid){show("Formato inválido. Usa: Fecha,Tipo,Concepto,Proveedor,Obra,Categoría,Ingreso,Egreso");return;}const parsed=[];for(let i=1;i<lines.length;i++){const parts=[];let inQ=false,cur="";for(const ch of lines[i]){if(ch==='"'){inQ=!inQ;}else if(ch===","&&!inQ){parts.push(cur.trim());cur="";}else{cur+=ch;}}parts.push(cur.trim());const[fecha,tipo,desc,prov,obra,cat,ing,egr]=parts;if(!fecha)continue;parsed.push({fecha:fecha||td(),desc:desc||"Importado",prov:prov||"",obra:obra||"",cat:cat||"",ing:Number(ing)||0,egr:Number(egr)||0});}if(parsed.length===0){show("No se encontraron movimientos");return;}om("importPreview",parsed);}catch(er){show("Error al leer: "+er.message);}};reader.readAsText(file,"UTF-8");};inp.click();}}>📤 Importar</button>
         </div>
         <div style={{display:"flex",gap:4,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
           {[{k:"todo",l:"Todo",c:T.gold},{k:"ing",l:"⬆ Ingresos",c:T.green},{k:"egr",l:"⬇ Egresos",c:T.red},{k:"caja",l:"🧾 Caja Chica",c:T.orange},{k:"nom",l:"📅 Nóminas",c:T.purple},{k:"rec",l:"🧾 Recibos",c:T.blue}].map(f=>
@@ -451,34 +451,75 @@ export default function App(){
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           <input style={{...sI,flex:1,padding:"8px 12px",fontSize:12}} placeholder="🔍 Buscar concepto, proveedor, obra..." value={fBusq} onChange={e=>setFBusq(e.target.value)}/>
           <select style={{...sI,width:D?200:130,padding:"8px",fontSize:11}} value={fObra} onChange={e=>setFObra(e.target.value)}><option value="">Todas las obras</option>{finObras.map(o=><option key={o} value={o}>{o}</option>)}</select>
-          {(ff!=="todo"||fObra||fBusq)&&<button onClick={()=>{setFf("todo");setFObra("");setFBusq("");}} style={{background:"rgba(255,255,255,.06)",border:"1px solid "+T.border,color:T.muted,borderRadius:8,padding:"8px 12px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>✗ Limpiar</button>}
+          {(ff!=="todo"||fObra||fBusq)&&<button onClick={()=>{setFf("todo");setFObra("");setFBusq("");}} style={{background:"rgba(255,255,255,.06)",border:"1px solid "+T.border,color:T.muted,borderRadius:8,padding:"8px 12px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>✗</button>}
         </div>
-        <div style={{borderRadius:12,border:"1px solid "+T.border,overflow:"hidden"}}>
-          {D&&<div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 120px 90px 70px 100px 60px",padding:"10px 12px",background:"rgba(201,149,107,.04)",borderBottom:"2px solid "+T.border,fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:.8}}>
-            <span>Fecha</span><span>Concepto</span><span>Proveedor</span><span>Obra</span><span>Quien</span><span>Status</span><span style={{textAlign:"right"}}>Monto</span><span></span>
-          </div>}
-          {finFilt.length===0&&<div style={{padding:30,textAlign:"center",color:T.dim}}>Sin resultados</div>}
-          {finFilt.map((m,idx)=>{const isP=m.status==="pendiente"&&m.t==="caja";return D?
-            <div key={m.id} onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}} style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 120px 90px 70px 100px 60px",padding:"9px 12px",borderBottom:"1px solid "+T.line,fontSize:12,cursor:m.ticket||m.rec?"pointer":"default",background:isP?"rgba(241,196,15,.04)":idx%2===0?"transparent":"rgba(255,255,255,.01)",alignItems:"center"}}>
-              <span style={{color:T.dim,fontSize:11}}>{fd(m.fecha)}</span>
-              <div><div style={{fontWeight:600,display:"flex",alignItems:"center",gap:4}}><span style={{color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"⬆":"⬇"}</span>{m.desc}</div>{m.cat&&m.cat!=="Caja Chica"&&<span style={{fontSize:9,color:T.dim}}>{m.cat}</span>}</div>
-              <span style={{fontSize:11,color:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.prov}</span>
-              <span style={{fontSize:11,color:T.gold,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.obra}</span>
-              <span style={{fontSize:10,color:T.dim}}>{m.user}</span>
-              <div>{isP&&user.rol==="admin"?<div style={{display:"flex",gap:2}}><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button></div>:<Badge s={m.status}/>}</div>
-              <div style={{textAlign:"right",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>{m.ticket&&<span style={{color:T.blue,fontSize:10}}>📷</span>}{m.rec&&<span style={{color:T.green,fontSize:9}}>{m.rec}</span>}<span style={{fontWeight:800,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</span></div>
-              <div>{user.rol==="admin"&&<div style={{display:"flex",gap:3}}><button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"rgba(255,255,255,.06)",border:"none",color:T.yellow,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Editar">✏️</button><button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar este movimiento?")){if(m.t==="caja"){setCaja(caja.filter(x=>x.id!==m.cajaId));}else{setMovs(movs.filter(x=>"m"+x.id!==m.id));}show("Eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Eliminar">🗑</button></div>}</div>
-            </div>
-            :<Card key={m.id} onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}} style={{marginBottom:4,padding:10,background:isP?"rgba(241,196,15,.04)":"transparent"}}>
-              <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}><span style={{color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"⬆":"⬇"}</span><span style={{fontWeight:700,fontSize:13}}>{m.desc}</span><Badge s={m.status}/>{isP&&user.rol==="admin"&&<><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"2px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button><button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"2px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button></>}</div>
-                  <div style={{fontSize:10,color:T.dim,marginTop:2}}>{fd(m.fecha)} {m.prov&&"· "+m.prov} {m.obra&&"· "+m.obra} {m.user&&"· "+m.user}</div>
-                </div>
-                <div style={{textAlign:"right"}}><div style={{fontWeight:800,fontSize:15,color:m.t==="ing"?T.green:T.red}}>{m.t==="ing"?"+":"-"}{$(m.monto)}</div>{m.ticket&&<div style={{fontSize:9,color:T.blue}}>📷 ticket</div>}{user.rol==="admin"&&<div style={{display:"flex",gap:6,marginTop:4}}><button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"#1a1a0a",border:"1px solid "+T.border,color:T.yellow,borderRadius:6,padding:"3px 10px",fontSize:10,cursor:"pointer",fontWeight:600}}>✏️ Editar</button><button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar este movimiento?")){if(m.t==="caja"){setCaja(caja.filter(x=>x.id!==m.cajaId));}else{setMovs(movs.filter(x=>"m"+x.id!==m.id));}show("Eliminado");}}} style={{background:"#2a0a0a",border:"none",color:T.red,borderRadius:6,padding:"3px 10px",fontSize:10,cursor:"pointer"}}>🗑</button></div>}</div>
-              </div>
-            </Card>
-          })}
+        <div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?700:500}}>
+              <thead>
+                <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
+                  <th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}>#</th>
+                  <th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}>Fecha</th>
+                  <th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,borderRight:"1px solid #333"}}>Concepto</th>
+                  {D&&<th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}>Proveedor / Cliente</th>}
+                  {D&&<th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}>Obra</th>}
+                  <th style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}>Status</th>
+                  <th style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Ingreso</th>
+                  <th style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Egreso</th>
+                  {user.rol==="admin"&&<th style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,width:70}}></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {finFilt.length===0&&<tr><td colSpan={9} style={{padding:30,textAlign:"center",color:T.dim}}>Sin resultados</td></tr>}
+                {finFilt.map((m,idx)=>{const isP=m.status==="pendiente"&&m.t==="caja";return <tr key={m.id}
+                  onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}}
+                  style={{background:isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a",cursor:m.ticket||m.rec?"pointer":"default",transition:"background .1s"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.06)"}
+                  onMouseLeave={e=>e.currentTarget.style.background=isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent"}>
+                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap"}}>{idx+1}</td>
+                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.muted,whiteSpace:"nowrap",fontSize:11}}>{fd(m.fecha)}</td>
+                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{fontSize:9,fontWeight:800,color:m.t==="ing"?T.green:T.red,background:m.t==="ing"?"rgba(76,175,80,.12)":"rgba(231,76,60,.12)",padding:"2px 6px",borderRadius:4,whiteSpace:"nowrap"}}>{m.t==="ing"?"ING":m.t==="caja"?"CAJA":"EGR"}</span>
+                      <div><div style={{fontWeight:600}}>{m.desc}</div>{(m.cat&&m.cat!=="Caja Chica")&&<div style={{fontSize:9,color:T.dim}}>{m.cat}</div>}</div>
+                      {m.ticket&&<span style={{fontSize:10,color:T.blue}}>📷</span>}
+                    </div>
+                  </td>
+                  {D&&<td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.prov||"-"}</td>}
+                  {D&&<td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:m.obra?T.gold:T.dim}}>{m.obra||"-"}</span></td>}
+                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
+                    {isP&&user.rol==="admin"?<div style={{display:"flex",gap:2,justifyContent:"center"}}>
+                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button>
+                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button>
+                    </div>:<Badge s={m.status}/>}
+                  </td>
+                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t==="ing"?T.green:T.dim,whiteSpace:"nowrap"}}>{m.t==="ing"?$(m.monto):""}</td>
+                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t!=="ing"?T.red:T.dim,whiteSpace:"nowrap"}}>{m.t!=="ing"?$(m.monto):""}</td>
+                  {user.rol==="admin"&&<td style={{padding:"6px 8px",textAlign:"center"}}>
+                    <div style={{display:"flex",gap:2,justifyContent:"center"}}>
+                      <button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"rgba(255,255,255,.06)",border:"none",color:T.yellow,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}}>✏️</button>
+                      <button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar?")){if(m.t==="caja"){setCaja(caja.filter(x=>x.id!==m.cajaId));}else{setMovs(movs.filter(x=>"m"+x.id!==m.id));}show("Eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}}>🗑</button>
+                    </div>
+                  </td>}
+                </tr>;})}
+              </tbody>
+              <tfoot>
+                <tr style={{background:"#1a1a1a",borderTop:"2px solid #444"}}>
+                  <td colSpan={D?5:3} style={{padding:"10px 12px",fontSize:11,fontWeight:700,color:T.gold}}>TOTAL ({finFilt.length} movimientos)</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",borderLeft:"1px solid #333"}}></td>
+                  <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:T.green,fontSize:13,borderLeft:"1px solid #333"}}>{$(finIng)}</td>
+                  <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:T.red,fontSize:13,borderLeft:"1px solid #333"}}>{$(finEgr)}</td>
+                  {user.rol==="admin"&&<td></td>}
+                </tr>
+                <tr style={{background:"#111"}}>
+                  <td colSpan={D?5:3} style={{padding:"8px 12px",fontSize:11,color:T.muted}}>Balance neto</td>
+                  <td style={{borderLeft:"1px solid #333"}}></td>
+                  <td colSpan={2} style={{padding:"8px 12px",textAlign:"right",fontWeight:800,fontSize:14,color:finIng-finEgr>=0?T.green:T.red,borderLeft:"1px solid #333"}}>{$(finIng-finEgr)}</td>
+                  {user.rol==="admin"&&<td></td>}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
     </div>}
 
