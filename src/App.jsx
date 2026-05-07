@@ -1025,30 +1025,67 @@ export default function App(){
           {cajaPend>0&&<Card style={{borderColor:T.yellow+"33"}}><Stat label="Por Aprobar" value={cajaPend} color={T.yellow}/></Card>}
         </div>
         <button style={{...sB,marginBottom:10,marginTop:0,maxWidth:300}} onClick={()=>om("addCj")}>+ Gasto</button>
-        {wkKeys.map(wk=>{const items=weeks[wk];const wkTot=items.reduce((s,c)=>s+c.monto,0);return <div key={wk} style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"2px solid "+T.border,marginBottom:6}}>
-            <span style={{fontSize:11,fontWeight:700,color:T.muted}}>Semana del {fd(wk)}</span>
-            <span style={{fontSize:12,fontWeight:800,color:T.orange}}>{$(wkTot)}</span>
+        {/* TABLA COMPACTA TIPO EXCEL */}
+        {caja.length>0?<div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?720:480}}>
+              <thead>
+                <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
+                  <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}>Fecha</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}>Concepto</th>
+                  {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Resp</th>}
+                  {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}>Obra</th>}
+                  <th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}>Status</th>
+                  <th style={{padding:"8px 10px",textAlign:"right",fontSize:9,fontWeight:700,color:T.orange,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Monto</th>
+                  {user.rol==="admin"&&<th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,width:90}}></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {wkKeys.map(wk=>{const items=weeks[wk].sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));const wkTot=items.reduce((s,c)=>s+c.monto,0);const colSpan=D?(user.rol==="admin"?7:6):(user.rol==="admin"?5:4);return [
+                  <tr key={wk+"-h"} style={{background:"rgba(201,149,107,.06)",borderBottom:"1px solid #2a2a2a"}}>
+                    <td colSpan={colSpan-1} style={{padding:"5px 10px",fontSize:10,fontWeight:700,color:T.gold,letterSpacing:.5,textTransform:"uppercase"}}>📅 Semana del {fd(wk)} <span style={{color:T.muted,fontWeight:500,marginLeft:6}}>({items.length} gasto{items.length!==1?"s":""})</span></td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontSize:11,fontWeight:800,color:T.orange,whiteSpace:"nowrap"}}>{$(wkTot)}</td>
+                  </tr>,
+                  ...items.map((c,idx)=>{const isP=c.status==="pendiente";return <tr key={c.id}
+                    onClick={()=>{if(c.ticket)om("verTicket",c);}}
+                    style={{background:isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a",cursor:c.ticket?"pointer":"default"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.06)"}
+                    onMouseLeave={e=>e.currentTarget.style.background=isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent"}>
+                    <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",color:T.muted,whiteSpace:"nowrap",fontSize:11}}>{fd(c.fecha)}</td>
+                    <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontWeight:600,fontSize:12}}>{c.concepto}</span>
+                        {c.ticket&&<span style={{fontSize:10,color:T.blue}} title="Tiene ticket">📷</span>}
+                      </div>
+                    </td>
+                    {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.resp||"—"}</td>}
+                    {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:c.obra&&c.obra!=="General"?T.gold:T.dim}}>{c.obra||"—"}</span></td>}
+                    <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
+                      {isP&&user.rol==="admin"?<div style={{display:"flex",gap:2,justifyContent:"center"}} onClick={e=>e.stopPropagation()}>
+                        <button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,cursor:"pointer",fontWeight:700}} title="Aprobar">✓</button>
+                        <button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,cursor:"pointer",fontWeight:700}} title="Rechazar">✗</button>
+                      </div>:<Badge s={c.status||"aprobado"}/>}
+                    </td>
+                    <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:800,color:T.orange,whiteSpace:"nowrap",fontSize:13}}>{$(c.monto)}</td>
+                    {user.rol==="admin"&&<td style={{padding:"4px 6px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+                      <div style={{display:"flex",gap:2,justifyContent:"center"}}>
+                        <button onClick={()=>om("editCj",c)} style={{background:"rgba(255,255,255,.06)",border:"none",color:T.yellow,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Editar">✏️</button>
+                        <button onClick={()=>{if(confirm("¿Eliminar este gasto?")){setCaja(caja.filter(x=>x.id!==c.id));show("Eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Eliminar">🗑</button>
+                      </div>
+                    </td>}
+                  </tr>;})
+                ];})}
+              </tbody>
+              <tfoot>
+                <tr style={{background:"#1a1a1a",borderTop:"2px solid #444"}}>
+                  <td colSpan={D?(user.rol==="admin"?5:4):(user.rol==="admin"?3:2)} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.gold}}>TOTAL ({caja.filter(c=>c.status!=="rechazado").length} gastos)</td>
+                  <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:T.orange,fontSize:13,borderLeft:"1px solid #333"}}>{$(tCaja)}</td>
+                  {user.rol==="admin"&&<td></td>}
+                </tr>
+              </tfoot>
+            </table>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{items.map(c=><Card key={c.id} style={{borderColor:c.status==="pendiente"?T.yellow+"22":"transparent",padding:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
-              <div style={{flex:1}} onClick={()=>{if(c.ticket)om("verTicket",c);}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:600,fontSize:13}}>{c.concepto}</span><Badge s={c.status||"aprobado"}/></div>
-                <div style={{fontSize:10,color:T.dim,marginTop:2}}>{fd(c.fecha)} · {c.resp}{c.obra&&c.obra!=="General"?" · "+c.obra:""}</div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                {c.ticket&&<img src={c.ticket} style={{width:32,height:32,borderRadius:6,objectFit:"cover",border:"1px solid "+T.border,cursor:"pointer"}} onClick={()=>om("verTicket",c)} alt=""/>}
-                <span style={{fontWeight:800,color:T.orange,fontSize:16}}>{$(c.monto)}</span>
-              </div>
-            </div>
-            <div style={{display:"flex",gap:4,marginTop:8,flexWrap:"wrap"}}>
-              {c.status==="pendiente"&&user.rol==="admin"&&<><button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"aprobado"}:x));show("Aprobado ✓");}} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#0a2e0a",color:T.green,fontWeight:700,fontSize:10,cursor:"pointer"}}>✓ Aprobar</button><button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"rechazado"}:x));show("Rechazado");}} style={{padding:"5px 10px",borderRadius:6,border:"none",background:"#2a0a0a",color:T.red,fontWeight:700,fontSize:10,cursor:"pointer"}}>✕ Rechazar</button></>}
-              {user.rol==="admin"&&<button onClick={()=>om("editCj",c)} style={{padding:"5px 10px",borderRadius:6,border:"1px solid "+T.border,background:"transparent",color:T.yellow,fontWeight:700,fontSize:10,cursor:"pointer"}}>✏️ Editar</button>}
-              {user.rol==="admin"&&<button onClick={()=>{if(confirm("¿Eliminar este gasto?")){setCaja(caja.filter(x=>x.id!==c.id));show("Eliminado");}}} style={{padding:"5px 10px",borderRadius:6,border:"1px solid "+T.red+"33",background:"transparent",color:T.red,fontWeight:700,fontSize:10,cursor:"pointer"}}>🗑</button>}
-            </div>
-          </Card>)}</div>
-        </div>})}
-        {caja.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin gastos registrados</div></Card>}
+        </div>:<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin gastos registrados</div></Card>}
       </div>;
     })()}
 
