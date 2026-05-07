@@ -444,61 +444,44 @@ export default function App(){
           <Card><Stat label="Balance" value={$(finIng-finEgr)} color={finIng-finEgr>=0?T.green:T.red}/></Card>
           <Card><Stat label="Movimientos" value={finFilt.length}/></Card>
         </div>
-        <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-          <button style={{...sB,background:"#1a3a1a",color:T.green,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addIng")}>+ Ingreso</button>
-          <button style={{...sB,background:"#3a1a1a",color:T.red,marginTop:0,maxWidth:160,padding:"10px 16px"}} onClick={()=>om("addEgr")}>+ Egreso</button>
-          <button style={{...sB,background:"rgba(255,255,255,.04)",color:T.gold,border:"1px solid "+T.gold+"33",marginTop:0,maxWidth:200,padding:"10px 16px"}} onClick={()=>{const rows=[["Fecha","Tipo","Concepto","Proveedor/Cliente","Obra","Categoría","Ingreso","Egreso","Usuario","Status"]];finFilt.forEach(m=>{rows.push([m.fecha,m.t==="ing"?"Ingreso":m.t==="egr"?"Egreso":m.t==="caja"?"Caja Chica":"Otro",'"'+(m.desc||"").replace(/"/g,"'")+'"','"'+(m.prov||"").replace(/"/g,"'")+'"','"'+(m.obra||"").replace(/"/g,"'")+'"','"'+(m.cat||"").replace(/"/g,"'")+'"',m.t==="ing"?m.monto:"",m.t!=="ing"?m.monto:"",'"'+(m.user||"").replace(/"/g,"'")+'"',m.status||"aprobado"]);});const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Finanzas_Ensamble_"+td()+".csv";a.click();URL.revokeObjectURL(url);show("📥 Exportado "+finFilt.length+" movimientos");}}>📥 Exportar</button>
-          <button style={{...sB,background:"rgba(231,76,60,.06)",color:T.red,border:"1px solid "+T.red+"33",marginTop:0,maxWidth:220,padding:"10px 16px"}} onClick={()=>{
-            // Normalizar fecha: convertir dd/mm/yyyy a YYYY-MM-DD si es necesario
+        {/* === TOOLBAR PRINCIPAL: Acciones primarias grandes === */}
+        <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+          <button style={{padding:"10px 20px",borderRadius:8,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={()=>om("addIng")}>＋ Ingreso</button>
+          <button style={{padding:"10px 20px",borderRadius:8,border:"none",background:T.red,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={()=>om("addEgr")}>＋ Egreso</button>
+          <div style={{flex:1}}/>
+          <button style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:12,cursor:"pointer"}} onClick={()=>{const rows=[["Fecha","Tipo","Concepto","Proveedor/Cliente","Obra","Categoría","Ingreso","Egreso","Usuario","Status"]];finFilt.forEach(m=>{rows.push([m.fecha,m.t==="ing"?"Ingreso":m.t==="egr"?"Egreso":m.t==="caja"?"Caja Chica":"Otro",'"'+(m.desc||"").replace(/"/g,"'")+'"','"'+(m.prov||"").replace(/"/g,"'")+'"','"'+(m.obra||"").replace(/"/g,"'")+'"','"'+(m.cat||"").replace(/"/g,"'")+'"',m.t==="ing"?m.monto:"",m.t!=="ing"?m.monto:"",'"'+(m.user||"").replace(/"/g,"'")+'"',m.status||"aprobado"]);});const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Finanzas_Ensamble_"+td()+".csv";a.click();URL.revokeObjectURL(url);show("📥 Exportado "+finFilt.length+" movimientos");}}>📥 Exportar</button>
+          <button style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:12,cursor:"pointer"}} onClick={()=>{const inp=document.createElement("input");inp.type="file";inp.accept=".csv,.txt";inp.onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const txt=ev.target.result;const lines=txt.split("\n").filter(l=>l.trim());if(lines.length<2){show("Archivo vacío");return;}const header=lines[0].toLowerCase();const isValid=header.includes("fecha")&&(header.includes("ingreso")||header.includes("egreso")||header.includes("monto"));if(!isValid){show("Formato inválido. Usa: Fecha,Tipo,Concepto,Proveedor,Obra,Categoría,Ingreso,Egreso");return;}const parsed=[];for(let i=1;i<lines.length;i++){const parts=[];let inQ=false,cur="";for(const ch of lines[i]){if(ch==='"'){inQ=!inQ;}else if(ch===","&&!inQ){parts.push(cur.trim());cur="";}else{cur+=ch;}}parts.push(cur.trim());const[fecha,tipo,desc,prov,obra,cat,ing,egr]=parts;if(!fecha)continue;let f=(fecha||td()).trim();if(/^\d{2}\/\d{2}\/\d{4}$/.test(f)){const[d,mm,y]=f.split("/");f=y+"-"+mm+"-"+d;}else if(/^\d{2}-\d{2}-\d{4}$/.test(f)){const[d,mm,y]=f.split("-");f=y+"-"+mm+"-"+d;}parsed.push({fecha:f,desc:desc||"Importado",prov:prov||"",obra:obra||"",cat:cat||"",ing:Number(ing)||0,egr:Number(egr)||0});}if(parsed.length===0){show("No se encontraron movimientos");return;}om("importPreview",parsed);}catch(er){show("Error al leer: "+er.message);}};reader.readAsText(file,"UTF-8");};inp.click();}}>📤 Importar</button>
+          <button style={{padding:"10px 12px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:13,cursor:"pointer"}} onClick={()=>setMostrarHerramientas(!mostrarHerramientas)} title="Herramientas avanzadas">⋯</button>
+        </div>
+        {/* === TOOLBAR SECUNDARIO (oculto): Herramientas avanzadas === */}
+        {mostrarHerramientas&&<div style={{display:"flex",gap:6,marginBottom:8,padding:"8px 10px",background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderRadius:8,flexWrap:"wrap",alignItems:"center"}}>
+          <span style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginRight:4}}>🛠 Herramientas:</span>
+          <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.red+"33",background:"transparent",color:T.red,fontSize:11,cursor:"pointer",fontWeight:600}} onClick={()=>{
             const fixDate=f=>{if(!f)return"";f=String(f).trim();if(/^\d{4}-\d{2}-\d{2}/.test(f))return f.slice(0,10);if(/^\d{2}\/\d{2}\/\d{4}$/.test(f)){const[d,mm,y]=f.split("/");return y+"-"+mm+"-"+d;}if(/^\d{2}-\d{2}-\d{4}$/.test(f)){const[d,mm,y]=f.split("-");return y+"-"+mm+"-"+d;}return f;};
             const norm=s=>(s||"").toString().toLowerCase().trim().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");
             const dups=[];const seen=new Set();
-            for(let i=0;i<finAll.length;i++){
-              if(seen.has(finAll[i].id))continue;
-              const a=finAll[i];const aDesc=norm(a.desc);
-              const aFechaStr=fixDate(a.fecha);
-              if(!aFechaStr||!/^\d{4}-\d{2}-\d{2}$/.test(aFechaStr))continue; // skip fechas malas
-              const aFecha=new Date(aFechaStr+"T12:00:00").getTime();
-              if(isNaN(aFecha))continue;
-              for(let j=i+1;j<finAll.length;j++){
-                const b=finAll[j];if(seen.has(b.id))continue;
-                if(b.t!==a.t)continue;
-                if(Math.abs(b.monto-a.monto)>0.5)continue;
-                if(norm(b.desc)!==aDesc)continue;
-                const bFechaStr=fixDate(b.fecha);
-                if(!/^\d{4}-\d{2}-\d{2}$/.test(bFechaStr))continue;
-                const bFecha=new Date(bFechaStr+"T12:00:00").getTime();
-                if(isNaN(bFecha))continue;
-                if(Math.abs(bFecha-aFecha)>2*86400000)continue;
-                dups.push(b.id);seen.add(b.id);
-              }
-            }
+            for(let i=0;i<finAll.length;i++){if(seen.has(finAll[i].id))continue;const a=finAll[i];const aDesc=norm(a.desc);const aFechaStr=fixDate(a.fecha);if(!aFechaStr||!/^\d{4}-\d{2}-\d{2}$/.test(aFechaStr))continue;const aFecha=new Date(aFechaStr+"T12:00:00").getTime();if(isNaN(aFecha))continue;for(let j=i+1;j<finAll.length;j++){const b=finAll[j];if(seen.has(b.id))continue;if(b.t!==a.t)continue;if(Math.abs(b.monto-a.monto)>0.5)continue;if(norm(b.desc)!==aDesc)continue;const bFechaStr=fixDate(b.fecha);if(!/^\d{4}-\d{2}-\d{2}$/.test(bFechaStr))continue;const bFecha=new Date(bFechaStr+"T12:00:00").getTime();if(isNaN(bFecha))continue;if(Math.abs(bFecha-aFecha)>2*86400000)continue;dups.push(b.id);seen.add(b.id);}}
             if(dups.length===0){show("✅ No se detectaron duplicados");return;}
-            setSelMovs(dups);show("🔍 "+dups.length+" duplicados detectados — revisa y borra masivo");
+            setSelMovs(dups);show("🔍 "+dups.length+" duplicados detectados");
           }}>🔍 Detectar duplicados</button>
-          <button style={{...sB,background:"rgba(255,215,84,.08)",color:T.yellow,border:"1px solid "+T.yellow+"33",marginTop:0,maxWidth:220,padding:"10px 16px"}} onClick={()=>{
-            // Reparar fechas dd/mm/yyyy → YYYY-MM-DD en TODOS los movs y caja
+          <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.yellow+"33",background:"transparent",color:T.yellow,fontSize:11,cursor:"pointer",fontWeight:600}} onClick={()=>{
             const fixDate=f=>{if(!f)return"";f=String(f).trim();if(/^\d{4}-\d{2}-\d{2}/.test(f))return f.slice(0,10);if(/^\d{2}\/\d{2}\/\d{4}$/.test(f)){const[d,mm,y]=f.split("/");return y+"-"+mm+"-"+d;}if(/^\d{2}-\d{2}-\d{4}$/.test(f)){const[d,mm,y]=f.split("-");return y+"-"+mm+"-"+d;}return f;};
             let nMovs=0,nCaja=0;
             const newMovs=movs.map(m=>{const nf=fixDate(m.fecha);if(nf!==m.fecha){nMovs++;return{...m,fecha:nf};}return m;});
             const newCaja=caja.map(c=>{const nf=fixDate(c.fecha);if(nf!==c.fecha){nCaja++;return{...c,fecha:nf};}return c;});
-            if(nMovs===0&&nCaja===0){show("✅ Todas las fechas ya están en formato correcto");return;}
-            if(!confirm("Se repararán "+nMovs+" movimientos y "+nCaja+" gastos de caja con fecha en formato incorrecto. ¿Continuar?"))return;
-            setMovs(newMovs);setCaja(newCaja);
-            show("🛠 "+(nMovs+nCaja)+" fechas reparadas — recarga la página para ver los cambios");
+            if(nMovs===0&&nCaja===0){show("✅ Fechas OK");return;}
+            if(!confirm("Reparar "+nMovs+" movs y "+nCaja+" caja con fecha mal?"))return;
+            setMovs(newMovs);setCaja(newCaja);show("🛠 "+(nMovs+nCaja)+" fechas reparadas");
           }}>🛠 Reparar fechas</button>
-          <button style={{...sB,background:"rgba(231,76,60,.15)",color:"#fff",border:"2px solid "+T.red,marginTop:0,maxWidth:240,padding:"10px 16px",fontWeight:800}} onClick={()=>{
-            const total=movs.length+caja.length;
-            if(total===0){show("✅ Ya no hay movimientos");return;}
-            if(!confirm("⚠️ PASO 1/3\n\nVas a BORRAR los "+total+" movimientos del sistema (movs + caja chica).\n\nEsta acción NO se puede deshacer.\n\n¿Continuar?"))return;
-            if(!confirm("⚠️ PASO 2/3\n\nÚltima oportunidad de cancelar.\n\nSe perderán TODOS los movimientos financieros.\nLos clientes, obras, proveedores e inventario NO se tocan.\n\n¿Estás 100% seguro?"))return;
-            const conf=prompt("⚠️ PASO 3/3 — Para confirmar, escribe exactamente: BORRAR TODO");
-            if(conf!=="BORRAR TODO"){show("❌ Cancelado — texto no coincide");return;}
-            setMovs([]);setCaja([]);setSelMovs([]);
-            show("🧹 "+total+" movimientos eliminados — sistema vacío, listo para importar");
+          <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.red,background:"transparent",color:T.red,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>{
+            const total=movs.length+caja.length;if(total===0){show("✅ Sistema ya está vacío");return;}
+            if(!confirm("⚠️ Vas a BORRAR "+total+" movimientos. ¿Continuar?"))return;
+            if(!confirm("⚠️ Última oportunidad. ¿100% seguro?"))return;
+            const conf=prompt("Escribe: BORRAR TODO");
+            if(conf!=="BORRAR TODO"){show("Cancelado");return;}
+            setMovs([]);setCaja([]);setSelMovs([]);show("🧹 "+total+" eliminados");
           }}>🚨 Borrar TODO</button>
-          <button style={{...sB,background:"rgba(255,255,255,.04)",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0,maxWidth:200,padding:"10px 16px"}} onClick={()=>{const inp=document.createElement("input");inp.type="file";inp.accept=".csv,.txt";inp.onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const txt=ev.target.result;const lines=txt.split("\n").filter(l=>l.trim());if(lines.length<2){show("Archivo vacío");return;}const header=lines[0].toLowerCase();const isValid=header.includes("fecha")&&(header.includes("ingreso")||header.includes("egreso")||header.includes("monto"));if(!isValid){show("Formato inválido. Usa: Fecha,Tipo,Concepto,Proveedor,Obra,Categoría,Ingreso,Egreso");return;}const parsed=[];for(let i=1;i<lines.length;i++){const parts=[];let inQ=false,cur="";for(const ch of lines[i]){if(ch==='"'){inQ=!inQ;}else if(ch===","&&!inQ){parts.push(cur.trim());cur="";}else{cur+=ch;}}parts.push(cur.trim());const[fecha,tipo,desc,prov,obra,cat,ing,egr]=parts;if(!fecha)continue;let f=(fecha||td()).trim();if(/^\d{2}\/\d{2}\/\d{4}$/.test(f)){const[d,mm,y]=f.split("/");f=y+"-"+mm+"-"+d;}else if(/^\d{2}-\d{2}-\d{4}$/.test(f)){const[d,mm,y]=f.split("-");f=y+"-"+mm+"-"+d;}parsed.push({fecha:f,desc:desc||"Importado",prov:prov||"",obra:obra||"",cat:cat||"",ing:Number(ing)||0,egr:Number(egr)||0});}if(parsed.length===0){show("No se encontraron movimientos");return;}om("importPreview",parsed);}catch(er){show("Error al leer: "+er.message);}};reader.readAsText(file,"UTF-8");};inp.click();}}>📤 Importar</button>
-        </div>
+        </div>}
         <div style={{display:"flex",gap:4,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
           {[{k:"todo",l:"Todo",c:T.gold},{k:"ing",l:"⬆ Ingresos",c:T.green},{k:"egr",l:"⬇ Egresos",c:T.red},{k:"caja",l:"🧾 Caja Chica",c:T.orange},{k:"nom",l:"📅 Nóminas",c:T.purple},{k:"rec",l:"🧾 Recibos",c:T.blue}].map(f=>
             <button key={f.k} onClick={()=>setFf(f.k)} style={{padding:"6px 14px",borderRadius:20,border:ff===f.k?"2px solid "+f.c:"1px solid "+T.border,background:ff===f.k?f.c+"18":"transparent",color:ff===f.k?f.c:T.muted,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{f.l}</button>
