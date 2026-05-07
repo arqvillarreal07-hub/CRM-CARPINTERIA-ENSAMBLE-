@@ -485,6 +485,16 @@ export default function App(){
             setMovs(newMovs);setCaja(newCaja);
             show("🛠 "+(nMovs+nCaja)+" fechas reparadas — recarga la página para ver los cambios");
           }}>🛠 Reparar fechas</button>
+          <button style={{...sB,background:"rgba(231,76,60,.15)",color:"#fff",border:"2px solid "+T.red,marginTop:0,maxWidth:240,padding:"10px 16px",fontWeight:800}} onClick={()=>{
+            const total=movs.length+caja.length;
+            if(total===0){show("✅ Ya no hay movimientos");return;}
+            if(!confirm("⚠️ PASO 1/3\n\nVas a BORRAR los "+total+" movimientos del sistema (movs + caja chica).\n\nEsta acción NO se puede deshacer.\n\n¿Continuar?"))return;
+            if(!confirm("⚠️ PASO 2/3\n\nÚltima oportunidad de cancelar.\n\nSe perderán TODOS los movimientos financieros.\nLos clientes, obras, proveedores e inventario NO se tocan.\n\n¿Estás 100% seguro?"))return;
+            const conf=prompt("⚠️ PASO 3/3 — Para confirmar, escribe exactamente: BORRAR TODO");
+            if(conf!=="BORRAR TODO"){show("❌ Cancelado — texto no coincide");return;}
+            setMovs([]);setCaja([]);setSelMovs([]);
+            show("🧹 "+total+" movimientos eliminados — sistema vacío, listo para importar");
+          }}>🚨 Borrar TODO</button>
           <button style={{...sB,background:"rgba(255,255,255,.04)",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0,maxWidth:200,padding:"10px 16px"}} onClick={()=>{const inp=document.createElement("input");inp.type="file";inp.accept=".csv,.txt";inp.onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const txt=ev.target.result;const lines=txt.split("\n").filter(l=>l.trim());if(lines.length<2){show("Archivo vacío");return;}const header=lines[0].toLowerCase();const isValid=header.includes("fecha")&&(header.includes("ingreso")||header.includes("egreso")||header.includes("monto"));if(!isValid){show("Formato inválido. Usa: Fecha,Tipo,Concepto,Proveedor,Obra,Categoría,Ingreso,Egreso");return;}const parsed=[];for(let i=1;i<lines.length;i++){const parts=[];let inQ=false,cur="";for(const ch of lines[i]){if(ch==='"'){inQ=!inQ;}else if(ch===","&&!inQ){parts.push(cur.trim());cur="";}else{cur+=ch;}}parts.push(cur.trim());const[fecha,tipo,desc,prov,obra,cat,ing,egr]=parts;if(!fecha)continue;let f=(fecha||td()).trim();if(/^\d{2}\/\d{2}\/\d{4}$/.test(f)){const[d,mm,y]=f.split("/");f=y+"-"+mm+"-"+d;}else if(/^\d{2}-\d{2}-\d{4}$/.test(f)){const[d,mm,y]=f.split("-");f=y+"-"+mm+"-"+d;}parsed.push({fecha:f,desc:desc||"Importado",prov:prov||"",obra:obra||"",cat:cat||"",ing:Number(ing)||0,egr:Number(egr)||0});}if(parsed.length===0){show("No se encontraron movimientos");return;}om("importPreview",parsed);}catch(er){show("Error al leer: "+er.message);}};reader.readAsText(file,"UTF-8");};inp.click();}}>📤 Importar</button>
         </div>
         <div style={{display:"flex",gap:4,marginBottom:8,overflowX:"auto",paddingBottom:2}}>
