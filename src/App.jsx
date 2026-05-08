@@ -859,9 +859,118 @@ export default function App(){
     </div>}
 
     {sec==="obras"&&!sub&&<div>
-      <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Obras en Proceso</div>
-      {can("obras")&&<button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addOb")}>+ Nueva Obra</button>}
-      {(()=>{const obrasAut=obras.filter(o=>o.fase&&o.fase!=="cotizacion");return obrasAut.length===0?<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin obras autorizadas. Autoriza cotizaciones para verlas aquí.</div></Card>:Object.entries(FASES).filter(([k])=>k!=="cotizacion").map(([k,label])=>{const list=obrasAut.filter(o=>o.fase===k);if(!list.length)return null;return <div key={k}><div style={{fontSize:10,color:FCC[k],fontWeight:700,textTransform:"uppercase",margin:"10px 0 4px"}}>{label} ({list.length})</div><div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{list.map(o=> <Card key={o.id} onClick={()=>setSub(o)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontWeight:700,color:T.gold}}>{$(o.cotizado)}</span></div><div style={{fontSize:11,color:T.muted,marginBottom:3}}>{o.cliente} · {o.avance}%</div><Bar v={o.avance} mx={100} c={FCC[o.fase]}/></Card>)}</div></div>;});})()}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:18,fontWeight:800}}>Obras <span style={{color:T.muted,fontWeight:500,fontSize:13}}>· {obras.filter(o=>o.fase&&o.fase!=="cotizacion").length}</span></div>
+        {can("obras")&&<button onClick={()=>om("addOb")} style={{padding:"8px 16px",borderRadius:8,border:"none",background:T.gold,color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Nueva Obra</button>}
+      </div>
+      {(()=>{
+        const obrasAut=obras.filter(o=>o.fase&&o.fase!=="cotizacion");
+        if(obrasAut.length===0)return <Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin obras autorizadas. Autoriza cotizaciones para verlas aquí.</div></Card>;
+        // Pre-calcular cobrado/gastado/margen para todas las obras
+        const enrich=obrasAut.map(o=>{
+          const cob=movs.filter(m=>m.ing>0&&sameObra(m.obra,o.nombre)).reduce((s,m)=>s+m.ing,0);
+          const gas=movs.filter(m=>m.egr>0&&sameObra(m.obra,o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>sameObra(c.obra,o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
+          const margen=(o.cotizado||0)-gas;
+          const margenPct=o.cotizado?Math.round((margen/o.cotizado)*100):0;
+          const venc=o.entrega&&fixDateGlobal(o.entrega)<td();
+          const sem=margen<0?T.red:margenPct<20?T.yellow:T.green;
+          return {...o,cob,gas,margen,margenPct,venc,sem};
+        });
+        const totCot=enrich.reduce((s,o)=>s+(o.cotizado||0),0);
+        const totCob=enrich.reduce((s,o)=>s+o.cob,0);
+        const totGas=enrich.reduce((s,o)=>s+o.gas,0);
+        const totMar=totCot-totGas;
+        return <div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?1100:560}}>
+              <thead>
+                <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
+                  <th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:30}}>#</th>
+                  <th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:24}}>●</th>
+                  <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}>Proyecto</th>
+                  {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:140}}>Cliente</th>}
+                  <th style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Cotizado</th>
+                  {D&&<th style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Cobrado</th>}
+                  {D&&<th style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Gastado</th>}
+                  <th style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Margen</th>
+                  <th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:120}}>Avance</th>
+                  {D&&<th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}>Entrega</th>}
+                  <th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",width:50}}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(FASES).filter(([k])=>k!=="cotizacion").map(([k,label])=>{
+                  const list=enrich.filter(o=>o.fase===k).sort((a,b)=>(b.cotizado||0)-(a.cotizado||0));
+                  if(!list.length)return null;
+                  const subCot=list.reduce((s,o)=>s+(o.cotizado||0),0);
+                  const subCob=list.reduce((s,o)=>s+o.cob,0);
+                  const subGas=list.reduce((s,o)=>s+o.gas,0);
+                  const subMar=subCot-subGas;
+                  const colCount=D?11:7;
+                  return [
+                    <tr key={k+"-h"} style={{background:FCC[k]+"15",borderBottom:"1px solid #2a2a2a"}}>
+                      <td colSpan={D?4:3} style={{padding:"5px 10px",fontSize:10,fontWeight:800,color:FCC[k],letterSpacing:.5,textTransform:"uppercase"}}>● {label} <span style={{color:T.muted,fontWeight:500,marginLeft:6}}>({list.length})</span></td>
+                      <td style={{padding:"5px 8px",textAlign:"right",fontSize:11,fontWeight:800,color:T.gold,whiteSpace:"nowrap"}}>{$(subCot)}</td>
+                      {D&&<td style={{padding:"5px 8px",textAlign:"right",fontSize:11,fontWeight:800,color:T.green,whiteSpace:"nowrap"}}>{$(subCob)}</td>}
+                      {D&&<td style={{padding:"5px 8px",textAlign:"right",fontSize:11,fontWeight:800,color:T.red,whiteSpace:"nowrap"}}>{$(subGas)}</td>}
+                      <td style={{padding:"5px 8px",textAlign:"right",fontSize:11,fontWeight:800,color:subMar>=0?T.green:T.red,whiteSpace:"nowrap"}}>{$(subMar)}</td>
+                      <td colSpan={D?3:2}></td>
+                    </tr>,
+                    ...list.map((o,idx)=><tr key={o.id}
+                      onClick={()=>setSub(o)}
+                      style={{background:idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a",cursor:"pointer"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.06)"}
+                      onMouseLeave={e=>e.currentTarget.style.background=idx%2===0?"rgba(255,255,255,.01)":"transparent"}>
+                      <td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap",textAlign:"center"}}>{idx+1}</td>
+                      <td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"center"}} title={o.margen<0?"Margen negativo":o.margenPct<20?"Margen bajo":"Margen sano"}>
+                        <span style={{display:"inline-block",width:10,height:10,borderRadius:5,background:o.sem}}/>
+                      </td>
+                      <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:D?260:160}}>{o.nombre}</span>
+                          {o.venc&&<span style={{fontSize:10,color:T.red}} title="Entrega vencida">⏰</span>}
+                        </div>
+                        {!D&&<div style={{fontSize:10,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:160,marginTop:1}}>{o.cliente||"—"}</div>}
+                      </td>
+                      {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,color:T.muted,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.cliente||"—"}</td>}
+                      <td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:T.gold,whiteSpace:"nowrap",fontSize:12}}>{$(o.cotizado)}</td>
+                      {D&&<td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",whiteSpace:"nowrap"}}>
+                        <div style={{fontWeight:700,color:T.green,fontSize:12}}>{$(o.cob)}</div>
+                        <div style={{fontSize:9,color:T.muted}}>{o.cotizado?pc(o.cob,o.cotizado):0}%</div>
+                      </td>}
+                      {D&&<td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:T.red,whiteSpace:"nowrap",fontSize:12}}>{$(o.gas)}</td>}
+                      <td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",whiteSpace:"nowrap"}}>
+                        <div style={{fontWeight:800,color:o.margen>=0?T.green:T.red,fontSize:12}}>{$(o.margen)}</div>
+                        <div style={{fontSize:9,color:o.margen>=0?T.green:T.red,fontWeight:600}}>{o.margenPct}%</div>
+                      </td>
+                      <td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <div style={{flex:1,minWidth:50}}><Bar v={o.avance||0} mx={100} c={FCC[o.fase]} h={5}/></div>
+                          <span style={{fontSize:10,fontWeight:700,color:T.muted,minWidth:28,textAlign:"right"}}>{o.avance||0}%</span>
+                        </div>
+                      </td>
+                      {D&&<td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"center",fontSize:10,color:o.venc?T.red:T.muted,whiteSpace:"nowrap"}}>{o.entrega?fd(o.entrega):"—"}</td>}
+                      <td style={{padding:"6px 8px",textAlign:"center"}}>
+                        <span style={{color:T.muted,fontSize:14}}>›</span>
+                      </td>
+                    </tr>)
+                  ];
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{background:"#1a1a1a",borderTop:"2px solid #444"}}>
+                  <td colSpan={D?4:3} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.gold}}>TOTAL ({enrich.length} obra{enrich.length!==1?"s":""})</td>
+                  <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,color:T.gold,fontSize:13,borderLeft:"1px solid #333"}}>{$(totCot)}</td>
+                  {D&&<td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,color:T.green,fontSize:13,borderLeft:"1px solid #333"}}>{$(totCob)}</td>}
+                  {D&&<td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,color:T.red,fontSize:13,borderLeft:"1px solid #333"}}>{$(totGas)}</td>}
+                  <td style={{padding:"8px 8px",textAlign:"right",fontWeight:800,color:totMar>=0?T.green:T.red,fontSize:13,borderLeft:"1px solid #333"}}>{$(totMar)}</td>
+                  <td colSpan={D?3:2}></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>;
+      })()}
     </div>}
 
     {sec==="obras"&&sub&&(()=>{
