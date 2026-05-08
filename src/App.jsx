@@ -15,36 +15,70 @@ const SUPA_URL='https://zzxabnvjooosgqviucct.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6eGFibnZqb29vc2dxdml1Y2N0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1Njg4NzIsImV4cCI6MjA4ODE0NDg3Mn0.um2zAO9liOBuQ-YbBxL4CR9S1eKw7t34F3MLERaUdpc';
 const CLOUD=SUPA_URL!=='___TU_URL___';
 let _syncOk=false;
+// Listener global para que la UI muestre estado de guardado
+const _saveListeners=new Set();
+const _notifySave=(status,key,err)=>{_saveListeners.forEach(fn=>{try{fn({status,key,err});}catch{}});};
+const _hash=v=>{try{const s=JSON.stringify(v);let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return h;}catch{return 0;}};
 const DB={
+  // Push robusto: devuelve Promise<boolean>, detecta errores HTTP, retry con backoff
+  push:async(k,v,maxRetries=3)=>{
+    if(!CLOUD)return true;
+    const body=JSON.stringify({key:k,value:v});
+    const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'};
+    let lastErr=null;
+    for(let attempt=0;attempt<maxRetries;attempt++){
+      try{
+        const r=await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body});
+        if(r.ok){_syncOk=true;_notifySave('saved',k);return true;}
+        // HTTP 409 (conflict) → intentar PATCH en lugar de POST upsert
+        if(r.status===409||r.status===400){
+          const patchHeaders={...headers,'Prefer':'return=minimal'};
+          const patchBody=JSON.stringify({value:v});
+          const r2=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+encodeURIComponent(k),{method:'PATCH',headers:patchHeaders,body:patchBody});
+          if(r2.ok){_syncOk=true;_notifySave('saved',k);return true;}
+          lastErr='HTTP '+r2.status+': '+await r2.text().catch(()=>'(sin detalle)');
+        }else{
+          lastErr='HTTP '+r.status+': '+await r.text().catch(()=>'(sin detalle)');
+        }
+      }catch(e){lastErr=String(e.message||e);}
+      if(attempt<maxRetries-1)await new Promise(res=>setTimeout(res,800*Math.pow(2,attempt))); // 800ms, 1600ms, 3200ms
+    }
+    console.warn('DB.push falló para',k,':',lastErr);
+    _notifySave('error',k,lastErr);
+    return false;
+  },
   get:async(k,def)=>{
     let cloudVal=null,localVal=null;
-    // 1. Leer nube
     if(CLOUD){
       try{
         const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
         if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0)cloudVal=j[0].value;_syncOk=true;}
       }catch(e){console.warn('DB nube:',e);}
     }
-    // 2. Leer local
     try{const v=localStorage.getItem('ev_'+k);if(v)localVal=JSON.parse(v);}catch{}
-    // 3. Decidir: quedarse con el que tenga MÁS datos
     const cLen=Array.isArray(cloudVal)?cloudVal.length:(cloudVal?1:0);
     const lLen=Array.isArray(localVal)?localVal.length:(localVal?1:0);
     if(cLen>0&&lLen>0){
-      // Ambos tienen datos: usar el que tenga más
+      // Si tienen el mismo número, comparar por hash y elegir el más "rico" (mayor JSON)
+      if(cLen===lLen){const cH=_hash(cloudVal),lH=_hash(localVal);if(cH===lH){return cloudVal;}
+        // Distintos pero misma longitud — preferir el que tenga JSON más largo (más datos por item)
+        const cLenStr=JSON.stringify(cloudVal).length,lLenStr=JSON.stringify(localVal).length;
+        if(cLenStr>=lLenStr){try{localStorage.setItem('ev_'+k,JSON.stringify(cloudVal));}catch{};return cloudVal;}
+        else{DB.push(k,localVal);return localVal;}
+      }
       if(cLen>=lLen){try{localStorage.setItem('ev_'+k,JSON.stringify(cloudVal));}catch{};return cloudVal;}
-      else{DB.set(k,localVal);return localVal;}
+      else{DB.push(k,localVal);return localVal;}
     }
     if(cLen>0){const lite=k==='caja'&&Array.isArray(cloudVal)?cloudVal.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloudVal;try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{};return cloudVal;}
-    if(lLen>0){if(CLOUD)DB.set(k,localVal);return localVal;}
+    if(lLen>0){if(CLOUD)DB.push(k,localVal);return localVal;}
     return def;
   },
   set:(k,v)=>{
-    // Strip large base64 photos for localStorage (max 5MB limit)
+    // Sincrónico: guarda local Y dispara push a nube en background
     const lite=k==='caja'&&Array.isArray(v)?v.map(c=>{if(c.ticket&&c.ticket.length>500)return{...c,ticket:'[nube]'};return c;}):v;
-    try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch(e){console.warn('localStorage full for '+k+', clearing old...');try{localStorage.removeItem('ev_'+k);localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}
-    if(CLOUD){const body=JSON.stringify({key:k,value:v});const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'};
-    fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body}).catch(()=>{setTimeout(()=>{fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body}).catch(e=>console.warn('DB.set retry fail:',e));},3000);});}
+    try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch(e){console.warn('localStorage full for '+k);try{localStorage.removeItem('ev_'+k);localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}
+    if(CLOUD){_notifySave('saving',k);DB.push(k,v);}
+    return v;
   }
 };
 
@@ -277,6 +311,19 @@ export default function App(){
   const[moreOpen,setMoreOpen]=useState(false);
   const[loading,setLoading]=useState(true);
   const[syncStatus,setSyncStatus]=useState("");
+  const[saveStatus,setSaveStatus]=useState({state:"idle",msg:""});
+  // Suscribirse a eventos de guardado para mostrar indicador visual
+  useEffect(()=>{
+    const fn=({status,key,err})=>{
+      if(status==="saving")setSaveStatus({state:"saving",msg:"💾 Guardando..."});
+      else if(status==="saved")setSaveStatus({state:"saved",msg:"✓ Guardado"});
+      else if(status==="error")setSaveStatus({state:"error",msg:"⚠️ Error: "+(err||"reintentar"),key,err});
+    };
+    _saveListeners.add(fn);
+    return ()=>_saveListeners.delete(fn);
+  },[]);
+  // Auto-ocultar "Guardado" tras 2s
+  useEffect(()=>{if(saveStatus.state==="saved"){const t=setTimeout(()=>setSaveStatus({state:"idle",msg:""}),2500);return ()=>clearTimeout(t);}},[saveStatus.state]);
   const[obras,setObrasR]=useState([]);
   const[movs,setMovsR]=useState([]);
   const[caja,setCajaR]=useState([]);
@@ -304,10 +351,46 @@ export default function App(){
     // Save fixed obras back if duplicates were found
     if(seenIds.size<d.obras.length)DB.set('obras',d.obras);
     setLoading(false);})();},[]);
-  // Auto-sync cada 30s — PROTEGE escrituras recientes
+  // Auto-sync cada 30s — compara por HASH (no por longitud) para detectar modificaciones
   const _lastWrite=useRef({});
-  useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){if(_lastWrite.current[k]&&now-_lastWrite.current[k]<15000)continue;const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0){const cloud=j[0].value;const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');const cLen=Array.isArray(cloud)?cloud.length:0;const lLen=Array.isArray(local)?local.length:0;if(cLen>lLen){const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;setter(cloud);try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}else if(lLen>cLen){DB.set(k,local);}}}}}catch{}},30000);return()=>clearInterval(iv);},[]);
-  const wrap=(raw,set,key)=>v=>{const n=typeof v==="function"?v(raw):v;set(n);_lastWrite.current[key]=Date.now();DB.set(key,n);};
+  const _lastHash=useRef({});
+  useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){
+    // Cooldown extendido a 60s tras escritura local — protege modificaciones
+    if(_lastWrite.current[k]&&now-_lastWrite.current[k]<60000)continue;
+    const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
+    if(!r.ok)continue;
+    const j=await r.json();if(!Array.isArray(j)||j.length===0)continue;
+    const cloud=j[0].value;
+    const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');
+    const cH=_hash(cloud),lH=_hash(local);
+    if(cH===lH)continue; // Idénticos: nada que hacer
+    // Distintos: si fue cambio LOCAL reciente (lastWrite<60s pero >=60s ya skipped arriba), no llegamos aquí
+    // Si llegamos aquí, NO hubo cambio local reciente → la nube tiene una versión más fresca (otro usuario)
+    // O nuestra escritura falló: comparar tamaño JSON para preferir el más rico
+    const cStr=JSON.stringify(cloud),lStr=JSON.stringify(local);
+    if(cStr.length>=lStr.length){
+      // Nube tiene igual o más datos: actualizar local
+      const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;
+      setter(cloud);
+      try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}
+      _lastHash.current[k]=cH;
+    }else{
+      // Local tiene más datos pero la nube no los tiene: empujar local a nube
+      DB.push(k,local);
+    }
+  }}catch(e){console.warn('Auto-sync error:',e);}},30000);return()=>clearInterval(iv);},[]);
+  // Wrap mejorado: hace push robusto y reporta éxito/error
+  const wrap=(raw,set,key)=>async v=>{
+    const n=typeof v==="function"?v(raw):v;
+    set(n);
+    _lastWrite.current[key]=Date.now();
+    _lastHash.current[key]=_hash(n);
+    // Local sync (sin esperar)
+    try{const lite=key==='caja'&&Array.isArray(n)?n.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):n;localStorage.setItem('ev_'+key,JSON.stringify(lite));}catch{}
+    // Cloud push (devuelve Promise pero no bloqueamos)
+    if(CLOUD){_notifySave('saving',key);const ok=await DB.push(key,n);if(!ok){_notifySave('error',key);}}
+    return n;
+  };
   const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos"),setPreciosUnit=wrap(preciosUnit,setPreciosUnitR,"preciosUnit");
   const cats=[...new Set(catalogo.map(c=>c.cat))];
   const[toast,setToast]=useState(null);
@@ -1579,7 +1662,7 @@ export default function App(){
   if(D) return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",fontSize:13}}>
     <div style={{width:220,minWidth:220,background:"#111",borderRight:"1px solid "+T.border,display:"flex",flexDirection:"column",height:"100vh",position:"sticky",top:0}}>
       <div style={{padding:"16px 14px 10px"}}><BrandFull size="small" color={T.gold}/></div>
-      <div style={{padding:"3px 14px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:10,color:role.color,fontWeight:700}}>{role.icon} {role.nombre}</span>{CLOUD&&<span style={{fontSize:9,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} onClick={()=>location.reload()} title={_syncOk?"Nube OK - clic para actualizar":"Verificando..."}>{_syncOk?"☁️":"⏳"}</span>}</div>
+      <div style={{padding:"3px 14px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}><span style={{fontSize:10,color:role.color,fontWeight:700}}>{role.icon} {role.nombre}</span><div style={{display:"flex",alignItems:"center",gap:6}}>{saveStatus.state!=="idle"&&<span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:8,background:saveStatus.state==="saving"?"rgba(66,165,245,.15)":saveStatus.state==="saved"?"rgba(76,175,80,.15)":"rgba(231,76,60,.18)",color:saveStatus.state==="saving"?T.blue:saveStatus.state==="saved"?T.green:T.red,whiteSpace:"nowrap",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis"}} title={saveStatus.err||""}>{saveStatus.msg}</span>}{CLOUD&&<span style={{fontSize:9,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} onClick={()=>location.reload()} title={_syncOk?"Nube OK - clic para actualizar":"Verificando..."}>{_syncOk?"☁️":"⏳"}</span>}</div></div>
       <div style={{flex:1,overflowY:"auto",padding:"0 6px"}}>{NAV_GRPS.map(g=>{const items=allNav.filter(n=>n.grp===g.id);if(!items.length)return null;return <div key={g.id} style={{marginBottom:8}}><div style={{fontSize:9,color:T.dim,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,padding:"8px 12px 2px"}}>{g.label}</div>{items.map(n=> <button key={n.key} onClick={()=>go(n.key)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",background:sec===n.key?"#1a1a1a":"transparent",border:"none",color:sec===n.key?T.gold:"#999",cursor:"pointer",fontSize:13,fontWeight:sec===n.key?700:400,textAlign:"left",borderRadius:8,marginBottom:1}}><span style={{fontSize:14,width:20,textAlign:"center"}}>{n.icon}</span><span>{n.label}</span></button>)}</div>;})}</div>
       <div style={{padding:10,borderTop:"1px solid "+T.border}}><button onClick={()=>setUser(null)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:13,borderRadius:8}}>🚪 Cerrar sesión</button></div>
     </div>
@@ -1589,7 +1672,7 @@ export default function App(){
   </div>;
   // ═══ MOBILE: Header + Content + Bottom Nav ═══
   return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",fontSize:13}}>
-    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}>{CLOUD&&<span onClick={()=>location.reload()} style={{fontSize:11,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} title={_syncOk?"Nube OK":"Verificando"}>{_syncOk?"☁️":"⏳"}</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
+    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}>{saveStatus.state!=="idle"&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,background:saveStatus.state==="saving"?"rgba(66,165,245,.15)":saveStatus.state==="saved"?"rgba(76,175,80,.15)":"rgba(231,76,60,.18)",color:saveStatus.state==="saving"?T.blue:saveStatus.state==="saved"?T.green:T.red,whiteSpace:"nowrap",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis"}} title={saveStatus.err||""}>{saveStatus.msg}</span>}{CLOUD&&<span onClick={()=>location.reload()} style={{fontSize:11,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} title={_syncOk?"Nube OK":"Verificando"}>{_syncOk?"☁️":"⏳"}</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
     {content}
     {modals}
     {toast&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:"#1a3a1a",color:T.green,padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,zIndex:2000}}>{toast}</div>}
