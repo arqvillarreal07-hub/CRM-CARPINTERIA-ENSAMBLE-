@@ -769,8 +769,79 @@ export default function App(){
     </div>}
 
     {sec==="cotizaciones"&&!sub&&<div>
-      <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Cotizaciones</div>
-      {(()=>{const cots=obras.filter(o=>o.fase==="cotizacion");return cots.length>0?<div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{cots.map(o=> <Card key={o.id} onClick={()=>{setSec("cotizaciones");setSub(o);}} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontWeight:700}}>{o.nombre}</span><span style={{fontWeight:700,color:T.gold}}>{$(o.cotizado)}</span></div><div style={{fontSize:11,color:T.muted,marginBottom:6}}>{o.cliente||"Sin cliente"}</div><div style={{display:"flex",gap:6}}>{user.rol==="admin"&&<button onClick={e=>{e.stopPropagation();const up={...o,fase:"autorizada",status:"en_proceso"};setObras(obras.map(x=>x.id===o.id?up:x));ensureCli(o.cliente);show(o.nombre+" → Autorizada ✓");}} style={{padding:"6px 12px",borderRadius:8,border:"none",background:"#0a1a3a",color:T.blue,fontWeight:700,fontSize:11,cursor:"pointer"}}>✓ Autorizar</button>}<button onClick={e=>{e.stopPropagation();openPdfCot(o);}} style={{padding:"6px 12px",borderRadius:8,border:"none",background:"#0a2e0a",color:T.green,fontWeight:700,fontSize:11,cursor:"pointer"}}>📄 PDF</button><button onClick={e=>{e.stopPropagation();const dup={...o,id:"OB"+Date.now(),nombre:o.nombre+" (copia)",fase:"cotizacion",status:"cotizado",avance:0,partidas:(o.partidas||[]).map(p=>({...p,id:"C-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)})),extras:[],pagos:[],docs:[],bitacora:[]};setObras(prev=>[...prev,dup]);show("Cotización duplicada ✓");}} style={{padding:"6px 12px",borderRadius:8,border:"none",background:"#1a1a2a",color:T.blue,fontWeight:700,fontSize:11,cursor:"pointer"}}>📋 Duplicar</button><button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar "+o.nombre+"?")){setObras(prev=>prev.filter(x=>x.id!==o.id));show("Eliminada");}}} style={{padding:"6px 12px",borderRadius:8,border:"none",background:"#2a0a0a",color:T.red,fontWeight:700,fontSize:11,cursor:"pointer"}}>🗑</button></div></Card>)}</div>:<Card style={{textAlign:"center",padding:24}}><div style={{color:T.muted}}>Sin cotizaciones pendientes. Usa "Cotizar" para crear una.</div></Card>;})()}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:18,fontWeight:800}}>Cotizaciones <span style={{color:T.muted,fontWeight:500,fontSize:13}}>· {obras.filter(o=>o.fase==="cotizacion").length}</span></div>
+        <button onClick={()=>go("cot")} style={{padding:"8px 16px",borderRadius:8,border:"none",background:T.gold,color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Nueva Cotización</button>
+      </div>
+      {(()=>{const cots=obras.filter(o=>o.fase==="cotizacion").sort((a,b)=>(b.id||"").localeCompare(a.id||""));const totalCot=cots.reduce((s,o)=>s+(o.cotizado||0),0);return cots.length>0?<div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?720:480}}>
+            <thead>
+              <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
+                <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:36}}>#</th>
+                <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}>Proyecto</th>
+                {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:160}}>Cliente</th>}
+                <th style={{padding:"8px 10px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Monto</th>
+                <th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",width:D?160:110}}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cots.map((o,idx)=><tr key={o.id}
+                onClick={()=>{setSec("cotizaciones");setSub(o);}}
+                style={{background:idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a",cursor:"pointer"}}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.06)"}
+                onMouseLeave={e=>e.currentTarget.style.background=idx%2===0?"rgba(255,255,255,.01)":"transparent"}>
+                <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap"}}>{idx+1}</td>
+                <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a"}}>
+                  <div style={{fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.nombre}</div>
+                  {!D&&<div style={{fontSize:10,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.cliente||"—"}</div>}
+                </td>
+                {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,color:T.muted,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.cliente||"—"}</td>}
+                <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:800,color:T.gold,whiteSpace:"nowrap",fontSize:13}}>{$(o.cotizado)}</td>
+                <td style={{padding:"4px 6px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
+                  <div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
+                    {user.rol==="admin"&&<button onClick={()=>{
+                      if(!confirm("¿Autorizar "+o.nombre+"?\n\nPasará a Obras como autorizada."))return;
+                      const up={...o,fase:"autorizada",status:"en_proceso"};
+                      setObras(obras.map(x=>x.id===o.id?up:x));
+                      ensureCli(o.cliente);
+                      show("✓ "+o.nombre+" autorizada");
+                    }} style={{background:"rgba(66,165,245,.12)",border:"1px solid "+T.blue+"33",color:T.blue,cursor:"pointer",fontSize:11,padding:"4px 8px",borderRadius:5,fontWeight:700}} title="Autorizar (pasa a Obras)">✓</button>}
+                    <button onClick={()=>openPdfCot(o)} style={{background:"rgba(76,175,80,.12)",border:"1px solid "+T.green+"33",color:T.green,cursor:"pointer",fontSize:11,padding:"4px 8px",borderRadius:5,fontWeight:700}} title="Ver/Descargar PDF">📄</button>
+                    <button onClick={()=>{
+                      const dup={...o,id:"OB"+Date.now(),nombre:o.nombre+" (copia)",fase:"cotizacion",status:"cotizado",avance:0,partidas:(o.partidas||[]).map(p=>({...p,id:"C-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)})),extras:[],pagos:[],docs:[],bitacora:[]};
+                      setObras(prev=>[...prev,dup]);
+                      show("📋 Duplicada");
+                    }} style={{background:"rgba(171,71,188,.12)",border:"1px solid "+T.purple+"33",color:T.purple,cursor:"pointer",fontSize:11,padding:"4px 8px",borderRadius:5,fontWeight:700}} title="Duplicar">📋</button>
+                    {user.rol==="admin"&&<button onClick={async()=>{
+                      if(!confirm("¿Eliminar "+o.nombre+"?\n\nEsta acción NO se puede deshacer."))return;
+                      const newObras=obras.filter(x=>x.id!==o.id);
+                      setObras(newObras);
+                      // Forzar escritura inmediata a nube + bloqueo del poll por 30s
+                      _lastWrite.current["obras"]=Date.now()+15000;
+                      show("🗑 Eliminando...");
+                      try{
+                        if(CLOUD){
+                          const r=await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},body:JSON.stringify({key:"obras",value:newObras})});
+                          if(r.ok)show("🗑 "+o.nombre+" eliminada ✓");
+                          else show("⚠️ Error nube — eliminada local");
+                        }else show("🗑 Eliminada");
+                      }catch(err){show("⚠️ Error — recarga la página");}
+                    }} style={{background:"rgba(231,76,60,.12)",border:"1px solid "+T.red+"33",color:T.red,cursor:"pointer",fontSize:11,padding:"4px 8px",borderRadius:5,fontWeight:700}} title="Eliminar">🗑</button>}
+                  </div>
+                </td>
+              </tr>)}
+            </tbody>
+            <tfoot>
+              <tr style={{background:"#1a1a1a",borderTop:"2px solid #444"}}>
+                <td colSpan={D?3:2} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.gold}}>TOTAL ({cots.length} cotización{cots.length!==1?"es":""})</td>
+                <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:T.gold,fontSize:13,borderLeft:"1px solid #333"}}>{$(totalCot)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>:<Card style={{textAlign:"center",padding:24}}><div style={{color:T.muted}}>Sin cotizaciones pendientes. Usa "+ Nueva Cotización" para crear una.</div></Card>;})()}
     </div>}
 
     {sec==="cotizaciones"&&sub&&<div style={{maxWidth:800}}>
