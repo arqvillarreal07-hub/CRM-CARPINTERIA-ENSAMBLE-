@@ -892,8 +892,25 @@ export default function App(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{color:T.muted}}>IVA 16%</span><button onClick={()=>setConIva(!conIva)} style={{background:conIva?"#1a3a1a":"#2a1111",color:conIva?T.green:T.red,border:"none",borderRadius:6,padding:"2px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{conIva?"✓ Sí":"✕ No"}</button></div><span style={{color:conIva?T.text:T.dim,textDecoration:conIva?"none":"line-through"}}>{$(subCot*.16)}</span></div>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:22,fontWeight:800,color:T.gold,paddingTop:6,borderTop:"1px solid "+T.dim}}><span>TOTAL</span><span>{$(totCot)}</span></div>
         </div>
-        <button style={sB} onClick={()=>{ensureCli(cotNom);if(editObraId){setObras(prev=>prev.map(o=>o.id===editObraId?{...o,nombre:cotEmp||cotNom||o.nombre,cliente:cotNom||o.cliente,cotizado:totCot,subtotal:subCot,conIva,partidas:[...cotP],modificadoPor:user.nombre,modificadoFecha:td()}:o));setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);show("Cotización actualizada ✓");}else{const nuevoId="OB"+Date.now()+Math.random().toString(36).slice(2,5);setObras(prev=>[...prev,{id:nuevoId,nombre:(cotEmp||cotNom||"Cot")+" #"+cotNum,cliente:cotNom,status:"cotizado",cotizado:totCot,subtotal:subCot,conIva,egreso:0,fase:"cotizacion",avance:0,partidas:[...cotP],extras:[],pagos:[],docs:[],bitacora:[],creadoPor:user.nombre,creadoFecha:td()}]);setCotNum(n=>n+1);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);show("Proyecto creado ✓");}}}>{editObraId?"💾 Actualizar Cotización":"💾 Guardar como proyecto"}</button>
       </Card>}
+      {/* Botón Guardar/Actualizar SIEMPRE visible (en modo edición o con partidas) */}
+      {(editObraId||cotP.length>0)&&<div style={{position:"sticky",bottom:D?0:60,zIndex:50,background:T.bg,padding:"8px 0",marginTop:cotP.length>0?0:12,borderTop:cotP.length===0?"1px solid "+T.border:"none"}}>
+        {editObraId&&cotP.length===0&&<div style={{fontSize:11,color:T.yellow,padding:"6px 10px",background:"rgba(255,213,79,.08)",borderRadius:6,marginBottom:8,textAlign:"center"}}>⚠️ Esta cotización no tiene partidas. Puedes guardar solo con cliente/obra actualizados.</div>}
+        <button style={{...sB,fontSize:15}} onClick={()=>{
+          if(!cotNom&&!cotEmp){show("Pon al menos un cliente o nombre de obra");return;}
+          ensureCli(cotNom);
+          if(editObraId){
+            setObras(prev=>prev.map(o=>o.id===editObraId?{...o,nombre:cotEmp||cotNom||o.nombre,cliente:cotNom||o.cliente,cotizado:totCot,subtotal:subCot,conIva,partidas:[...cotP],modificadoPor:user.nombre,modificadoFecha:td()}:o));
+            setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);
+            show("✓ Cotización actualizada");
+          }else{
+            const nuevoId="OB"+Date.now()+Math.random().toString(36).slice(2,5);
+            setObras(prev=>[...prev,{id:nuevoId,nombre:(cotEmp||cotNom||"Cot")+" #"+cotNum,cliente:cotNom,status:"cotizado",cotizado:totCot,subtotal:subCot,conIva,egreso:0,fase:"cotizacion",avance:0,partidas:[...cotP],extras:[],pagos:[],docs:[],bitacora:[],creadoPor:user.nombre,creadoFecha:td()}]);
+            setCotNum(n=>n+1);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);
+            show("✓ Proyecto creado");
+          }
+        }}>{editObraId?"💾 Actualizar Cotización":"💾 Guardar como proyecto"}{cotP.length>0&&" — "+$(totCot)}</button>
+      </div>}
     </div>}
 
     {sec==="cotizaciones"&&!sub&&<div>
