@@ -298,6 +298,39 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
+function FusionarObrasForm({finObras,obras,countMovs,onFuse}){
+  const[origen,setOrigen]=useState("");
+  const[destino,setDestino]=useState("");
+  const obrasActivas=obras.map(o=>o.nombre).sort();
+  const oCount=origen?countMovs(origen):0;
+  return <div>
+    <div style={{background:"rgba(171,71,188,.08)",border:"1px solid rgba(171,71,188,.2)",borderRadius:8,padding:12,marginBottom:14,fontSize:11,color:T.muted,lineHeight:1.5}}>
+      <div style={{color:T.purple,fontWeight:700,marginBottom:4}}>🔀 Reasignar movimientos a otra obra</div>
+      Mueve todos los ingresos, egresos y caja chica de la obra <b>ORIGEN</b> a la obra <b>DESTINO</b>. Útil para limpiar obras fantasma (eliminadas pero con movimientos colgados).
+    </div>
+    <Fl l="Obra ORIGEN (de dónde mover)">
+      <select style={sI} value={origen} onChange={e=>setOrigen(e.target.value)}>
+        <option value="">— Selecciona obra a fusionar —</option>
+        {finObras.filter(o=>o.isFantasma).length>0&&<optgroup label="⚠️ FANTASMAS (recomendado)">{finObras.filter(o=>o.isFantasma).map(o=><option key={o.key} value={o.nombre}>⚠️ {o.nombre}</option>)}</optgroup>}
+        {finObras.filter(o=>!o.isFantasma).length>0&&<optgroup label="✓ Activas">{finObras.filter(o=>!o.isFantasma).map(o=><option key={o.key} value={o.nombre}>{o.nombre}</option>)}</optgroup>}
+      </select>
+    </Fl>
+    {origen&&<div style={{fontSize:11,color:T.yellow,padding:"6px 10px",background:"rgba(255,213,79,.08)",borderRadius:6,marginBottom:10}}>📊 <b>{oCount}</b> movimiento{oCount!==1?"s":""} se reasignarán</div>}
+    <Fl l="Obra DESTINO (a dónde mover)">
+      <select style={sI} value={destino} onChange={e=>setDestino(e.target.value)} disabled={!origen}>
+        <option value="">— Selecciona obra destino —</option>
+        {obrasActivas.filter(n=>normSearch(n)!==normSearch(origen)).map(n=><option key={n} value={n}>{n}</option>)}
+        <option value="__general__">📂 General (sin obra)</option>
+      </select>
+    </Fl>
+    <button style={{...sB,background:T.purple,opacity:(origen&&destino)?1:.4,cursor:(origen&&destino)?"pointer":"not-allowed"}} disabled={!origen||!destino} onClick={()=>{
+      if(!origen||!destino)return;
+      const destFinal=destino==="__general__"?"":destino;
+      if(!confirm("¿Reasignar "+oCount+" movimiento(s) de '"+origen+"' a '"+(destFinal||"General")+"'?\n\nEsta acción NO se puede deshacer."))return;
+      onFuse(origen,destFinal);
+    }}>🔀 Fusionar {oCount>0?"("+oCount+" movs)":""}</button>
+  </div>;
+}
 
 export default function App(){
   const[w,setW]=useState(typeof window!=="undefined"?window.innerWidth:400);
@@ -503,7 +536,19 @@ export default function App(){
   const finIng=finFilt.filter(m=>m.t==="ing").reduce((s,m)=>s+m.monto,0);
   const finEgr=finFilt.filter(m=>m.t!=="ing").reduce((s,m)=>s+m.monto,0);
   // FIX: dedupe obras normalizadas (evita duplicados por mayúsculas/acentos)
-  const finObras=(()=>{const map=new Map();finAll.forEach(m=>{if(m.obra){const k=normSearch(m.obra);if(!map.has(k))map.set(k,m.obra);}});return [...map.values()].sort();})();
+  // Obras encontradas en movimientos + caja chica (dedupe por nombre normalizado)
+  // Marca con isFantasma=true si NO existe en obras[] (obra eliminada pero con movs colgados)
+  const finObras=(()=>{
+    const map=new Map();
+    const obrasNorm=new Set(obras.map(o=>normSearch(o.nombre)));
+    finAll.forEach(m=>{if(m.obra){const k=normSearch(m.obra);if(!map.has(k))map.set(k,{nombre:m.obra,key:k,isFantasma:!obrasNorm.has(k)});}});
+    return [...map.values()].sort((a,b)=>{
+      // Activas primero, fantasmas después
+      if(a.isFantasma!==b.isFantasma)return a.isFantasma?1:-1;
+      return a.nombre.localeCompare(b.nombre);
+    });
+  })();
+  const finFantasmas=finObras.filter(o=>o.isFantasma);
   const allNav=[];
   if(can("dash"))allNav.push({key:"dash",icon:"🏠",label:"Inicio",grp:"neg"});
   if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
@@ -847,7 +892,7 @@ export default function App(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{color:T.muted}}>IVA 16%</span><button onClick={()=>setConIva(!conIva)} style={{background:conIva?"#1a3a1a":"#2a1111",color:conIva?T.green:T.red,border:"none",borderRadius:6,padding:"2px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{conIva?"✓ Sí":"✕ No"}</button></div><span style={{color:conIva?T.text:T.dim,textDecoration:conIva?"none":"line-through"}}>{$(subCot*.16)}</span></div>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:22,fontWeight:800,color:T.gold,paddingTop:6,borderTop:"1px solid "+T.dim}}><span>TOTAL</span><span>{$(totCot)}</span></div>
         </div>
-        <button style={sB} onClick={()=>{ensureCli(cotNom);if(editObraId){setObras(prev=>prev.map(o=>o.id===editObraId?{...o,nombre:cotEmp||cotNom||o.nombre,cliente:cotNom||o.cliente,cotizado:totCot,subtotal:subCot,conIva,partidas:[...cotP]}:o));setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);show("Cotización actualizada ✓");}else{const nuevoId="OB"+Date.now()+Math.random().toString(36).slice(2,5);setObras(prev=>[...prev,{id:nuevoId,nombre:(cotEmp||cotNom||"Cot")+" #"+cotNum,cliente:cotNom,status:"cotizado",cotizado:totCot,subtotal:subCot,conIva,egreso:0,fase:"cotizacion",avance:0,partidas:[...cotP],extras:[],pagos:[],docs:[],bitacora:[]}]);setCotNum(n=>n+1);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);show("Proyecto creado ✓");}}}>{editObraId?"💾 Actualizar Cotización":"💾 Guardar como proyecto"}</button>
+        <button style={sB} onClick={()=>{ensureCli(cotNom);if(editObraId){setObras(prev=>prev.map(o=>o.id===editObraId?{...o,nombre:cotEmp||cotNom||o.nombre,cliente:cotNom||o.cliente,cotizado:totCot,subtotal:subCot,conIva,partidas:[...cotP],modificadoPor:user.nombre,modificadoFecha:td()}:o));setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);show("Cotización actualizada ✓");}else{const nuevoId="OB"+Date.now()+Math.random().toString(36).slice(2,5);setObras(prev=>[...prev,{id:nuevoId,nombre:(cotEmp||cotNom||"Cot")+" #"+cotNum,cliente:cotNom,status:"cotizado",cotizado:totCot,subtotal:subCot,conIva,egreso:0,fase:"cotizacion",avance:0,partidas:[...cotP],extras:[],pagos:[],docs:[],bitacora:[],creadoPor:user.nombre,creadoFecha:td()}]);setCotNum(n=>n+1);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);show("Proyecto creado ✓");}}}>{editObraId?"💾 Actualizar Cotización":"💾 Guardar como proyecto"}</button>
       </Card>}
     </div>}
 
@@ -865,6 +910,7 @@ export default function App(){
                 <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}>Proyecto</th>
                 {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:160}}>Cliente</th>}
                 <th style={{padding:"8px 10px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Monto</th>
+                {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Creado por</th>}
                 <th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",width:D?160:110}}>Acciones</th>
               </tr>
             </thead>
@@ -877,10 +923,11 @@ export default function App(){
                 <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap"}}>{idx+1}</td>
                 <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a"}}>
                   <div style={{fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.nombre}</div>
-                  {!D&&<div style={{fontSize:10,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.cliente||"—"}</div>}
+                  {!D&&<div style={{fontSize:10,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.cliente||"—"} {o.creadoPor&&<span style={{color:T.dim}}>· {o.creadoPor.split(" ")[0]}</span>}</div>}
                 </td>
                 {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,color:T.muted,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.cliente||"—"}</td>}
                 <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:800,color:T.gold,whiteSpace:"nowrap",fontSize:13}}>{$(o.cotizado)}</td>
+                {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,whiteSpace:"nowrap"}} title={o.creadoFecha?"Creado: "+fd(o.creadoFecha)+(o.modificadoPor?"\nModificado por "+o.modificadoPor+" el "+fd(o.modificadoFecha):""):""}>{o.creadoPor?<span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:18,height:18,borderRadius:9,background:T.gold+"22",color:T.gold,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800}}>{o.creadoPor.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}</span><span style={{color:T.muted}}>{o.creadoPor.split(" ")[0]}</span></span>:<span style={{color:T.dim}}>—</span>}</td>}
                 <td style={{padding:"4px 6px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                   <div style={{display:"flex",gap:3,justifyContent:"center",alignItems:"center"}}>
                     {user.rol==="admin"&&<button onClick={()=>{
@@ -919,6 +966,7 @@ export default function App(){
               <tr style={{background:"#1a1a1a",borderTop:"2px solid #444"}}>
                 <td colSpan={D?3:2} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.gold}}>TOTAL ({cots.length} cotización{cots.length!==1?"es":""})</td>
                 <td style={{padding:"8px 10px",textAlign:"right",fontWeight:800,color:T.gold,fontSize:13,borderLeft:"1px solid #333"}}>{$(totalCot)}</td>
+                {D&&<td></td>}
                 <td></td>
               </tr>
             </tfoot>
@@ -1012,8 +1060,9 @@ export default function App(){
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
                           <span style={{fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:D?260:160}}>{o.nombre}</span>
                           {o.venc&&<span style={{fontSize:10,color:T.red}} title="Entrega vencida">⏰</span>}
+                          {o.creadoPor&&<span title={"Creado por "+o.creadoPor+(o.creadoFecha?" el "+fd(o.creadoFecha):"")} style={{width:16,height:16,borderRadius:8,background:T.gold+"22",color:T.gold,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,flexShrink:0}}>{o.creadoPor.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}</span>}
                         </div>
-                        {!D&&<div style={{fontSize:10,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:160,marginTop:1}}>{o.cliente||"—"}</div>}
+                        {!D&&<div style={{fontSize:10,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:160,marginTop:1}}>{o.cliente||"—"} {o.creadoPor&&<span style={{color:T.dim}}>· {o.creadoPor.split(" ")[0]}</span>}</div>}
                       </td>
                       {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,color:T.muted,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.cliente||"—"}</td>}
                       <td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:T.gold,whiteSpace:"nowrap",fontSize:12}}>{$(o.cotizado)}</td>
@@ -1163,6 +1212,7 @@ export default function App(){
             if(!confirm("Reparar "+nMovs+" movs y "+nCaja+" caja con fecha mal?"))return;
             setMovs(newMovs);setCaja(newCaja);show("🛠 "+(nMovs+nCaja)+" fechas reparadas");
           }}>🛠 Reparar fechas</button>
+          <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.purple+"55",background:finFantasmas.length>0?"rgba(171,71,188,.08)":"transparent",color:T.purple,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>om("fusionarObras")}>🔀 Fusionar obras {finFantasmas.length>0&&<span style={{background:T.yellow+"33",color:T.yellow,padding:"1px 5px",borderRadius:6,fontSize:9,marginLeft:3}}>{finFantasmas.length} fantasma{finFantasmas.length!==1?"s":""}</span>}</button>
           <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.red,background:"transparent",color:T.red,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>{
             const total=movs.length+caja.length;if(total===0){show("✅ Sistema ya está vacío");return;}
             if(!confirm("⚠️ Vas a BORRAR "+total+" movimientos. ¿Continuar?"))return;
@@ -1179,7 +1229,11 @@ export default function App(){
         </div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           <input style={{...sI,flex:1,padding:"8px 12px",fontSize:12}} placeholder="🔍 Buscar concepto, proveedor, obra..." value={fBusq} onChange={e=>setFBusq(e.target.value)}/>
-          <select style={{...sI,width:D?200:130,padding:"8px",fontSize:11}} value={fObra} onChange={e=>setFObra(e.target.value)}><option value="">Todas las obras</option>{finObras.map(o=><option key={o} value={o}>{o}</option>)}</select>
+          <select style={{...sI,width:D?220:140,padding:"8px",fontSize:11}} value={fObra} onChange={e=>setFObra(e.target.value)}>
+            <option value="">Todas las obras</option>
+            {finObras.filter(o=>!o.isFantasma).length>0&&<optgroup label="✓ ACTIVAS">{finObras.filter(o=>!o.isFantasma).map(o=><option key={o.key} value={o.nombre}>{o.nombre}</option>)}</optgroup>}
+            {finFantasmas.length>0&&<optgroup label={"⚠️ FANTASMAS ("+finFantasmas.length+") — Fusionar"}>{finFantasmas.map(o=><option key={o.key} value={o.nombre}>⚠️ {o.nombre}</option>)}</optgroup>}
+          </select>
           {(ff!=="todo"||fObra||fBusq||fDesde||fHasta||selMovs.length>0)&&<button onClick={()=>{setFf("todo");setFObra("");setFBusq("");setFDesde("");setFHasta("");setSelMovs([]);}} style={{background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"33",color:T.red,borderRadius:8,padding:"8px 14px",fontSize:11,cursor:"pointer",whiteSpace:"nowrap",fontWeight:700}}>✗ Limpiar todo</button>}
         </div>
         <div style={{display:"flex",gap:6,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -1213,11 +1267,12 @@ export default function App(){
                   <th style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}>Status</th>
                   <th style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Ingreso</th>
                   <th style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Egreso</th>
+                  {D&&<th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Usuario</th>}
                   {user.rol==="admin"&&<th style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,width:70}}></th>}
                 </tr>
               </thead>
               <tbody>
-                {finFilt.length===0&&<tr><td colSpan={10} style={{padding:30,textAlign:"center",color:T.dim}}>Sin resultados</td></tr>}
+                {finFilt.length===0&&<tr><td colSpan={D?(user.rol==="admin"?10:9):(user.rol==="admin"?6:5)} style={{padding:30,textAlign:"center",color:T.dim}}>Sin resultados</td></tr>}
                 {finFilt.map((m,idx)=>{const isP=m.status==="pendiente"&&m.t==="caja";return <tr key={m.id}
                   onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}}
                   style={{background:isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a",cursor:m.ticket||m.rec?"pointer":"default",transition:"background .1s"}}
@@ -1243,6 +1298,7 @@ export default function App(){
                   </td>
                   <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t==="ing"?T.green:T.dim,whiteSpace:"nowrap"}}>{m.t==="ing"?$(m.monto):""}</td>
                   <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t!=="ing"?T.red:T.dim,whiteSpace:"nowrap"}}>{m.t!=="ing"?$(m.monto):""}</td>
+                  {D&&<td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.user?<span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:18,height:18,borderRadius:9,background:T.blue+"22",color:T.blue,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800}}>{m.user.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}</span><span>{m.user.split(" ")[0]}</span></span>:<span style={{color:T.dim}}>—</span>}</td>}
                   {user.rol==="admin"&&<td style={{padding:"6px 8px",textAlign:"center"}}>
                     <div style={{display:"flex",gap:2,justifyContent:"center"}}>
                       <button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"rgba(255,255,255,.06)",border:"none",color:T.yellow,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}}>✏️</button>
@@ -1257,12 +1313,14 @@ export default function App(){
                   <td style={{padding:"10px 12px",textAlign:"center",borderLeft:"1px solid #333"}}></td>
                   <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:T.green,fontSize:13,borderLeft:"1px solid #333"}}>{$(finIng)}</td>
                   <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:T.red,fontSize:13,borderLeft:"1px solid #333"}}>{$(finEgr)}</td>
+                  {D&&<td style={{borderLeft:"1px solid #333"}}></td>}
                   {user.rol==="admin"&&<td></td>}
                 </tr>
                 <tr style={{background:"#111"}}>
                   <td colSpan={user.rol==="admin"?(D?6:4):(D?5:3)} style={{padding:"8px 12px",fontSize:11,color:T.muted}}>Balance neto</td>
                   <td style={{borderLeft:"1px solid #333"}}></td>
                   <td colSpan={2} style={{padding:"8px 12px",textAlign:"right",fontWeight:800,fontSize:14,color:finIng-finEgr>=0?T.green:T.red,borderLeft:"1px solid #333"}}>{$(finIng-finEgr)}</td>
+                  {D&&<td style={{borderLeft:"1px solid #333"}}></td>}
                   {user.rol==="admin"&&<td></td>}
                 </tr>
               </tfoot>
@@ -1321,7 +1379,7 @@ export default function App(){
                         {c.ticket&&<span style={{fontSize:10,color:T.blue}} title="Tiene ticket">📷</span>}
                       </div>
                     </td>
-                    {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.resp||"—"}</td>}
+                    {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.resp?<span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:18,height:18,borderRadius:9,background:T.orange+"22",color:T.orange,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800}}>{c.resp.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}</span><span>{c.resp.split(" ")[0]}</span></span>:<span style={{color:T.dim}}>—</span>}</td>}
                     {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:c.obra&&c.obra!=="General"?T.gold:T.dim}}>{c.obra||"—"}</span></td>}
                     <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
                       {isP&&user.rol==="admin"?<div style={{display:"flex",gap:2,justifyContent:"center"}} onClick={e=>e.stopPropagation()}>
@@ -1526,7 +1584,7 @@ export default function App(){
   const modals= <div>
     {modal==="cat"&&<ModalW title="Catálogo" onClose={cm}>{cats.map(cat=> <div key={cat} style={{marginBottom:12}}><div style={{fontSize:11,color:T.gold,fontWeight:700,borderBottom:"1px solid "+T.border,paddingBottom:3,marginBottom:4}}>{cat}</div>{catalogo.filter(c=>c.cat===cat).map(item=> <div key={item.id} onClick={()=>{addCotP(item);show(item.id+" +");}} style={{display:"flex",justifyContent:"space-between",padding:"10px 8px",borderBottom:"1px solid "+T.border,cursor:"pointer"}}><span><b style={{color:T.gold}}>{item.id}</b> {item.desc}</span><span style={{color:T.muted}}>{$(item.precio)} <span style={{color:T.green}}>+</span></span></div>)}</div>)}</ModalW>}
         {modal==="addNom"&&<ModalW title="Nuevo Pago Fijo" onClose={cm}><div><Fl l="Nombre"><input style={sI} id="nomNom" placeholder="Ej: Nómina Erik"/></Fl><Fl l="Monto"><input type="number" style={sI} id="nomMon"/></Fl><Fl l="Frecuencia"><select style={sI} id="nomFreq"><option value="semanal">Semanal</option><option value="quincenal">Quincenal</option><option value="mensual">Mensual</option></select></Fl><Fl l="Tipo"><select style={sI} id="nomTipo"><option value="Nómina">Nómina</option><option value="Renta">Renta</option><option value="Servicios">Servicios</option><option value="IMSS">IMSS</option><option value="Destajo">Destajo</option><option value="Otro">Otro</option></select></Fl><button style={sB} onClick={()=>{const n=document.getElementById("nomNom").value;const m=Number(document.getElementById("nomMon").value);const f=document.getElementById("nomFreq").value;const t=document.getElementById("nomTipo").value;if(n&&m>0){setNominas(prev=>[...prev,{id:"N"+Date.now(),nombre:n,monto:m,frecuencia:f,tipo:t}]);cm();show("Pago fijo creado");}}}>Guardar</button></div></ModalW>}
-    {modal==="addOb"&&<ModalW title="Nueva Obra" onClose={cm}><ObraForm clientes={clis} onNewCli={nombre=>ensureCli(nombre)} onSave={o=>{setObras(prev=>[...prev,{...o,id:"OB"+String(prev.length+1).padStart(2,"0"),egreso:0,extras:[],pagos:[],docs:[],bitacora:[]}]);cm();show("Obra ✓");}}/></ModalW>}
+    {modal==="addOb"&&<ModalW title="Nueva Obra" onClose={cm}><ObraForm clientes={clis} onNewCli={nombre=>ensureCli(nombre)} onSave={o=>{setObras(prev=>[...prev,{...o,id:"OB"+String(prev.length+1).padStart(2,"0"),egreso:0,extras:[],pagos:[],docs:[],bitacora:[],creadoPor:user.nombre,creadoFecha:td()}]);cm();show("Obra ✓");}}/></ModalW>}
     {modal==="delMasivo"&&<ModalW title={"⚠ Eliminar "+selMovs.length+" movimientos"} onClose={cm}><div>
       <div style={{background:"rgba(231,76,60,.1)",border:"1px solid "+T.red+"55",borderRadius:8,padding:14,marginBottom:12}}>
         <div style={{color:T.red,fontWeight:800,marginBottom:8,fontSize:14}}>🗑 Esta acción es irreversible</div>
@@ -1603,6 +1661,28 @@ export default function App(){
       <button style={{...sB,marginTop:8}} onClick={()=>{const cat=document.getElementById("epCat").value;const desc=document.getElementById("epDesc").value;const prec=Number(document.getElementById("epPrec").value);const uni=document.getElementById("epUni").value;const not=document.getElementById("epNot").value;setPreciosUnit(prev=>prev.map(x=>x.id===md.id?{...x,cat,desc,precio:prec,unidad:uni,notas:not}:x));cm();show("Actualizado ✓");}}>💾 Guardar</button>
     </div></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+String(prev.length+1).padStart(2,"0")}]);cm();show("✓");}}/></ModalW>}
+    {modal==="fusionarObras"&&<ModalW title="🔀 Fusionar obras" onClose={cm}>
+      <FusionarObrasForm
+        finObras={finObras}
+        obras={obras}
+        countMovs={obraNombre=>{
+          const k=normSearch(obraNombre);
+          const m1=movs.filter(m=>normSearch(m.obra||"")===k).length;
+          const c1=caja.filter(c=>normSearch(c.obra||"")===k).length;
+          return m1+c1;
+        }}
+        onFuse={(origen,destino)=>{
+          const k=normSearch(origen);
+          let nMovs=0,nCaja=0;
+          const newMovs=movs.map(m=>{if(normSearch(m.obra||"")===k){nMovs++;return{...m,obra:destino};}return m;});
+          const newCaja=caja.map(c=>{if(normSearch(c.obra||"")===k){nCaja++;return{...c,obra:destino};}return c;});
+          setMovs(newMovs);
+          setCaja(newCaja);
+          cm();
+          show("🔀 "+nMovs+" mov + "+nCaja+" caja reasignados a "+(destino||"General"));
+        }}
+      />
+    </ModalW>}
     {modal==="addUser"&&<ModalW title="Usuario" onClose={cm}><UserForm obras={obras} onSave={u=>{setUsers(prev=>[...prev,{...u,id:Math.max(...prev.map(x=>x.id))+1}]);cm();show("Usuario ✓");}}/></ModalW>}
     {modal==="setPin"&&md&&<ModalW title={"🔒 PIN de "+md.nombre} onClose={cm}><div style={{textAlign:"center"}}><div style={{fontSize:13,color:T.muted,marginBottom:14}}>{md.pin?"Cambiar PIN actual":"Crear PIN de 4 dígitos"}</div><input type="number" id="newPinInput" defaultValue="" placeholder="0000" style={{...sI,textAlign:"center",fontSize:28,fontWeight:800,letterSpacing:12,maxWidth:200,margin:"0 auto"}} maxLength={4}/><button style={sB} onClick={()=>{const v=document.getElementById("newPinInput").value;if(v.length===4){setUsers(users.map(u=>u.id===md.id?{...u,pin:v}:u));cm();show("PIN asignado 🔒");}else show("Debe ser de 4 dígitos");}}>Guardar PIN</button>{md.pin&&<button style={{...sB,background:"#2a1111",color:T.red,border:"1px solid #3a1a1a"}} onClick={()=>{setUsers(users.map(u=>u.id===md.id?{...u,pin:""}:u));cm();show("PIN eliminado 🔓");}}>Quitar PIN</button>}</div></ModalW>}
     {modal==="vRec"&&md&&<ModalW title={"Recibo "+md.id} onClose={cm}><div><div id="reciboForPrint"><ReciboView data={md}/></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}><button style={{...sB,background:"#0a2e0a",color:T.green,marginTop:0}} onClick={()=>{const el=document.getElementById("reciboForPrint");const w2=window.open("","","width=600,height=500");w2.document.write("<html><head><title>Recibo "+md.id+"</title><style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#222}@media print{body{padding:10px}}</style></head><body>"+el.innerHTML+"</body></html>");w2.document.close();w2.print();}}>🖨️ Imprimir / PDF</button><button style={{...sB,background:"#1a1a2a",color:T.blue,marginTop:0}} onClick={()=>{const txt="*RECIBO "+md.id+"*%0A%0ACliente: "+encodeURIComponent(md.cliente||"")+" %0AConcepto: "+encodeURIComponent(md.concepto||"")+" %0AObra: "+encodeURIComponent(md.obra||"")+" %0A*Monto: "+encodeURIComponent($(md.monto))+"*%0A%0A_Ensamble Villarreal_%0ACarpintería Arquitectónica%0ATel: 449 181 4651";window.open("https://wa.me/?text="+txt);}}>📲 Enviar WhatsApp</button></div></div></ModalW>}
