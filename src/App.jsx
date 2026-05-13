@@ -298,7 +298,81 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
-function AnalisisDesfaseView({movs,caja,obras}){
+function DelObraForm({obra,obras,movs,caja,onDone}){
+  const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
+  const movsObra=movs.filter(m=>sameObra(m.obra,obra.nombre));
+  const cajaObra=caja.filter(c=>sameObra(c.obra,obra.nombre));
+  const totalMovs=movsObra.length+cajaObra.length;
+  const totalMonto=movsObra.reduce((s,m)=>s+(m.ing||0)+(m.egr||0),0)+cajaObra.reduce((s,c)=>s+c.monto,0);
+  const [accion,setAccion]=useState(totalMovs>0?"reasignar":"solo");
+  const [destino,setDestino]=useState("");
+  const otrasObras=obras.filter(o=>o.id!==obra.id).map(o=>o.nombre).sort();
+  return <div>
+    <div style={{textAlign:"center",marginBottom:14}}>
+      <div style={{fontSize:36,marginBottom:8}}>⚠️</div>
+      <div style={{fontSize:16,fontWeight:800}}>¿Eliminar "{obra.nombre}"?</div>
+      <div style={{fontSize:11,color:T.muted,marginTop:4}}>Cotizado: {$(obra.cotizado||0)}</div>
+    </div>
+    {totalMovs>0?<div style={{background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"33",borderRadius:8,padding:12,marginBottom:14}}>
+      <div style={{fontSize:11,color:T.yellow,fontWeight:700,marginBottom:6}}>⚠️ Esta obra tiene {totalMovs} movimiento{totalMovs!==1?"s":""} ({$(totalMonto)})</div>
+      <div style={{fontSize:11,color:T.muted}}>{movsObra.length} en finanzas · {cajaObra.length} en caja chica</div>
+    </div>:<div style={{fontSize:11,color:T.green,padding:10,background:"rgba(76,175,80,.06)",borderRadius:8,marginBottom:14,textAlign:"center"}}>✓ Sin movimientos asociados</div>}
+
+    <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>¿Qué hacer con los movimientos?</div>
+
+    {totalMovs>0&&<>
+      <label style={{display:"flex",alignItems:"flex-start",gap:8,padding:10,border:"1px solid "+(accion==="reasignar"?T.gold:T.border),borderRadius:8,marginBottom:6,cursor:"pointer",background:accion==="reasignar"?"rgba(201,149,107,.06)":"transparent"}}>
+        <input type="radio" name="acc" checked={accion==="reasignar"} onChange={()=>setAccion("reasignar")} style={{marginTop:3}}/>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:700,fontSize:12,color:T.gold}}>🔀 Reasignar a otra obra (RECOMENDADO)</div>
+          <div style={{fontSize:10,color:T.muted,marginTop:2}}>Los {totalMovs} movs quedan en otra obra activa</div>
+          {accion==="reasignar"&&<select style={{...sI,marginTop:6,fontSize:12}} value={destino} onChange={e=>setDestino(e.target.value)}>
+            <option value="">— Selecciona obra destino —</option>
+            {otrasObras.map(n=><option key={n} value={n}>{n}</option>)}
+          </select>}
+        </div>
+      </label>
+      <label style={{display:"flex",alignItems:"flex-start",gap:8,padding:10,border:"1px solid "+(accion==="general"?T.blue:T.border),borderRadius:8,marginBottom:6,cursor:"pointer",background:accion==="general"?"rgba(66,165,245,.06)":"transparent"}}>
+        <input type="radio" name="acc" checked={accion==="general"} onChange={()=>setAccion("general")} style={{marginTop:3}}/>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:700,fontSize:12,color:T.blue}}>📂 Mover a "General" (sin obra)</div>
+          <div style={{fontSize:10,color:T.muted,marginTop:2}}>Los movs quedan registrados pero sin obra asignada</div>
+        </div>
+      </label>
+      <label style={{display:"flex",alignItems:"flex-start",gap:8,padding:10,border:"1px solid "+(accion==="borrar"?T.red:T.border),borderRadius:8,marginBottom:6,cursor:"pointer",background:accion==="borrar"?"rgba(231,76,60,.06)":"transparent"}}>
+        <input type="radio" name="acc" checked={accion==="borrar"} onChange={()=>setAccion("borrar")} style={{marginTop:3}}/>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:700,fontSize:12,color:T.red}}>🗑 Borrar TODO (obra + movimientos)</div>
+          <div style={{fontSize:10,color:T.muted,marginTop:2}}>⚠️ Pierdes {$(totalMonto)} en registros. No se puede deshacer.</div>
+        </div>
+      </label>
+    </>}
+    <label style={{display:"flex",alignItems:"flex-start",gap:8,padding:10,border:"1px solid "+(accion==="solo"?T.purple:T.border),borderRadius:8,marginBottom:12,cursor:"pointer",background:accion==="solo"?"rgba(171,71,188,.06)":"transparent"}}>
+      <input type="radio" name="acc" checked={accion==="solo"} onChange={()=>setAccion("solo")} style={{marginTop:3}}/>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,fontSize:12,color:T.purple}}>👻 Solo borrar obra (dejar movs como "fantasma")</div>
+        <div style={{fontSize:10,color:T.muted,marginTop:2}}>Los movs siguen ahí con el nombre viejo. Luego limpias desde el análisis.</div>
+      </div>
+    </label>
+
+    <button style={{...sB,background:T.red,opacity:(accion==="reasignar"&&!destino)?.4:1,cursor:(accion==="reasignar"&&!destino)?"not-allowed":"pointer"}} disabled={accion==="reasignar"&&!destino} onClick={()=>onDone(accion,destino)}>
+      🗑 Eliminar "{obra.nombre}"
+    </button>
+  </div>;
+}
+function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
+  const [reasignarFrom,setReasignarFrom]=useState(null);
+  const [reasignarTo,setReasignarTo]=useState("");
+  const sameObra2=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
+  const doReasignar=(origen,destino)=>{
+    const newMovs=movs.map(m=>{if(sameObra2(m.obra,origen)){return{...m,obra:destino};}return m;});
+    const newCaja=caja.map(c=>{if(sameObra2(c.obra,origen)){return{...c,obra:destino};}return c;});
+    const nM=movs.filter(m=>sameObra2(m.obra,origen)).length;
+    const nC=caja.filter(c=>sameObra2(c.obra,origen)).length;
+    setMovs(newMovs);setCaja(newCaja);
+    setReasignarFrom(null);setReasignarTo("");
+    if(show)show("✓ "+(nM+nC)+" movs reasignados a "+(destino||"General"));
+  };
   // Construir mapa: por cada "obra" string en movs/caja, sumar ingresos y egresos
   const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
   const obrasNorm=new Set(obras.map(o=>(o.nombre||"").trim().toLowerCase().replace(/\s+/g," ")));
@@ -377,13 +451,15 @@ function AnalisisDesfaseView({movs,caja,obras}){
               <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",borderRight:"1px solid #333"}}>Proyecto</th>
               <th style={{padding:"8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",borderRight:"1px solid #333",width:100}}>Cobrado</th>
               <th style={{padding:"8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.red,textTransform:"uppercase",borderRight:"1px solid #333",width:100}}>Gastado</th>
-              <th style={{padding:"8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",width:110}}>Diferencia</th>
+              <th style={{padding:"8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",borderRight:"1px solid #333",width:110}}>Diferencia</th>
+              <th style={{padding:"8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",width:80}}>Acción</th>
             </tr>
           </thead>
           <tbody>
             {lista.map((o,idx)=>{
               const sem=o.status==="perdida"?T.red:o.status==="descapitalizado"?T.yellow:o.isFantasma?T.purple:T.green;
-              return <tr key={idx} style={{background:idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a"}}>
+              const isOpen=reasignarFrom===o.nombre;
+              return [<tr key={idx} style={{background:idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:isOpen?"none":"1px solid #2a2a2a"}}>
                 <td style={{padding:"6px",textAlign:"center",borderRight:"1px solid #2a2a2a"}} title={o.status}>
                   <span style={{display:"inline-block",width:10,height:10,borderRadius:5,background:sem}}/>
                 </td>
@@ -394,8 +470,25 @@ function AnalisisDesfaseView({movs,caja,obras}){
                 </td>
                 <td style={{padding:"6px",textAlign:"right",fontWeight:700,color:T.green,fontSize:12,borderRight:"1px solid #2a2a2a"}}>{$(o.ing)}</td>
                 <td style={{padding:"6px",textAlign:"right",fontWeight:700,color:T.red,fontSize:12,borderRight:"1px solid #2a2a2a"}}>{$(o.egr)}</td>
-                <td style={{padding:"6px",textAlign:"right",fontWeight:800,color:o.dif>=0?T.green:T.red,fontSize:13}}>{$(o.dif)}</td>
-              </tr>;
+                <td style={{padding:"6px",textAlign:"right",fontWeight:800,color:o.dif>=0?T.green:T.red,fontSize:13,borderRight:"1px solid #2a2a2a"}}>{$(o.dif)}</td>
+                <td style={{padding:"4px 6px",textAlign:"center"}}>
+                  {(o.isFantasma||o.tipo==="obra")&&o.tipo!=="general"&&<button onClick={()=>{setReasignarFrom(isOpen?null:o.nombre);setReasignarTo("");}} style={{background:isOpen?T.purple+"33":"rgba(171,71,188,.12)",border:"1px solid "+T.purple+"55",color:T.purple,cursor:"pointer",fontSize:10,padding:"4px 8px",borderRadius:5,fontWeight:700,whiteSpace:"nowrap"}} title="Reasignar movimientos">🔀 Fusionar</button>}
+                </td>
+              </tr>,
+              isOpen&&<tr key={idx+"-r"} style={{background:"rgba(171,71,188,.06)",borderBottom:"1px solid #2a2a2a"}}>
+                <td colSpan={6} style={{padding:"10px 14px"}}>
+                  <div style={{fontSize:11,color:T.purple,fontWeight:700,marginBottom:6}}>🔀 Reasignar TODOS los movs de "{o.nombre}" a:</div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                    <select style={{...sI,flex:1,minWidth:200,fontSize:12,padding:"8px"}} value={reasignarTo} onChange={e=>setReasignarTo(e.target.value)}>
+                      <option value="">— Selecciona obra destino —</option>
+                      {obras.filter(x=>!sameObra2(x.nombre,o.nombre)).map(x=><option key={x.id} value={x.nombre}>{x.nombre}</option>)}
+                      <option value="__general__">📂 General (sin obra)</option>
+                    </select>
+                    <button onClick={()=>{if(!reasignarTo){if(show)show("Selecciona destino");return;}const dest=reasignarTo==="__general__"?"":reasignarTo;if(!confirm("¿Reasignar todos los movs de '"+o.nombre+"' a '"+(dest||"General")+"'?"))return;doReasignar(o.nombre,dest);}} style={{padding:"8px 16px",borderRadius:6,border:"none",background:T.purple,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>Fusionar</button>
+                    <button onClick={()=>{setReasignarFrom(null);setReasignarTo("");}} style={{padding:"8px 12px",borderRadius:6,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:11,cursor:"pointer"}}>Cancelar</button>
+                  </div>
+                </td>
+              </tr>];
             })}
           </tbody>
           <tfoot>
@@ -404,6 +497,7 @@ function AnalisisDesfaseView({movs,caja,obras}){
               <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.green,fontSize:13,borderLeft:"1px solid #333"}}>{$(totIng)}</td>
               <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.red,fontSize:13,borderLeft:"1px solid #333"}}>{$(totEgr)}</td>
               <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:totDif>=0?T.green:T.red,fontSize:14,borderLeft:"1px solid #333"}}>{$(totDif)}</td>
+              <td></td>
             </tr>
           </tfoot>
         </table>
@@ -1758,7 +1852,31 @@ export default function App(){
       <button style={{...sB,background:"rgba(255,255,255,.06)",color:T.muted,marginTop:6}} onClick={()=>{cm();setDelConfText("");}}>Cancelar</button>
     </div></ModalW>}
     {modal==="editMov"&&md&&<ModalW title="Editar Movimiento" onClose={cm}><div><Fl l="Concepto"><input style={sI} defaultValue={md.desc} id="emDesc"/></Fl><Fl l="Monto"><input type="number" style={sI} defaultValue={md.monto} id="emMonto"/></Fl><Fl l="Proveedor / Cliente"><input style={sI} defaultValue={md.prov||""} id="emProv"/></Fl><Fl l="Obra"><select style={sI} defaultValue={md.obra||""} id="emObra"><option value="">Sin obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><Fl l="Categoría"><input style={sI} defaultValue={md.cat||""} id="emCat" placeholder="Material, Nómina, etc."/></Fl><button style={{...sB,marginTop:8}} onClick={()=>{const nd=document.getElementById("emDesc").value;const nm=Number(document.getElementById("emMonto").value);const np=document.getElementById("emProv").value;const no=document.getElementById("emObra").value;const nc=document.getElementById("emCat").value;if(md.t==="caja"){setCaja(caja.map(x=>x.id===md.cajaId?{...x,concepto:nd||x.concepto,monto:nm||x.monto,obra:no,resp:np||x.resp}:x));}else{setMovs(movs.map(x=>{if("m"+x.id===md.id){return {...x,desc:nd||x.desc,ing:md.t==="ing"?(nm||x.ing):0,egr:md.t!=="ing"?(nm||x.egr):0,prov:np,obra:no,cat:nc};}return x;}));}cm();show("Actualizado ✓");}}>💾 Guardar Cambios</button><button style={{...sB,background:"#2a0a0a",color:T.red,border:"1px solid "+T.red+"33"}} onClick={()=>{if(confirm("¿Eliminar este movimiento?")){if(md.t==="caja"){setCaja(caja.filter(x=>x.id!==md.cajaId));}else{setMovs(movs.filter(x=>"m"+x.id!==md.id));}cm();show("Eliminado");}}}> 🗑 Eliminar Movimiento</button></div></ModalW>}
-    {modal==="delOb"&&md&&<ModalW title="Eliminar Proyecto" onClose={cm}><div style={{textAlign:"center",padding:"10px 0"}}><div style={{fontSize:40,marginBottom:10}}>⚠️</div><div style={{fontSize:16,fontWeight:700,marginBottom:6}}>¿Eliminar "{md.nombre}"?</div><div style={{fontSize:12,color:T.muted,marginBottom:16}}>Se eliminará el proyecto, sus partidas, documentos, bitácora y extras. Los movimientos financieros NO se borran.</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setObras(prev=>prev.filter(o=>o.id!==md.id));setSub(null);cm();show("Proyecto eliminado");}}>🗑 Sí, eliminar</button><button style={{...sB,background:"#222",color:T.muted,marginTop:0}} onClick={cm}>Cancelar</button></div></div></ModalW>}
+    {modal==="delOb"&&md&&<ModalW title="Eliminar Proyecto" onClose={cm}><DelObraForm obra={md} obras={obras} movs={movs} caja={caja} onDone={async(accion,destino)=>{
+      const k=normSearch(md.nombre);
+      let nMovs=0,nCaja=0;
+      let newMovs=movs,newCaja=caja;
+      if(accion==="reasignar"&&destino){
+        newMovs=movs.map(m=>{if(normSearch(m.obra||"")===k){nMovs++;return{...m,obra:destino};}return m;});
+        newCaja=caja.map(c=>{if(normSearch(c.obra||"")===k){nCaja++;return{...c,obra:destino};}return c;});
+      }else if(accion==="general"){
+        newMovs=movs.map(m=>{if(normSearch(m.obra||"")===k){nMovs++;return{...m,obra:""};}return m;});
+        newCaja=caja.map(c=>{if(normSearch(c.obra||"")===k){nCaja++;return{...c,obra:""};}return c;});
+      }else if(accion==="borrar"){
+        newMovs=movs.filter(m=>{if(normSearch(m.obra||"")===k){nMovs++;return false;}return true;});
+        newCaja=caja.filter(c=>{if(normSearch(c.obra||"")===k){nCaja++;return false;}return true;});
+      }
+      // Aplicar cambios (en orden: primero movs/caja, luego obra)
+      if(accion!=="solo")setMovs(newMovs);
+      if(accion!=="solo")setCaja(newCaja);
+      const newObras=obras.filter(o=>o.id!==md.id);
+      setObras(newObras);
+      // Bloquear sync por 30s y forzar push directo
+      _lastWrite.current["obras"]=Date.now()+15000;
+      setSub(null);cm();
+      const msgs={reasignar:"✓ Eliminada · "+nMovs+"+"+nCaja+" movs reasignados a "+destino,general:"✓ Eliminada · "+nMovs+"+"+nCaja+" movs → General",borrar:"🗑 Eliminada · "+nMovs+"+"+nCaja+" movs BORRADOS",solo:"👻 Eliminada · movs quedan como fantasma"};
+      show(msgs[accion]);
+    }}/></ModalW>}
     {modal==="apikey"&&<ModalW title="🔑 API Key Claude" onClose={cm}>
       <div style={{fontSize:12,color:T.muted,marginBottom:12}}>Para usar el escáner de cotizaciones, tickets y el chat IA necesitas una API Key de Anthropic.</div>
       <div style={{fontSize:11,color:T.muted,marginBottom:12,padding:10,background:"rgba(255,255,255,.03)",borderRadius:8}}>1. Ve a <span style={{color:T.gold}}>console.anthropic.com</span><br/>2. Crea una cuenta o inicia sesión<br/>3. Ve a API Keys → Create Key<br/>4. Copia la clave y pégala aquí abajo</div>
@@ -1811,7 +1929,7 @@ export default function App(){
     </div></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+String(prev.length+1).padStart(2,"0")}]);cm();show("✓");}}/></ModalW>}
     {modal==="analisisDesfase"&&<ModalW title="🔍 Análisis de Desfase Financiero" onClose={cm}>
-      <AnalisisDesfaseView movs={movs} caja={caja} obras={obras}/>
+      <AnalisisDesfaseView movs={movs} caja={caja} obras={obras} setMovs={setMovs} setCaja={setCaja} show={show} cm={cm}/>
     </ModalW>}
     {modal==="fusionarObras"&&<ModalW title="🔀 Fusionar obras" onClose={cm}>
       <FusionarObrasForm
@@ -1912,4 +2030,3 @@ export default function App(){
     <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"#111",borderTop:"1px solid "+T.border,display:"flex",justifyContent:"center"}}><div style={{display:"flex",maxWidth:900,width:"100%"}}>{mobT.map(t=> <button key={t.key} onClick={()=>{if(t.key==="_more"){setMoreOpen(!moreOpen);return;}go(t.key);setMoreOpen(false);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"8px 0 6px",background:"none",border:"none",cursor:"pointer",color:(t.key==="_more"?moreOpen:sec===t.key)?T.gold:T.dim}}><span style={{fontSize:18}}>{t.icon}</span><span style={{fontSize:8,fontWeight:600}}>{t.label}</span></button>)}</div></div>
   </div>;
 }
-
