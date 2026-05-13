@@ -298,6 +298,127 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
+function AnalisisDesfaseView({movs,caja,obras}){
+  // Construir mapa: por cada "obra" string en movs/caja, sumar ingresos y egresos
+  const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
+  const obrasNorm=new Set(obras.map(o=>(o.nombre||"").trim().toLowerCase().replace(/\s+/g," ")));
+  const map={};
+  movs.forEach(m=>{
+    const k=(m.obra||"").trim()||"__GENERAL__";
+    if(!map[k])map[k]={nombre:k==="__GENERAL__"?"📂 General (sin obra)":m.obra,ing:0,egr:0,cot:0,cat:{},isFantasma:false};
+    if(m.ing>0)map[k].ing+=m.ing;
+    if(m.egr>0){map[k].egr+=m.egr;const c=m.cat||"Sin cat";map[k].cat[c]=(map[k].cat[c]||0)+m.egr;}
+  });
+  caja.filter(c=>c.status!=="rechazado").forEach(c=>{
+    const k=(c.obra||"").trim()||"__GENERAL__";
+    if(!map[k])map[k]={nombre:k==="__GENERAL__"?"📂 General (sin obra)":c.obra,ing:0,egr:0,cot:0,cat:{},isFantasma:false};
+    map[k].egr+=c.monto;
+    map[k].cat["Caja Chica"]=(map[k].cat["Caja Chica"]||0)+c.monto;
+  });
+  // Marcar cotización y fantasma
+  Object.values(map).forEach(o=>{
+    if(o.nombre==="📂 General (sin obra)"){o.isFantasma=false;o.tipo="general";return;}
+    const obraReal=obras.find(x=>sameObra(x.nombre,o.nombre));
+    if(obraReal){o.cot=obraReal.cotizado||0;o.fase=obraReal.fase;o.isFantasma=false;o.tipo="obra";}
+    else{o.isFantasma=true;o.tipo="fantasma";}
+  });
+  // Calcular diferencia
+  const lista=Object.values(map).map(o=>{
+    const dif=o.ing-o.egr;
+    const cobPct=o.cot?Math.round((o.ing/o.cot)*100):0;
+    const gasPct=o.cot?Math.round((o.egr/o.cot)*100):0;
+    const desfase=gasPct-cobPct; // si es positivo, gastaste más % de lo cobrado
+    let status="ok";
+    if(dif<0)status="perdida"; // gastaste más que cobraste
+    else if(o.cot&&desfase>20)status="descapitalizado"; // vas atrasado en cobranza
+    return {...o,dif,cobPct,gasPct,desfase,status};
+  }).sort((a,b)=>a.dif-b.dif); // peor primero
+  const totIng=lista.reduce((s,o)=>s+o.ing,0);
+  const totEgr=lista.reduce((s,o)=>s+o.egr,0);
+  const totDif=totIng-totEgr;
+  const enPerdida=lista.filter(o=>o.status==="perdida");
+  const descap=lista.filter(o=>o.status==="descapitalizado");
+  const fantasmas=lista.filter(o=>o.isFantasma);
+  return <div>
+    {/* Resumen ejecutivo */}
+    <div style={{background:totDif<0?"rgba(231,76,60,.08)":"rgba(76,175,80,.08)",border:"1px solid "+(totDif<0?T.red+"33":T.green+"33"),borderRadius:10,padding:14,marginBottom:14}}>
+      <div style={{fontSize:10,color:totDif<0?T.red:T.green,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>{totDif<0?"⚠️ Balance NEGATIVO":"✓ Balance positivo"}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+        <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Cobrado</div><div style={{fontSize:18,fontWeight:800,color:T.green}}>{$(totIng)}</div></div>
+        <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Gastado</div><div style={{fontSize:18,fontWeight:800,color:T.red}}>{$(totEgr)}</div></div>
+        <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Diferencia</div><div style={{fontSize:18,fontWeight:800,color:totDif>=0?T.green:T.red}}>{$(totDif)}</div></div>
+      </div>
+    </div>
+    {/* Resumen por categoría de problema */}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+      <div style={{background:"rgba(231,76,60,.06)",border:"1px solid "+T.red+"22",borderRadius:8,padding:10}}>
+        <div style={{fontSize:9,color:T.red,fontWeight:700,textTransform:"uppercase"}}>🔴 En pérdida</div>
+        <div style={{fontSize:20,fontWeight:800,color:T.red}}>{enPerdida.length}</div>
+        <div style={{fontSize:10,color:T.muted}}>{$(enPerdida.reduce((s,o)=>s+o.dif,0))}</div>
+      </div>
+      <div style={{background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"22",borderRadius:8,padding:10}}>
+        <div style={{fontSize:9,color:T.yellow,fontWeight:700,textTransform:"uppercase"}}>🟡 Descapitalizado</div>
+        <div style={{fontSize:20,fontWeight:800,color:T.yellow}}>{descap.length}</div>
+        <div style={{fontSize:10,color:T.muted}}>Gastas más rápido que cobras</div>
+      </div>
+      <div style={{background:"rgba(171,71,188,.06)",border:"1px solid "+T.purple+"22",borderRadius:8,padding:10}}>
+        <div style={{fontSize:9,color:T.purple,fontWeight:700,textTransform:"uppercase"}}>👻 Fantasmas</div>
+        <div style={{fontSize:20,fontWeight:800,color:T.purple}}>{fantasmas.length}</div>
+        <div style={{fontSize:10,color:T.muted}}>{$(fantasmas.reduce((s,o)=>s+o.dif,0))}</div>
+      </div>
+    </div>
+    {/* Tabla compacta de obras */}
+    <div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+          <thead>
+            <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
+              <th style={{padding:"8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",borderRight:"1px solid #333",width:24}}>●</th>
+              <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",borderRight:"1px solid #333"}}>Proyecto</th>
+              <th style={{padding:"8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",borderRight:"1px solid #333",width:100}}>Cobrado</th>
+              <th style={{padding:"8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.red,textTransform:"uppercase",borderRight:"1px solid #333",width:100}}>Gastado</th>
+              <th style={{padding:"8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",width:110}}>Diferencia</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.map((o,idx)=>{
+              const sem=o.status==="perdida"?T.red:o.status==="descapitalizado"?T.yellow:o.isFantasma?T.purple:T.green;
+              return <tr key={idx} style={{background:idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a"}}>
+                <td style={{padding:"6px",textAlign:"center",borderRight:"1px solid #2a2a2a"}} title={o.status}>
+                  <span style={{display:"inline-block",width:10,height:10,borderRadius:5,background:sem}}/>
+                </td>
+                <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a"}}>
+                  <div style={{fontWeight:600,fontSize:12}}>{o.nombre} {o.isFantasma&&<span style={{fontSize:9,color:T.purple,marginLeft:4}}>👻 fantasma</span>}</div>
+                  {o.cot>0&&<div style={{fontSize:9,color:T.muted}}>Cotizado {$(o.cot)} · Cobrado {o.cobPct}% · Gastado {o.gasPct}%</div>}
+                  {!o.cot&&o.tipo!=="general"&&<div style={{fontSize:9,color:T.muted}}>Sin presupuesto registrado</div>}
+                </td>
+                <td style={{padding:"6px",textAlign:"right",fontWeight:700,color:T.green,fontSize:12,borderRight:"1px solid #2a2a2a"}}>{$(o.ing)}</td>
+                <td style={{padding:"6px",textAlign:"right",fontWeight:700,color:T.red,fontSize:12,borderRight:"1px solid #2a2a2a"}}>{$(o.egr)}</td>
+                <td style={{padding:"6px",textAlign:"right",fontWeight:800,color:o.dif>=0?T.green:T.red,fontSize:13}}>{$(o.dif)}</td>
+              </tr>;
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{background:"#1a1a1a",borderTop:"2px solid #444"}}>
+              <td colSpan={2} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.gold}}>TOTAL ({lista.length})</td>
+              <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.green,fontSize:13,borderLeft:"1px solid #333"}}>{$(totIng)}</td>
+              <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.red,fontSize:13,borderLeft:"1px solid #333"}}>{$(totEgr)}</td>
+              <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:totDif>=0?T.green:T.red,fontSize:14,borderLeft:"1px solid #333"}}>{$(totDif)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+    {/* Explicación */}
+    <div style={{marginTop:12,padding:10,background:"rgba(255,255,255,.02)",borderRadius:8,fontSize:11,color:T.muted,lineHeight:1.6}}>
+      <div style={{color:T.gold,fontWeight:700,marginBottom:4}}>📖 Cómo leer:</div>
+      <div>🔴 <b style={{color:T.red}}>Pérdida</b>: gastaste MÁS de lo que cobraste. Te están metiendo de tu bolsa.</div>
+      <div>🟡 <b style={{color:T.yellow}}>Descapitalizado</b>: vas a buen ritmo de gasto pero atrasado en cobranza (gastaste {">"} 20% más que lo que llevas cobrado). Pídele al cliente.</div>
+      <div>👻 <b style={{color:T.purple}}>Fantasma</b>: tiene movimientos pero la obra ya no existe en tu sistema. Fusiónala con una obra activa.</div>
+      <div>🟢 <b style={{color:T.green}}>OK</b>: cobranza al día y rentable.</div>
+    </div>
+  </div>;
+}
 function FusionarObrasForm({finObras,obras,countMovs,onFuse}){
   const[origen,setOrigen]=useState("");
   const[destino,setDestino]=useState("");
@@ -1197,9 +1318,19 @@ export default function App(){
         <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
           <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Ingresos" value={$(finIng)} color={T.green}/></Card>
           <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Egresos" value={$(finEgr)} color={T.red}/></Card>
-          <Card><Stat label="Balance" value={$(finIng-finEgr)} color={finIng-finEgr>=0?T.green:T.red}/></Card>
+          <Card onClick={()=>finIng-finEgr<0?om("analisisDesfase"):null} style={{cursor:finIng-finEgr<0?"pointer":"default",background:finIng-finEgr<0?"rgba(231,76,60,.08)":undefined,borderColor:finIng-finEgr<0?T.red+"33":undefined}}>
+            <Stat label={finIng-finEgr<0?"🔍 Balance (click para analizar)":"Balance"} value={$(finIng-finEgr)} color={finIng-finEgr>=0?T.green:T.red}/>
+          </Card>
           <Card><Stat label="Movimientos" value={finFilt.length}/></Card>
         </div>
+        {/* Banner de alerta cuando hay desfase */}
+        {finIng-finEgr<0&&<div onClick={()=>om("analisisDesfase")} style={{background:"linear-gradient(135deg,rgba(231,76,60,.12),rgba(231,76,60,.04))",border:"1px solid "+T.red+"44",borderRadius:10,padding:"10px 14px",marginBottom:10,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:11,color:T.red,fontWeight:800,letterSpacing:.5}}>🚨 Hay un desfase de {$(Math.abs(finIng-finEgr))}</div>
+            <div style={{fontSize:10,color:T.muted,marginTop:2}}>Click aquí para ver qué obras lo están causando</div>
+          </div>
+          <span style={{color:T.red,fontSize:18,fontWeight:800}}>→</span>
+        </div>}
         {/* === TOOLBAR PRINCIPAL: Acciones primarias grandes === */}
         <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
           <button style={{padding:"10px 20px",borderRadius:8,border:"none",background:T.green,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={()=>om("addIng")}>＋ Ingreso</button>
@@ -1230,6 +1361,7 @@ export default function App(){
             setMovs(newMovs);setCaja(newCaja);show("🛠 "+(nMovs+nCaja)+" fechas reparadas");
           }}>🛠 Reparar fechas</button>
           <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.purple+"55",background:finFantasmas.length>0?"rgba(171,71,188,.08)":"transparent",color:T.purple,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>om("fusionarObras")}>🔀 Fusionar obras {finFantasmas.length>0&&<span style={{background:T.yellow+"33",color:T.yellow,padding:"1px 5px",borderRadius:6,fontSize:9,marginLeft:3}}>{finFantasmas.length} fantasma{finFantasmas.length!==1?"s":""}</span>}</button>
+          <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.blue+"55",background:finIng-finEgr<0?"rgba(231,76,60,.08)":"rgba(66,165,245,.08)",color:finIng-finEgr<0?T.red:T.blue,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>om("analisisDesfase")}>🔍 Analizar desfase {finIng-finEgr<0&&<span style={{background:T.red+"33",color:T.red,padding:"1px 5px",borderRadius:6,fontSize:9,marginLeft:3}}>{$(finIng-finEgr)}</span>}</button>
           <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.red,background:"transparent",color:T.red,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>{
             const total=movs.length+caja.length;if(total===0){show("✅ Sistema ya está vacío");return;}
             if(!confirm("⚠️ Vas a BORRAR "+total+" movimientos. ¿Continuar?"))return;
@@ -1678,6 +1810,9 @@ export default function App(){
       <button style={{...sB,marginTop:8}} onClick={()=>{const cat=document.getElementById("epCat").value;const desc=document.getElementById("epDesc").value;const prec=Number(document.getElementById("epPrec").value);const uni=document.getElementById("epUni").value;const not=document.getElementById("epNot").value;setPreciosUnit(prev=>prev.map(x=>x.id===md.id?{...x,cat,desc,precio:prec,unidad:uni,notas:not}:x));cm();show("Actualizado ✓");}}>💾 Guardar</button>
     </div></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+String(prev.length+1).padStart(2,"0")}]);cm();show("✓");}}/></ModalW>}
+    {modal==="analisisDesfase"&&<ModalW title="🔍 Análisis de Desfase Financiero" onClose={cm}>
+      <AnalisisDesfaseView movs={movs} caja={caja} obras={obras}/>
+    </ModalW>}
     {modal==="fusionarObras"&&<ModalW title="🔀 Fusionar obras" onClose={cm}>
       <FusionarObrasForm
         finObras={finObras}
@@ -1777,3 +1912,4 @@ export default function App(){
     <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"#111",borderTop:"1px solid "+T.border,display:"flex",justifyContent:"center"}}><div style={{display:"flex",maxWidth:900,width:"100%"}}>{mobT.map(t=> <button key={t.key} onClick={()=>{if(t.key==="_more"){setMoreOpen(!moreOpen);return;}go(t.key);setMoreOpen(false);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"8px 0 6px",background:"none",border:"none",cursor:"pointer",color:(t.key==="_more"?moreOpen:sec===t.key)?T.gold:T.dim}}><span style={{fontSize:18}}>{t.icon}</span><span style={{fontSize:8,fontWeight:600}}>{t.label}</span></button>)}</div></div>
   </div>;
 }
+
