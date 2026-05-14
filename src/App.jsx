@@ -212,6 +212,37 @@ const Card=({children,style,onClick})=> <div onClick={onClick} style={{backgroun
 const Stat=({label,value,color,small})=> <div><div style={{fontSize:small?8:9,color:T.muted,textTransform:"uppercase",letterSpacing:.5}}>{label}</div><div style={{fontSize:small?14:18,fontWeight:800,color:color||T.text}}>{value}</div></div>;
 // === Helper de búsqueda con normalización (sin acentos) ===
 const normSearch=s=>(s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+// Tokens "significativos" para fuzzy match: quita números, #, símbolos. Devuelve palabras de 4+ letras
+const obraTokens=s=>{const n=normSearch(s).replace(/[#\d]+/g," ").replace(/[^a-z\s]/g," ").replace(/\s+/g," ").trim();return n.split(" ").filter(t=>t.length>=4);};
+// Devuelve obras similares (comparten al menos 1 token significativo) excluyendo match exacto
+const findSimilarObras=(nombre,obras,excludeId)=>{
+  const tgt=obraTokens(nombre);if(tgt.length===0)return [];
+  const tgtNorm=normSearch(nombre);
+  return obras.filter(o=>{
+    if(excludeId&&o.id===excludeId)return false;
+    if(normSearch(o.nombre)===tgtNorm)return false;
+    const oTok=obraTokens(o.nombre);
+    return tgt.some(t=>oTok.includes(t));
+  });
+};
+// Agrupa lista de obras por similitud — devuelve [[obra1,obra2,...], [obra3], ...]
+const agruparObrasSimilares=(obras)=>{
+  const grupos=[];const usados=new Set();
+  obras.forEach(o=>{
+    if(usados.has(o.id))return;
+    const tok=obraTokens(o.nombre);
+    if(tok.length===0){grupos.push([o]);usados.add(o.id);return;}
+    const grupo=[o];usados.add(o.id);
+    obras.forEach(o2=>{
+      if(usados.has(o2.id))return;
+      const tok2=obraTokens(o2.nombre);
+      if(tok.some(t=>tok2.includes(t))){grupo.push(o2);usados.add(o2.id);}
+    });
+    grupos.push(grupo);
+  });
+  // Solo regresar grupos con 2+ elementos (los duplicados sospechosos)
+  return grupos.filter(g=>g.length>=2);
+};
 // === DASHBOARD VIZ HELPERS ===
 const Sparkline=({data,color="#c9956b",width=110,height=32,fill=true})=>{
   if(!data||data.length<2)return <svg width={width} height={height}/>;
@@ -284,12 +315,49 @@ const sB={padding:"13px",borderRadius:10,border:"none",background:"linear-gradie
 function ModalW({title,onClose,children}){return <div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)"}} onClick={onClose}><div onClick={e=>e.stopPropagation()} style={{background:"#151515",borderRadius:14,width:"100%",maxWidth:540,maxHeight:"88vh",overflow:"auto",paddingBottom:24,margin:16}}><div style={{width:36,height:4,background:"#444",borderRadius:2,margin:"8px auto 0"}}/><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 16px 6px"}}><span style={{fontWeight:700,color:T.gold,fontSize:15}}>{title}</span><button onClick={onClose} style={{background:"#222",border:"none",color:"#888",cursor:"pointer",fontSize:14,borderRadius:20,width:28,height:28}}>✕</button></div><div style={{padding:"4px 16px 0"}}>{children}</div></div></div>;}
 function Fl({l,children}){return <div style={{marginBottom:10}}><label style={{display:"block",fontSize:10,color:T.muted,marginBottom:3,fontWeight:700,textTransform:"uppercase",letterSpacing:.5}}>{l}</label>{children}</div>;}
 function ReciboView({data}){return <div style={{background:"#fefcf9",color:"#222",borderRadius:8,padding:20,fontFamily:"Georgia,serif"}}><div style={{display:"flex",justifyContent:"space-between",borderBottom:"3px solid #1B5E20",paddingBottom:12,marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:10}}><img src={LOGO_IMG} style={{width:40,height:40,borderRadius:8,objectFit:"cover"}} alt=""/><div><div style={{fontSize:16,fontWeight:800,color:"#1B5E20"}}>ENSAMBLE VILLARREAL</div><div style={{fontSize:9,color:"#888"}}>CARPINTERÍA ARQUITECTÓNICA</div><div style={{fontSize:9,color:"#bbb"}}>Circuito Los Sauces 136 · 449 181 4651</div></div></div><div style={{textAlign:"right"}}><div style={{fontSize:14,fontWeight:700,color:"#1B5E20"}}>RECIBO</div><div style={{fontSize:16,fontWeight:800,color:"#1B5E20"}}>{data.recibo||data.id}</div></div></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12,marginBottom:14}}><div><span style={{color:"#999",fontSize:10}}>FECHA</span><div style={{fontWeight:600}}>{fd(data.fecha)}</div></div><div><span style={{color:"#999",fontSize:10}}>CLIENTE</span><div style={{fontWeight:600}}>{data.cliente||"—"}</div></div><div><span style={{color:"#999",fontSize:10}}>CONCEPTO</span><div style={{fontWeight:600}}>{data.concepto||"—"}</div></div><div><span style={{color:"#999",fontSize:10}}>OBRA</span><div style={{fontWeight:600}}>{data.obra||"—"}</div></div></div><div style={{background:"#E8F5E9",borderRadius:8,padding:"14px 18px",textAlign:"center"}}><div style={{fontSize:10,color:"#2E7D32",textTransform:"uppercase"}}>Monto Recibido</div><div style={{fontSize:28,fontWeight:800,color:"#1B5E20"}}>{$(data.monto||data.ing||0)}</div></div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginTop:20,paddingTop:14,borderTop:"1px dashed #ccc"}}><div style={{textAlign:"center",borderTop:"1px solid #999",paddingTop:6,fontSize:10,color:"#999"}}>Firma cliente</div><div style={{textAlign:"center",borderTop:"1px solid #999",paddingTop:6,fontSize:10,color:"#999"}}>Ensamble Villarreal</div></div><div style={{textAlign:"center",marginTop:16,fontSize:8,color:"#ccc",fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div></div>;}
-function ObraForm({onSave,clientes,onNewCli}){const[f,sf]=useState({nombre:"",cliente:"",cotizado:"",inicio:td(),entrega:"",fase:"cotizacion"});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Cliente"><input list="cli-ob-list" style={sI} value={f.cliente} onChange={e=>sf({...f,cliente:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="cli-ob-list">{clientes.map(c=><option key={c.id} value={c.nombre}/>)}</datalist>{f.cliente&&!clientes.some(c=>c.nombre.toLowerCase()===f.cliente.toLowerCase())&&<div style={{fontSize:10,color:"#FF9800",marginTop:3}}>⚡ Se creará como nuevo cliente</div>}</Fl><Fl l="Monto"><input type="number" style={sI} value={f.cotizado} onChange={e=>sf({...f,cotizado:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Inicio"><input type="date" style={sI} value={f.inicio} onChange={e=>sf({...f,inicio:e.target.value})}/></Fl><Fl l="Entrega"><input type="date" style={sI} value={f.entrega} onChange={e=>sf({...f,entrega:e.target.value})}/></Fl></div><button style={sB} onClick={()=>f.nombre&&(()=>{if(f.cliente&&!clientes.some(c=>c.nombre.toLowerCase()===f.cliente.toLowerCase())&&onNewCli)onNewCli(f.cliente);onSave({...f,cotizado:Number(f.cotizado)||0,status:'cotizado',avance:0});})()}>Guardar</button></div>;}
-function IngForm({obras,movs,clis,onSave}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",ing:"",obra:""});const ob=obras.find(o=>o.nombre===f.obra);const pagado=ob?movs.filter(m=>m.ing>0&&sameObra(m.obra,ob.nombre)).reduce((s,m)=>s+m.ing,0):0;const a1=ob?Math.round(ob.cotizado*.6):0;const a2=ob?Math.round(ob.cotizado*.2):0;const a3=ob?Math.round(ob.cotizado*.2):0;const sugerido=ob?(pagado<a1?a1-pagado:pagado<a1+a2?a1+a2-pagado:pagado<ob.cotizado?ob.cotizado-pagado:0):0;const etapa=ob?(pagado<a1?"Anticipo 60%":pagado<a1+a2?"Avance 20%":"Entrega 20%"):"";return <div><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>{const selOb=obras.find(o=>o.nombre===e.target.value);sf({...f,obra:e.target.value,desc:"",prov:selOb&&selOb.cliente?selOb.cliente:f.prov});}}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}{o.cliente?" — "+o.cliente:""}</option>)}</select></Fl>{ob&&<div style={{background:"rgba(201,149,107,.08)",border:"1px solid rgba(201,149,107,.15)",borderRadius:10,padding:12,marginBottom:12}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold}}>{$(ob.cotizado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green}}>{$(pagado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:ob.cotizado-pagado>0?T.yellow:T.green}}>{$(ob.cotizado-pagado)}</div></div></div>{sugerido>0&&<div><div style={{fontSize:10,color:T.gold,fontWeight:700,marginBottom:4}}>Siguiente pago: {etapa}</div><div style={{display:"flex",gap:6}}>{[{l:etapa,v:sugerido},{l:"Total restante",v:ob.cotizado-pagado}].filter((x,i,a)=>i===0||x.v!==a[0].v).map(x=><button key={x.l} onClick={()=>sf({...f,ing:String(x.v),desc:x.l+" - "+ob.nombre,prov:ob.cliente||f.prov})} style={{flex:1,padding:"8px 6px",borderRadius:8,border:"1px solid "+T.gold+"33",background:Number(f.ing)===x.v?T.gold+"22":"transparent",color:Number(f.ing)===x.v?T.gold:T.muted,fontSize:11,fontWeight:700,cursor:"pointer"}}>{x.l}: {$(x.v)}</button>)}</div></div>}</div>}<Fl l="Recibido de"><input list="ing-cli-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Nombre del cliente"/><datalist id="ing-cli-list">{(clis||[]).map(c=><option key={c.id} value={c.nombre}/>)}</datalist></Fl><Fl l="Concepto"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})} placeholder="Ej: Anticipo 60%"/></Fl><Fl l="Monto"><input type="number" style={{...sI,fontSize:20,fontWeight:800,textAlign:"center"}} value={f.ing} onChange={e=>sf({...f,ing:e.target.value})} placeholder="$0"/></Fl><button style={{...sB,background:T.green,opacity:Number(f.ing)>0?1:.5}} onClick={()=>{const m=Number(f.ing);if(m>0){const desc=f.desc||f.prov||("Ingreso "+f.obra);onSave({...f,desc,ing:m,egr:0});}}}>💰 Registrar + Generar Recibo</button></div>;}
-function EgrForm({obras,provs,onSave,onNewProv}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});const exists=provs.some(p=>p.nombre.toLowerCase()===f.prov.toLowerCase());return <div><Fl l="Proveedor"><input list="prov-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="prov-list">{provs.map(p=> <option key={p.id} value={p.nombre}/>)}</datalist>{f.prov&&!exists&&<div style={{fontSize:10,color:T.orange,marginTop:3}}>⚡ Nuevo proveedor — se creará automáticamente</div>}</Fl><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})}/></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">General</option>{obras.map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}</select></Fl><button style={{...sB,background:T.red,color:"#fff"}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0){if(f.prov&&!exists&&onNewProv)onNewProv(f.prov);onSave({...f,egr:m,ing:0});}}}>Registrar Egreso</button></div>;}
+function ObraForm({onSave,clientes,onNewCli}){const[f,sf]=useState({nombre:"",cliente:"",cotizado:"",inicio:td(),entrega:"",fase:"cotizacion",simple:false});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Cliente"><input list="cli-ob-list" style={sI} value={f.cliente} onChange={e=>sf({...f,cliente:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="cli-ob-list">{clientes.map(c=><option key={c.id} value={c.nombre}/>)}</datalist>{f.cliente&&!clientes.some(c=>c.nombre.toLowerCase()===f.cliente.toLowerCase())&&<div style={{fontSize:10,color:"#FF9800",marginTop:3}}>⚡ Se creará como nuevo cliente</div>}</Fl><Fl l="Monto"><input type="number" style={sI} value={f.cotizado} onChange={e=>sf({...f,cotizado:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Inicio"><input type="date" style={sI} value={f.inicio} onChange={e=>sf({...f,inicio:e.target.value})}/></Fl><Fl l="Entrega"><input type="date" style={sI} value={f.entrega} onChange={e=>sf({...f,entrega:e.target.value})}/></Fl></div>
+  <div style={{padding:10,background:f.simple?"rgba(76,175,80,.06)":"rgba(255,255,255,.02)",border:"1px solid "+(f.simple?T.green+"33":T.border),borderRadius:8,marginBottom:8,cursor:"pointer"}} onClick={()=>sf({...f,simple:!f.simple})}>
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <input type="checkbox" checked={f.simple} onChange={()=>{}} style={{accentColor:T.green,cursor:"pointer"}}/>
+      <div style={{flex:1}}>
+        <div style={{fontSize:12,fontWeight:700,color:f.simple?T.green:T.text}}>⚡ Obra rápida (3 fases)</div>
+        <div style={{fontSize:10,color:T.muted,marginTop:1}}>Para puertas, muebles sueltos o trabajos pequeños. Solo: <b>Cotizada → En proceso → Entregada</b>. {!f.simple&&" Sin marcar: usa las 7 fases completas (anticipo, diseño, producción, instalación...)."}</div>
+      </div>
+    </div>
+  </div>
+  <button style={sB} onClick={()=>f.nombre&&(()=>{if(f.cliente&&!clientes.some(c=>c.nombre.toLowerCase()===f.cliente.toLowerCase())&&onNewCli)onNewCli(f.cliente);onSave({...f,cotizado:Number(f.cotizado)||0,status:'cotizado',avance:0});})()}>Guardar</button></div>;}
+// Helper: filtra obras activas y las agrupa por fase para usar en <select>
+function ObrasSelect({value,onChange,obras,allowGeneral,placeholder}){
+  // Activas = no cotización, no entregada, no cancelada (las que puedes asignar movs)
+  const activas=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
+  const cotizaciones=obras.filter(o=>o.fase==="cotizacion");
+  const entregadas=obras.filter(o=>o.fase==="entregado");
+  // Agrupar activas por fase
+  const fasesActivas=["autorizada","anticipo","diseno","produccion","instalacion"];
+  // Detectar potenciales duplicadas (advertencia)
+  const grupos=agruparObrasSimilares(activas);
+  return <div>
+    <select style={sI} value={value} onChange={onChange}>
+      <option value="">{placeholder||"Seleccionar obra"}</option>
+      {allowGeneral&&<option value="General">📂 General (sin obra)</option>}
+      {fasesActivas.map(fk=>{const list=activas.filter(o=>o.fase===fk);if(!list.length)return null;return <optgroup key={fk} label={"● "+FASES[fk]+" ("+list.length+")"}>
+        {list.map(o=><option key={o.id} value={o.nombre}>{o.nombre}{o.cliente?" — "+o.cliente:""}</option>)}
+      </optgroup>;})}
+      {cotizaciones.length>0&&<optgroup label={"📝 COTIZACIONES ("+cotizaciones.length+") - aún no autorizadas"}>
+        {cotizaciones.map(o=><option key={o.id} value={o.nombre}>{o.nombre}{o.cliente?" — "+o.cliente:""}</option>)}
+      </optgroup>}
+      {entregadas.length>0&&<optgroup label={"✓ ENTREGADAS ("+entregadas.length+")"}>
+        {entregadas.map(o=><option key={o.id} value={o.nombre}>{o.nombre}{o.cliente?" — "+o.cliente:""}</option>)}
+      </optgroup>}
+    </select>
+    {grupos.length>0&&<div style={{marginTop:6,padding:"6px 10px",background:"rgba(255,213,79,.08)",border:"1px solid "+T.yellow+"33",borderRadius:6,fontSize:10,color:T.muted}}>⚠️ Detecté {grupos.length} grupo{grupos.length!==1?"s":""} de obras parecidas. Antes de registrar, considera ir a <b style={{color:T.yellow}}>Obras → 🔗 Detectar duplicadas</b> para fusionarlas.</div>}
+  </div>;
+}
+function IngForm({obras,movs,clis,onSave}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",ing:"",obra:""});const ob=obras.find(o=>o.nombre===f.obra);const pagado=ob?movs.filter(m=>m.ing>0&&sameObra(m.obra,ob.nombre)).reduce((s,m)=>s+m.ing,0):0;const a1=ob?Math.round(ob.cotizado*.6):0;const a2=ob?Math.round(ob.cotizado*.2):0;const a3=ob?Math.round(ob.cotizado*.2):0;const sugerido=ob?(pagado<a1?a1-pagado:pagado<a1+a2?a1+a2-pagado:pagado<ob.cotizado?ob.cotizado-pagado:0):0;const etapa=ob?(pagado<a1?"Anticipo 60%":pagado<a1+a2?"Avance 20%":"Entrega 20%"):"";return <div><Fl l="Obra"><ObrasSelect value={f.obra} obras={obras} onChange={e=>{const selOb=obras.find(o=>o.nombre===e.target.value);sf({...f,obra:e.target.value,desc:"",prov:selOb&&selOb.cliente?selOb.cliente:f.prov});}} placeholder="Seleccionar obra"/></Fl>{ob&&<div style={{background:"rgba(201,149,107,.08)",border:"1px solid rgba(201,149,107,.15)",borderRadius:10,padding:12,marginBottom:12,marginTop:8}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold}}>{$(ob.cotizado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green}}>{$(pagado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:ob.cotizado-pagado>0?T.yellow:T.green}}>{$(ob.cotizado-pagado)}</div></div></div>{sugerido>0&&<div><div style={{fontSize:10,color:T.gold,fontWeight:700,marginBottom:4}}>Siguiente pago: {etapa}</div><div style={{display:"flex",gap:6}}>{[{l:etapa,v:sugerido},{l:"Total restante",v:ob.cotizado-pagado}].filter((x,i,a)=>i===0||x.v!==a[0].v).map(x=><button key={x.l} onClick={()=>sf({...f,ing:String(x.v),desc:x.l+" - "+ob.nombre,prov:ob.cliente||f.prov})} style={{flex:1,padding:"8px 6px",borderRadius:8,border:"1px solid "+T.gold+"33",background:Number(f.ing)===x.v?T.gold+"22":"transparent",color:Number(f.ing)===x.v?T.gold:T.muted,fontSize:11,fontWeight:700,cursor:"pointer"}}>{x.l}: {$(x.v)}</button>)}</div></div>}</div>}<Fl l="Recibido de"><input list="ing-cli-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Nombre del cliente"/><datalist id="ing-cli-list">{(clis||[]).map(c=><option key={c.id} value={c.nombre}/>)}</datalist></Fl><Fl l="Concepto"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})} placeholder="Ej: Anticipo 60%"/></Fl><Fl l="Monto"><input type="number" style={{...sI,fontSize:20,fontWeight:800,textAlign:"center"}} value={f.ing} onChange={e=>sf({...f,ing:e.target.value})} placeholder="$0"/></Fl><button style={{...sB,background:T.green,opacity:Number(f.ing)>0?1:.5}} onClick={()=>{const m=Number(f.ing);if(m>0){const desc=f.desc||f.prov||("Ingreso "+f.obra);onSave({...f,desc,ing:m,egr:0});}}}>💰 Registrar + Generar Recibo</button></div>;}
+function EgrForm({obras,provs,onSave,onNewProv}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});const exists=provs.some(p=>p.nombre.toLowerCase()===f.prov.toLowerCase());return <div><Fl l="Proveedor"><input list="prov-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="prov-list">{provs.map(p=> <option key={p.id} value={p.nombre}/>)}</datalist>{f.prov&&!exists&&<div style={{fontSize:10,color:T.orange,marginTop:3}}>⚡ Nuevo proveedor — se creará automáticamente</div>}</Fl><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})}/></Fl><Fl l="Obra"><ObrasSelect value={f.obra} obras={obras} allowGeneral onChange={e=>sf({...f,obra:e.target.value})} placeholder="Seleccionar obra"/></Fl><button style={{...sB,background:T.red,color:"#fff",marginTop:12}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0){if(f.prov&&!exists&&onNewProv)onNewProv(f.prov);onSave({...f,egr:m,ing:0});}}}>Registrar Egreso</button></div>;}
 const getApiKey=()=>localStorage.getItem('ev_apikey')||"";
 const callAI=async(messages,max_tokens=1000,system)=>{const key=getApiKey();if(!key)throw new Error("NO_KEY");const body={model:"claude-sonnet-4-20250514",max_tokens,messages};if(system)body.system=system;const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify(body)});if(!r.ok){const t=await r.text().catch(()=>"");throw new Error("API "+r.status+": "+t.slice(0,200));}return r.json();};
-function CajaForm({onSave,users,obras}){const[f,sf]=useState({fecha:td(),concepto:"",monto:"",resp:"Taller",obra:"",ticket:""});const[scanning,setScanning]=useState(false);const scanTicket=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});sf(prev=>({...prev,ticket:"data:"+(file.type||"image/jpeg")+";base64,"+b64}));const data=await callAI([{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Este es un ticket/recibo de compra. Extrae: concepto (qué se compró, resumido), monto total. Responde SOLO JSON sin markdown: {"concepto":"x","monto":0}'}]}],500);const text=data.content?.map(i=>i.text||"").join("")||"{}";const info=JSON.parse(text.replace(/```json|```/g,"").trim());if(info.concepto)sf(prev=>({...prev,concepto:info.concepto,monto:String(info.monto||"")}));}catch(e){if(e.message==="NO_KEY")alert("Configura tu API Key en ⚙️ Más → API Key Claude");else console.warn("Scan error:",e);}setScanning(false);};return <div><div style={{marginBottom:12}}><label style={{display:"block",padding:16,border:"2px dashed "+(scanning?T.blue:f.ticket?T.green:T.border),borderRadius:10,textAlign:"center",cursor:scanning?"wait":"pointer",background:scanning?"#0a1a33":f.ticket?"#0a1a0a":"#111"}}><input type="file" accept="image/*,.pdf,application/pdf" style={{display:"none"}} onChange={async e=>{const raw=e.target.files[0];if(!raw)return;try{const f=await compressImage(raw);scanTicket(f);}catch(err){alert(err.message);}}}/>{scanning?<div style={{color:T.blue,fontWeight:700}}>🔄 Leyendo ticket...</div>:f.ticket?<div><img src={f.ticket} style={{maxHeight:120,borderRadius:8,marginBottom:6}} alt=""/><div style={{fontSize:10,color:T.green,fontWeight:700}}>✅ Ticket cargado</div></div>:<div><div style={{fontSize:24}}>🧾</div><div style={{color:T.gold,fontWeight:700,fontSize:12}}>Escanear Ticket</div><div style={{fontSize:10,color:T.muted}}>📷 Cámara · 🖼️ Galería · 📄 PDF</div></div>}</label></div><Fl l="Concepto"><input style={sI} value={f.concepto} onChange={e=>sf({...f,concepto:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Responsable"><select style={sI} value={f.resp} onChange={e=>sf({...f,resp:e.target.value})}>{users.map(u=> <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></Fl><Fl l="Obra"><select style={sI} value={f.obra} onChange={e=>sf({...f,obra:e.target.value})}><option value="">Seleccionar obra</option>{(obras||[]).map(o=> <option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General (sin obra)</option></select></Fl><button style={sB} onClick={()=>{if(f.concepto&&Number(f.monto)>0&&f.obra)onSave({...f,monto:Number(f.monto)});else if(!f.obra)alert("Selecciona una obra");}}>Guardar</button></div>;}
+function CajaForm({onSave,users,obras}){const[f,sf]=useState({fecha:td(),concepto:"",monto:"",resp:"Taller",obra:"",ticket:""});const[scanning,setScanning]=useState(false);const scanTicket=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});sf(prev=>({...prev,ticket:"data:"+(file.type||"image/jpeg")+";base64,"+b64}));const data=await callAI([{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Este es un ticket/recibo de compra. Extrae: concepto (qué se compró, resumido), monto total. Responde SOLO JSON sin markdown: {"concepto":"x","monto":0}'}]}],500);const text=data.content?.map(i=>i.text||"").join("")||"{}";const info=JSON.parse(text.replace(/```json|```/g,"").trim());if(info.concepto)sf(prev=>({...prev,concepto:info.concepto,monto:String(info.monto||"")}));}catch(e){if(e.message==="NO_KEY")alert("Configura tu API Key en ⚙️ Más → API Key Claude");else console.warn("Scan error:",e);}setScanning(false);};return <div><div style={{marginBottom:12}}><label style={{display:"block",padding:16,border:"2px dashed "+(scanning?T.blue:f.ticket?T.green:T.border),borderRadius:10,textAlign:"center",cursor:scanning?"wait":"pointer",background:scanning?"#0a1a33":f.ticket?"#0a1a0a":"#111"}}><input type="file" accept="image/*,.pdf,application/pdf" style={{display:"none"}} onChange={async e=>{const raw=e.target.files[0];if(!raw)return;try{const f=await compressImage(raw);scanTicket(f);}catch(err){alert(err.message);}}}/>{scanning?<div style={{color:T.blue,fontWeight:700}}>🔄 Leyendo ticket...</div>:f.ticket?<div><img src={f.ticket} style={{maxHeight:120,borderRadius:8,marginBottom:6}} alt=""/><div style={{fontSize:10,color:T.green,fontWeight:700}}>✅ Ticket cargado</div></div>:<div><div style={{fontSize:24}}>🧾</div><div style={{color:T.gold,fontWeight:700,fontSize:12}}>Escanear Ticket</div><div style={{fontSize:10,color:T.muted}}>📷 Cámara · 🖼️ Galería · 📄 PDF</div></div>}</label></div><Fl l="Concepto"><input style={sI} value={f.concepto} onChange={e=>sf({...f,concepto:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Responsable"><select style={sI} value={f.resp} onChange={e=>sf({...f,resp:e.target.value})}>{users.map(u=> <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></Fl><Fl l="Obra"><ObrasSelect value={f.obra} obras={obras||[]} allowGeneral onChange={e=>sf({...f,obra:e.target.value})} placeholder="Seleccionar obra"/></Fl><button style={{...sB,marginTop:12}} onClick={()=>{if(f.concepto&&Number(f.monto)>0&&f.obra)onSave({...f,monto:Number(f.monto)});else if(!f.obra)alert("Selecciona una obra");}}>Guardar</button></div>;}
 function ExtraForm({onSave}){const[f,sf]=useState({desc:"",monto:""});return <div><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><button style={{...sB,background:T.orange}} onClick={()=>{const m=Number(f.monto);if(f.desc&&m>0)onSave({desc:f.desc,monto:m});}}>Enviar</button></div>;}
 function ClienteForm({onSave}){const[f,sf]=useState({nombre:"",tel:"",email:"",dir:""});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Teléfono"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><Fl l="Email"><input style={sI} value={f.email} onChange={e=>sf({...f,email:e.target.value})}/></Fl></div><Fl l="Dirección"><input style={sI} value={f.dir} onChange={e=>sf({...f,dir:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave(f)}>Guardar</button></div>;}
 function DocForm({onSave}){const[f,sf]=useState({nombre:"",tipo:"plano",ext:"PDF"});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Tipo"><select style={sI} value={f.tipo} onChange={e=>sf({...f,tipo:e.target.value})}><option value="plano">Plano</option><option value="render">Render</option><option value="contrato">Contrato</option><option value="avance">Avance</option></select></Fl><button style={sB} onClick={()=>f.nombre&&onSave(f)}>Subir</button></div>;}
@@ -298,6 +366,75 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
+function ObrasSimilaresView({obras,movs,caja,onFusionar}){
+  // Incluir obras "reales" + obras fantasmas (nombres encontrados en movs/caja sin match en obras[])
+  const sameObra3=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
+  const todosNombres=new Map();
+  obras.forEach(o=>todosNombres.set(normSearch(o.nombre),{id:o.id,nombre:o.nombre,cotizado:o.cotizado||0,cliente:o.cliente||"",fase:o.fase,isFantasma:false}));
+  movs.forEach(m=>{if(m.obra){const k=normSearch(m.obra);if(!todosNombres.has(k))todosNombres.set(k,{id:"F-"+k,nombre:m.obra,cotizado:0,cliente:"",isFantasma:true});}});
+  caja.forEach(c=>{if(c.obra){const k=normSearch(c.obra);if(!todosNombres.has(k))todosNombres.set(k,{id:"F-"+k,nombre:c.obra,cotizado:0,cliente:"",isFantasma:true});}});
+  const todasObras=[...todosNombres.values()];
+  // Enriquecer con stats de movs
+  todasObras.forEach(o=>{
+    o.ing=movs.filter(m=>m.ing>0&&sameObra3(m.obra,o.nombre)).reduce((s,m)=>s+m.ing,0);
+    o.egr=movs.filter(m=>m.egr>0&&sameObra3(m.obra,o.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>sameObra3(c.obra,o.nombre)&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
+    o.nMovs=movs.filter(m=>sameObra3(m.obra,o.nombre)).length+caja.filter(c=>sameObra3(c.obra,o.nombre)).length;
+  });
+  const grupos=agruparObrasSimilares(todasObras);
+  const [seleccionPorGrupo,setSeleccionPorGrupo]=useState({}); // {grupoIdx: {destinoId: id, fusionar: Set<id>}}
+  const toggleEnGrupo=(gIdx,id)=>{
+    setSeleccionPorGrupo(prev=>{
+      const cur=prev[gIdx]||{destinoId:null,fusionar:new Set()};
+      const nueva=new Set(cur.fusionar);
+      if(nueva.has(id))nueva.delete(id);else nueva.add(id);
+      return {...prev,[gIdx]:{...cur,fusionar:nueva}};
+    });
+  };
+  const setDestino=(gIdx,id)=>setSeleccionPorGrupo(prev=>({...prev,[gIdx]:{...(prev[gIdx]||{fusionar:new Set()}),destinoId:id}}));
+  if(grupos.length===0)return <div style={{textAlign:"center",padding:30,color:T.muted}}>✅ No se detectaron obras similares — todo limpio!</div>;
+  return <div>
+    <div style={{background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"33",borderRadius:8,padding:12,marginBottom:14,fontSize:11,color:T.muted,lineHeight:1.5}}>
+      <div style={{color:T.yellow,fontWeight:700,marginBottom:4}}>🔍 Detecté {grupos.length} grupo{grupos.length!==1?"s":""} de obras parecidas</div>
+      Para cada grupo: marca las obras que son <b>la misma</b> con el checkbox, elige cuál es la "principal" (donde quedará todo), y dale "🔗 Fusionar grupo".
+    </div>
+    {grupos.map((grupo,gIdx)=>{
+      const sel=seleccionPorGrupo[gIdx]||{destinoId:null,fusionar:new Set()};
+      const grupoSorted=[...grupo].sort((a,b)=>(b.cotizado||0)-(a.cotizado||0));
+      const numSeleccionadas=sel.fusionar.size;
+      const totIng=grupo.reduce((s,o)=>s+o.ing,0);
+      const totEgr=grupo.reduce((s,o)=>s+o.egr,0);
+      const tokensComunes=obraTokens(grupo[0].nombre).filter(t=>grupo.every(o=>obraTokens(o.nombre).includes(t)));
+      return <div key={gIdx} style={{background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderRadius:10,padding:12,marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+          <div>
+            <div style={{fontSize:11,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:.5}}>📦 Grupo "{tokensComunes.join(" · ").toUpperCase()||grupo[0].nombre}"</div>
+            <div style={{fontSize:10,color:T.muted,marginTop:2}}>{grupo.length} obras · Cobrado total {$(totIng)} · Gastado total {$(totEgr)}</div>
+          </div>
+        </div>
+        <div style={{display:"grid",gap:4,marginBottom:8}}>
+          {grupoSorted.map(o=><div key={o.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:sel.destinoId===o.id?"rgba(76,175,80,.08)":sel.fusionar.has(o.id)?"rgba(171,71,188,.06)":"rgba(255,255,255,.02)",border:"1px solid "+(sel.destinoId===o.id?T.green+"55":sel.fusionar.has(o.id)?T.purple+"33":T.border),borderRadius:6}}>
+            <input type="checkbox" checked={sel.fusionar.has(o.id)} onChange={()=>toggleEnGrupo(gIdx,o.id)} disabled={sel.destinoId===o.id} style={{cursor:"pointer",accentColor:T.purple}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.nombre} {o.isFantasma&&<span style={{fontSize:9,color:T.purple,marginLeft:4}}>👻 fantasma</span>} {sel.destinoId===o.id&&<span style={{fontSize:9,color:T.green,marginLeft:4,fontWeight:800}}>✓ PRINCIPAL</span>}</div>
+              <div style={{fontSize:9,color:T.muted,marginTop:1}}>{o.cliente||"Sin cliente"} {o.cotizado>0&&<>· Cotizado {$(o.cotizado)}</>} · {o.nMovs} movs · {$(o.ing)} cob / {$(o.egr)} gas</div>
+            </div>
+            <button onClick={()=>setDestino(gIdx,sel.destinoId===o.id?null:o.id)} disabled={o.isFantasma} style={{background:sel.destinoId===o.id?T.green+"33":"rgba(76,175,80,.08)",border:"1px solid "+T.green+"33",color:T.green,cursor:o.isFantasma?"not-allowed":"pointer",fontSize:10,padding:"5px 10px",borderRadius:5,fontWeight:700,opacity:o.isFantasma?.3:1,whiteSpace:"nowrap"}} title={o.isFantasma?"Una obra fantasma no puede ser PRINCIPAL":"Marcar como obra principal"}>{sel.destinoId===o.id?"✓ Principal":"⭐ Principal"}</button>
+          </div>)}
+        </div>
+        <button onClick={()=>{
+          if(!sel.destinoId){alert("Selecciona la obra PRINCIPAL (estrella)");return;}
+          if(numSeleccionadas===0){alert("Marca al menos una obra con ✓ para fusionar a la principal");return;}
+          const destino=grupo.find(o=>o.id===sel.destinoId);
+          const fusionarObras=grupo.filter(o=>sel.fusionar.has(o.id)&&o.id!==sel.destinoId);
+          if(fusionarObras.length===0){alert("No marcaste ninguna obra distinta a la principal");return;}
+          if(!confirm("¿Fusionar "+fusionarObras.length+" obra(s) en '"+destino.nombre+"'?\n\nSe reasignan TODOS los movimientos y las obras secundarias se eliminan.\n\nEsta acción NO se puede deshacer."))return;
+          onFusionar(destino,fusionarObras);
+          setSeleccionPorGrupo(prev=>{const nv={...prev};delete nv[gIdx];return nv;});
+        }} disabled={!sel.destinoId||numSeleccionadas===0} style={{padding:"8px 14px",borderRadius:6,border:"none",background:sel.destinoId&&numSeleccionadas>0?T.purple:T.dim,color:"#fff",fontWeight:700,fontSize:12,cursor:sel.destinoId&&numSeleccionadas>0?"pointer":"not-allowed",width:"100%"}}>🔗 Fusionar {numSeleccionadas} obra{numSeleccionadas!==1?"s":""} en "{(grupo.find(o=>o.id===sel.destinoId)||{}).nombre||"...selecciona principal"}"</button>
+      </div>;
+    })}
+  </div>;
+}
 function DelObraForm({obra,obras,movs,caja,onDone}){
   const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
   const movsObra=movs.filter(m=>sameObra(m.obra,obra.nombre));
@@ -560,6 +697,49 @@ export default function App(){
   const[loading,setLoading]=useState(true);
   const[syncStatus,setSyncStatus]=useState("");
   const[saveStatus,setSaveStatus]=useState({state:"idle",msg:""});
+  const[searchOpen,setSearchOpen]=useState(false);
+  const[searchQ,setSearchQ]=useState("");
+  // Auto-marcar como visto cuando se entra a una sección (delay 2s)
+  useEffect(()=>{
+    if(!user)return;
+    const t=setTimeout(()=>{
+      const map={finanzas:"movs",cajachica:"caja",cotizaciones:"cotizaciones",obras:"obras"};
+      if(map[sec])setLastSeen(prev=>{const n={...prev,[map[sec]]:Date.now()};try{localStorage.setItem("ev_lastSeen",JSON.stringify(n));}catch{}return n;});
+    },2000);
+    return ()=>clearTimeout(t);
+  },[sec,user]);
+  // Marca de "último visto" por sección — items con fecha > este timestamp son "nuevos"
+  const[lastSeen,setLastSeen]=useState(()=>{try{return JSON.parse(localStorage.getItem("ev_lastSeen")||"{}");}catch{return {};}});
+  const marcarVisto=(seccion)=>{const next={...lastSeen,[seccion]:Date.now()};setLastSeen(next);try{localStorage.setItem("ev_lastSeen",JSON.stringify(next));}catch{}};
+  const esNuevo=(seccion,ts)=>!lastSeen[seccion]||(ts||0)>lastSeen[seccion];
+  // Tour de bienvenida primera vez
+  const[tourStep,setTourStep]=useState(()=>{try{return localStorage.getItem("ev_tourDone")?-1:0;}catch{return -1;}});
+  const tourSteps=[
+    {icon:"👋",titulo:"¡Bienvenido a Ensamble Villarreal!",texto:"Te muestro las 4 pantallas más importantes en 60 segundos. Puedes cerrar en cualquier momento."},
+    {icon:"🏠",titulo:"Inicio — tu dashboard",texto:"Aquí ves cuánto debe haber en caja, las obras activas, alertas y los movimientos del periodo. Es tu vista del día a día."},
+    {icon:"📝",titulo:"Cotizar y Cotizaciones",texto:"En Cotizar creas un presupuesto nuevo (con catálogo, escribiendo, escaneando o con IA). Las cotizaciones pendientes aparecen en Cotizaciones — desde ahí las autorizas y pasan a Obras."},
+    {icon:"🏗 ",titulo:"Obras",texto:"Cada obra autorizada tiene cliente, presupuesto, fases, avance, cobrado vs gastado. Click en una obra para ver detalle: ingresos, egresos, fotos, bitácora."},
+    {icon:"💰",titulo:"Finanzas",texto:"Todos tus ingresos, egresos y caja chica. Ahí registras movimientos, ves el desfase, fusionas obras duplicadas y exportas a Excel."},
+    {icon:"🔍",titulo:"Tips útiles",texto:"Usa Ctrl+K para buscar cualquier cosa al instante. El botón flotante naranja (+) te deja registrar un egreso rápido. La papelera 🗑 guarda 30 días lo que borres por si te equivocas."}
+  ];
+  const cerrarTour=()=>{try{localStorage.setItem("ev_tourDone","1");}catch{}setTourStep(-1);};
+  // Highlight de fila recién creada (animación verde 3s)
+  const[highlightedIds,setHighlightedIds]=useState(new Set());
+  const highlightNew=id=>{setHighlightedIds(prev=>{const s=new Set(prev);s.add(id);return s;});setTimeout(()=>{setHighlightedIds(prev=>{const s=new Set(prev);s.delete(id);return s;});},3500);};
+  // Auto-ocultar nav inferior al scroll hacia abajo
+  const[navVisible,setNavVisible]=useState(true);
+  const _lastScroll=useRef(0);
+  useEffect(()=>{
+    const h=()=>{const y=window.scrollY;const diff=y-_lastScroll.current;if(Math.abs(diff)<10)return;if(diff>0&&y>100)setNavVisible(false);else setNavVisible(true);_lastScroll.current=y;};
+    window.addEventListener("scroll",h,{passive:true});
+    return ()=>window.removeEventListener("scroll",h);
+  },[]);
+  // Cmd+K / Ctrl+K para abrir búsqueda global
+  useEffect(()=>{
+    const h=e=>{if((e.ctrlKey||e.metaKey)&&e.key==="k"){e.preventDefault();setSearchOpen(true);}if(e.key==="Escape")setSearchOpen(false);};
+    window.addEventListener("keydown",h);
+    return ()=>window.removeEventListener("keydown",h);
+  },[]);
   // Suscribirse a eventos de guardado para mostrar indicador visual
   useEffect(()=>{
     const fn=({status,key,err})=>{
@@ -586,9 +766,10 @@ export default function App(){
   const[nominas,setNominasR]=useState([]);
   const[documentos,setDocumentosR]=useState([]);
   const[preciosUnit,setPreciosUnitR]=useState(PRECIOS_INIT);
+  const[papelera,setPapeleraR]=useState([]);
   useEffect(()=>{(async()=>{
     if(CLOUD)setSyncStatus("Conectando a la nube...");
-    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[]),preciosUnit:await DB.get('preciosUnit',PRECIOS_INIT)};
+    const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[]),preciosUnit:await DB.get('preciosUnit',PRECIOS_INIT),papelera:await DB.get('papelera',[])};
     if(CLOUD)setSyncStatus(_syncOk?"☁️ Nube sincronizada":"⚠️ Usando datos locales");
     // Datos ya viven en Supabase — no se tocan al actualizar el código
     if(!d.nominas||d.nominas.length===0)d.nominas=[{id:"N01",nombre:"Nómina Carpintería",monto:15000,frecuencia:"semanal",tipo:"Nómina"},{id:"N02",nombre:"Renta Carpintería",monto:11000,frecuencia:"mensual",tipo:"Renta"},{id:"N05",nombre:"IMSS",monto:16563,frecuencia:"mensual",tipo:"IMSS"},{id:"N06",nombre:"Luz Carpintería",monto:2500,frecuencia:"mensual",tipo:"Servicios"},{id:"N07",nombre:"Caja Chica Carpintería",monto:5000,frecuencia:"semanal",tipo:"Caja chica"},{id:"N08",nombre:"Francisco — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N09",nombre:"Erik — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N10",nombre:"Héctor — Carpintero",monto:3500,frecuencia:"semanal",tipo:"Nómina"},{id:"N11",nombre:"Barnizador",monto:3500,frecuencia:"semanal",tipo:"Nómina"}];
@@ -596,6 +777,10 @@ export default function App(){
     // Fix duplicate obra IDs
     const seenIds=new Set();d.obras=d.obras.map(o=>{if(seenIds.has(o.id)){return{...o,id:"OB"+Date.now()+Math.random().toString(36).slice(2,6)};}seenIds.add(o.id);return o;});
     setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setCatalogoR(d.catalogo);if(d.nominas)setNominasR(d.nominas);if(d.documentos)setDocumentosR(d.documentos);if(d.preciosUnit)setPreciosUnitR(d.preciosUnit);
+    // Auto-purge papelera >30 días
+    const now=Date.now();const pap=(d.papelera||[]).filter(p=>now-(p.ts||0)<30*24*60*60*1000);
+    setPapeleraR(pap);
+    if(pap.length<(d.papelera||[]).length)DB.set('papelera',pap);
     // Save fixed obras back if duplicates were found
     if(seenIds.size<d.obras.length)DB.set('obras',d.obras);
     setLoading(false);})();},[]);
@@ -639,7 +824,21 @@ export default function App(){
     if(CLOUD){_notifySave('saving',key);const ok=await DB.push(key,n);if(!ok){_notifySave('error',key);}}
     return n;
   };
-  const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos"),setPreciosUnit=wrap(preciosUnit,setPreciosUnitR,"preciosUnit");
+  const setObras=wrap(obras,setObrasR,"obras"),setMovs=wrap(movs,setMovsR,"movs"),setCaja=wrap(caja,setCajaR,"caja"),setAuts=wrap(auts,setAutsR,"auts"),setRecibos=wrap(recibos,setRecR,"rec"),setInv=wrap(inv,setInvR,"inv"),setClis=wrap(clis,setClisR,"clis"),setCont=wrap(cont,setContR,"cont"),setProvs=wrap(provs,setProvsR,"provs"),setUsers=wrap(users,setUsersR,"users"),setCatalogo=wrap(catalogo,setCatalogoR,"catalogo"),setNominas=wrap(nominas,setNominasR,"nominas"),setDocumentos=wrap(documentos,setDocumentosR,"documentos"),setPreciosUnit=wrap(preciosUnit,setPreciosUnitR,"preciosUnit"),setPapelera=wrap(papelera,setPapeleraR,"papelera");
+  // Helper: enviar registro borrado a papelera (con metadata para restaurar)
+  const enviarAPapelera=(tipo,item,descripcion)=>{
+    setPapelera(prev=>[...prev,{id:"PAP-"+Date.now()+Math.random().toString(36).slice(2,5),tipo,item,descripcion:descripcion||item.nombre||item.desc||item.concepto||"(sin descripción)",ts:Date.now(),user:user?.nombre||"Sistema"}]);
+  };
+  // Helper: restaurar de papelera
+  const restaurarDePapelera=(papEntry)=>{
+    const {tipo,item}=papEntry;
+    if(tipo==="obra")setObras(prev=>[...prev,item]);
+    else if(tipo==="mov")setMovs(prev=>[...prev,item]);
+    else if(tipo==="caja")setCaja(prev=>[...prev,item]);
+    else if(tipo==="recibo")setRecibos(prev=>[...prev,item]);
+    setPapelera(prev=>prev.filter(p=>p.id!==papEntry.id));
+    show("✓ Restaurado a "+tipo);
+  };
   const cats=[...new Set(catalogo.map(c=>c.cat))];
   const[toast,setToast]=useState(null);
   const[cliTab,setCliTab]=useState("resumen");
@@ -720,6 +919,29 @@ export default function App(){
     const data=await callAI([{role:"user",content}],4000);const text=data.content?.map(i=>i.text||"").join("")||"[]";const clean=text.replace(/```json|```/g,"").trim();const items=JSON.parse(clean);if(Array.isArray(items)&&items.length>0){setCotP(prev=>[...prev,...items.map((it,i)=>({id:"IA-"+Date.now()+"-"+i,cat:"IA Experta",desc:it.desc||"Concepto",precio:Number(it.precio)||0,cant:Number(it.cant)||1,unidad:it.unidad||"",precioUnit:Number(it.precioUnit)||0}))]);show("🤖 "+items.length+" partidas generadas por IA");}else show("No se detectaron elementos de carpintería");}catch(e){if(e.message==="NO_KEY"){show("⚠️ Configura API Key");om("apikey");}else{show("Error: "+e.message.slice(0,80));console.error("scanPlano:",e);}}setScanning(false);};
   const[subTab,setSubTab]=useState("");
   const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");const[fDesde,setFDesde]=useState("");const[fHasta,setFHasta]=useState("");const[selMovs,setSelMovs]=useState([]);const[delConfText,setDelConfText]=useState("");const[mostrarHerramientas,setMostrarHerramientas]=useState(false);
+  // Estados de ordenamiento Excel-like para cada tabla {col,dir} — dir = 1 asc, -1 desc
+  const [sortFin,setSortFin]=useState({col:"fecha",dir:-1});
+  const [sortCaja,setSortCaja]=useState({col:"fecha",dir:-1});
+  const [sortCot,setSortCot]=useState({col:"id",dir:-1});
+  const [sortObr,setSortObr]=useState({col:"cotizado",dir:-1});
+  // Helper de orden genérico: invierte si misma col, set ascendente si nueva
+  const toggleSort=(setter,current,col)=>setter({col,dir:current.col===col?-current.dir:1});
+  // Helper para comparar valores cualquiera (strings, numbers, dates, undefined)
+  const cmpVal=(a,b,dir)=>{
+    if(a==null&&b==null)return 0;if(a==null)return 1;if(b==null)return -1;
+    if(typeof a==="number"&&typeof b==="number")return (a-b)*dir;
+    return String(a).localeCompare(String(b),"es")*dir;
+  };
+  // Component visual: header clickeable con flecha asc/desc
+  const SortTh=({col,label,sort,setSort,style})=>{
+    const active=sort.col===col;
+    return <th onClick={()=>toggleSort(setSort,sort,col)} style={{cursor:"pointer",userSelect:"none",...style}} title={"Ordenar por "+label}>
+      <span style={{display:"inline-flex",alignItems:"center",gap:3}}>
+        {label}
+        <span style={{fontSize:9,color:active?T.gold:T.dim,marginLeft:2}}>{active?(sort.dir>0?"▲":"▼"):"⇅"}</span>
+      </span>
+    </th>;
+  };
   // === Dashboard state ===
   const[dashPer,setDashPer]=useState("year");
   const[alertasOpen,setAlertasOpen]=useState(true);
@@ -766,7 +988,7 @@ export default function App(){
   const finFantasmas=finObras.filter(o=>o.isFantasma);
   const allNav=[];
   if(can("dash"))allNav.push({key:"dash",icon:"🏠",label:"Inicio",grp:"neg"});
-  if(can("cot"))allNav.push({key:"cot",icon:"📝",label:"Cotizar",grp:"neg"});
+  // Nota: "Cotizar" se accede ahora desde el botón "+ Nueva" en Cotizaciones
   if(can("cot")||can("obras")||can("obras_ver"))allNav.push({key:"cotizaciones",icon:"📋",label:"Cotizaciones",grp:"neg"});
   if(can("obras")||can("obras_ver"))allNav.push({key:"obras",icon:"🏗️",label:"Obras",grp:"neg"});
   if(can("money")||can("caja")||can("recibos")||can("anal"))allNav.push({key:"finanzas",icon:"💰",label:"Finanzas",grp:"fin"});
@@ -778,6 +1000,7 @@ export default function App(){
   allNav.push({key:"docs_sec",icon:"📁",label:"Documentos",grp:"sys"});
   allNav.push({key:"apikey",icon:"🔑",label:"API Key IA",grp:"sys"});
   if(can("usuarios"))allNav.push({key:"usuarios",icon:"👥",label:"Usuarios",grp:"sys"});
+  allNav.push({key:"papelera",icon:"🗑",label:"Papelera"+(papelera.length>0?" ("+papelera.length+")":""),grp:"sys"});
   const NAV_GRPS=[{id:"neg",label:"NEGOCIO"},{id:"fin",label:"FINANZAS"},{id:"tal",label:"TALLER"},{id:"sys",label:"SISTEMA"}];
   const mobT=allNav.slice(0,4);if(allNav.length>4)mobT.push({key:"_more",icon:"☰",label:"Más"});
 
@@ -1093,7 +1316,19 @@ export default function App(){
 
     {sec==="cot"&&<div style={{maxWidth:700}}>
       {editObraId&&<div style={{background:"#2a2000",border:"1px solid #FFD54F44",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{color:T.yellow,fontWeight:700}}>✏️ Editando: {cotEmp||cotNom}</span><button onClick={()=>{setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");}} style={{background:"#333",border:"none",color:"#999",borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Cancelar</button></div>}
-      <Card><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}><div><input list="cot-cli-list" style={sI} placeholder="Cliente" value={cotNom} onChange={e=>setCotNom(e.target.value)}/><datalist id="cot-cli-list">{clis.map(c=><option key={c.id} value={c.nombre}/>)}</datalist></div><input style={sI} placeholder="Obra" value={cotEmp} onChange={e=>setCotEmp(e.target.value)}/></div></Card>
+      <Card><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}><div><input list="cot-cli-list" style={sI} placeholder="Cliente" value={cotNom} onChange={e=>setCotNom(e.target.value)}/><datalist id="cot-cli-list">{clis.map(c=><option key={c.id} value={c.nombre}/>)}</datalist></div><input style={sI} placeholder="Obra" value={cotEmp} onChange={e=>setCotEmp(e.target.value)}/></div>
+        {/* Warning de obras similares en tiempo real */}
+        {!editObraId&&cotEmp.length>=3&&(()=>{const sim=findSimilarObras(cotEmp,obras,editObraId);if(sim.length===0)return null;return <div style={{marginTop:8,padding:10,background:"rgba(255,213,79,.08)",border:"1px solid "+T.yellow+"44",borderRadius:8}}>
+          <div style={{fontSize:11,color:T.yellow,fontWeight:700,marginBottom:6}}>⚠️ Ya existe{sim.length>1?"n":""} {sim.length} obra{sim.length>1?"s":""} parecida{sim.length>1?"s":""}. ¿Es la misma?</div>
+          <div style={{display:"grid",gap:4}}>{sim.slice(0,4).map(o=><div key={o.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"6px 8px",background:"rgba(255,255,255,.02)",borderRadius:6}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{o.nombre}</div>
+              <div style={{fontSize:10,color:T.muted}}>{o.cliente||"sin cliente"} · {$(o.cotizado||0)} · {FASES[o.fase]||o.fase}</div>
+            </div>
+            <button onClick={()=>{setCotP(o.partidas||[]);setCotNom(o.cliente||"");setCotEmp(o.nombre||"");setConIva(o.conIva!==false);setEditObraId(o.id);show("✏️ Editando "+o.nombre);}} style={{padding:"5px 10px",borderRadius:5,border:"1px solid "+T.gold+"44",background:"rgba(201,149,107,.1)",color:T.gold,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>✏️ Usar esta</button>
+          </div>)}</div>
+        </div>;})()}
+      </Card>
       <div style={{display:"flex",gap:4,marginBottom:8}}>{[{k:"catalogo",i:"📦",l:"Catálogo"},{k:"libre",i:"✏️",l:"Escribir"},{k:"foto",i:"📷",l:"Escanear"},{k:"ia",i:"🤖",l:"IA Experta"}].map(t=> <button key={t.k} onClick={()=>setCotTab(t.k)} style={{flex:1,padding:"10px 6px",borderRadius:8,border:cotTab===t.k?"2px solid "+T.gold:"1px solid "+T.border,background:cotTab===t.k?"#1a1510":T.card,color:cotTab===t.k?T.gold:T.muted,cursor:"pointer",fontSize:11,fontWeight:700}}><div style={{fontSize:16}}>{t.i}</div>{t.l}</button>)}</div>
       {cotTab==="catalogo"&&<button onClick={()=>om("cat")} style={{...sB,background:"#222",color:T.gold,border:"1px solid "+T.border,marginTop:0,marginBottom:8}}>Abrir catálogo</button>}
       {cotTab==="libre"&&<Card><CustomItemForm existingCats={[...new Set([...ALL_CATS,...cats])]} onAdd={item=>{setCotP(prev=>[...prev,item]);setCatalogo(prev=>[...prev,{id:item.id,cat:item.cat,desc:item.desc,precio:item.precio}]);show("Agregado al catálogo y cotización");}}/></Card>}
@@ -1133,16 +1368,16 @@ export default function App(){
         <div style={{fontSize:18,fontWeight:800}}>Cotizaciones <span style={{color:T.muted,fontWeight:500,fontSize:13}}>· {obras.filter(o=>o.fase==="cotizacion").length}</span></div>
         <button onClick={()=>go("cot")} style={{padding:"8px 16px",borderRadius:8,border:"none",background:T.gold,color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Nueva Cotización</button>
       </div>
-      {(()=>{const cots=obras.filter(o=>o.fase==="cotizacion").sort((a,b)=>(b.id||"").localeCompare(a.id||""));const totalCot=cots.reduce((s,o)=>s+(o.cotizado||0),0);return cots.length>0?<div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
+      {(()=>{const cots=obras.filter(o=>o.fase==="cotizacion").sort((a,b)=>cmpVal(a[sortCot.col],b[sortCot.col],sortCot.dir));const totalCot=cots.reduce((s,o)=>s+(o.cotizado||0),0);return cots.length>0?<div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?720:480}}>
             <thead>
               <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
                 <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:36}}>#</th>
-                <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}>Proyecto</th>
-                {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:160}}>Cliente</th>}
-                <th style={{padding:"8px 10px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Monto</th>
-                {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Creado por</th>}
+                <SortTh col="nombre" label="Proyecto" sort={sortCot} setSort={setSortCot} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}/>
+                {D&&<SortTh col="cliente" label="Cliente" sort={sortCot} setSort={setSortCot} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:160}}/>}
+                <SortTh col="cotizado" label="Monto" sort={sortCot} setSort={setSortCot} style={{padding:"8px 10px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
+                {D&&<SortTh col="creadoPor" label="Creado por" sort={sortCot} setSort={setSortCot} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>}
                 <th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",width:D?160:110}}>Acciones</th>
               </tr>
             </thead>
@@ -1176,7 +1411,8 @@ export default function App(){
                       show("📋 Duplicada");
                     }} style={{background:"rgba(171,71,188,.12)",border:"1px solid "+T.purple+"33",color:T.purple,cursor:"pointer",fontSize:11,padding:"4px 8px",borderRadius:5,fontWeight:700}} title="Duplicar">📋</button>
                     {user.rol==="admin"&&<button onClick={async()=>{
-                      if(!confirm("¿Eliminar "+o.nombre+"?\n\nEsta acción NO se puede deshacer."))return;
+                      if(!confirm("¿Eliminar "+o.nombre+"?\n\nIrá a la Papelera, puedes recuperarla por 30 días."))return;
+                      enviarAPapelera("obra",o);
                       const newObras=obras.filter(x=>x.id!==o.id);
                       setObras(newObras);
                       // Forzar escritura inmediata a nube + bloqueo del poll por 30s
@@ -1224,7 +1460,10 @@ export default function App(){
     {sec==="obras"&&!sub&&<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:18,fontWeight:800}}>Obras <span style={{color:T.muted,fontWeight:500,fontSize:13}}>· {obras.filter(o=>o.fase&&o.fase!=="cotizacion").length}</span></div>
-        {can("obras")&&<button onClick={()=>om("addOb")} style={{padding:"8px 16px",borderRadius:8,border:"none",background:T.gold,color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Nueva Obra</button>}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {(()=>{const gruposCount=agruparObrasSimilares([...obras,...[...new Set([...movs.map(m=>m.obra),...caja.map(c=>c.obra)])].filter(n=>n&&!obras.some(o=>normSearch(o.nombre)===normSearch(n))).map((n,i)=>({id:"F-"+i,nombre:n,cotizado:0,isFantasma:true}))]).length;return gruposCount>0?<button onClick={()=>om("obrasSimilares")} style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.purple+"55",background:"rgba(171,71,188,.08)",color:T.purple,fontWeight:700,fontSize:12,cursor:"pointer"}}>🔗 Detectar duplicadas <span style={{background:T.yellow+"33",color:T.yellow,padding:"1px 6px",borderRadius:6,fontSize:10,marginLeft:4}}>{gruposCount}</span></button>:null;})()}
+          {can("obras")&&<button onClick={()=>om("addOb")} style={{padding:"8px 16px",borderRadius:8,border:"none",background:T.gold,color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Nueva Obra</button>}
+        </div>
       </div>
       {(()=>{
         const obrasAut=obras.filter(o=>o.fase&&o.fase!=="cotizacion");
@@ -1250,20 +1489,20 @@ export default function App(){
                 <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
                   <th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:30}}>#</th>
                   <th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:24}}>●</th>
-                  <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}>Proyecto</th>
-                  {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:140}}>Cliente</th>}
-                  <th style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Cotizado</th>
-                  {D&&<th style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Cobrado</th>}
-                  {D&&<th style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Gastado</th>}
-                  <th style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Margen</th>
-                  <th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:120}}>Avance</th>
-                  {D&&<th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}>Entrega</th>}
+                  <SortTh col="nombre" label="Proyecto" sort={sortObr} setSort={setSortObr} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}/>
+                  {D&&<SortTh col="cliente" label="Cliente" sort={sortObr} setSort={setSortObr} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:140}}/>}
+                  <SortTh col="cotizado" label="Cotizado" sort={sortObr} setSort={setSortObr} style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>
+                  {D&&<SortTh col="cob" label="Cobrado" sort={sortObr} setSort={setSortObr} style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>}
+                  {D&&<SortTh col="gas" label="Gastado" sort={sortObr} setSort={setSortObr} style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>}
+                  <SortTh col="margen" label="Margen" sort={sortObr} setSort={setSortObr} style={{padding:"8px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>
+                  <SortTh col="avance" label="Avance" sort={sortObr} setSort={setSortObr} style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:120}}/>
+                  {D&&<SortTh col="entrega" label="Entrega" sort={sortObr} setSort={setSortObr} style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}/>}
                   <th style={{padding:"8px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",width:50}}></th>
                 </tr>
               </thead>
               <tbody>
                 {Object.entries(FASES).filter(([k])=>k!=="cotizacion").map(([k,label])=>{
-                  const list=enrich.filter(o=>o.fase===k).sort((a,b)=>(b.cotizado||0)-(a.cotizado||0));
+                  const list=enrich.filter(o=>o.fase===k).sort((a,b)=>cmpVal(a[sortObr.col],b[sortObr.col],sortObr.dir));
                   if(!list.length)return null;
                   const subCot=list.reduce((s,o)=>s+(o.cotizado||0),0);
                   const subCob=list.reduce((s,o)=>s+o.cob,0);
@@ -1502,25 +1741,25 @@ export default function App(){
               <thead>
                 <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
                   {user.rol==="admin"&&<th style={{padding:"10px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,borderRight:"1px solid #333",width:36}}><input type="checkbox" checked={finFilt.length>0&&selMovs.length===finFilt.length} onChange={e=>setSelMovs(e.target.checked?finFilt.map(m=>m.id):[])} style={{cursor:"pointer",width:16,height:16,accentColor:T.gold}} title="Seleccionar todos los visibles"/></th>}
-                  <th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}>#</th>
-                  <th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}>Fecha</th>
-                  <th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,borderRight:"1px solid #333"}}>Concepto</th>
-                  {D&&<th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}>Proveedor / Cliente</th>}
-                  {D&&<th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}>Obra</th>}
-                  <th style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}>Status</th>
-                  <th style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Ingreso</th>
-                  <th style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}>Egreso</th>
-                  {D&&<th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Usuario</th>}
+                  <th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:50}}>#</th>
+                  <SortTh col="fecha" label="Fecha" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}/>
+                  <SortTh col="desc" label="Concepto" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,borderRight:"1px solid #333"}}/>
+                  {D&&<SortTh col="prov" label="Proveedor / Cliente" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
+                  {D&&<SortTh col="obra" label="Obra" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
+                  <SortTh col="status" label="Status" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}/>
+                  <SortTh col="monto" label="Ingreso" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
+                  <SortTh col="monto" label="Egreso" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
+                  {D&&<SortTh col="user" label="Usuario" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>}
                   {user.rol==="admin"&&<th style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,width:70}}></th>}
                 </tr>
               </thead>
               <tbody>
                 {finFilt.length===0&&<tr><td colSpan={D?(user.rol==="admin"?10:9):(user.rol==="admin"?6:5)} style={{padding:30,textAlign:"center",color:T.dim}}>Sin resultados</td></tr>}
-                {finFilt.map((m,idx)=>{const isP=m.status==="pendiente"&&m.t==="caja";return <tr key={m.id}
+                {[...finFilt].sort((a,b)=>cmpVal(a[sortFin.col],b[sortFin.col],sortFin.dir)).map((m,idx)=>{const isP=m.status==="pendiente"&&m.t==="caja";const isHl=highlightedIds.has(m.id);return <tr key={m.id}
                   onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}}
-                  style={{background:isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a",cursor:m.ticket||m.rec?"pointer":"default",transition:"background .1s"}}
-                  onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.06)"}
-                  onMouseLeave={e=>e.currentTarget.style.background=isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent"}>
+                  style={{background:isHl?"rgba(76,175,80,.18)":isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a",cursor:m.ticket||m.rec?"pointer":"default",transition:"background .8s",boxShadow:isHl?"inset 4px 0 0 "+T.green:"none"}}
+                  onMouseEnter={e=>{if(!isHl)e.currentTarget.style.background="rgba(201,149,107,.06)";}}
+                  onMouseLeave={e=>{if(!isHl)e.currentTarget.style.background=isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent";}}>
                   {user.rol==="admin"&&<td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"center"}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selMovs.includes(m.id)} onChange={e=>{if(e.target.checked)setSelMovs([...selMovs,m.id]);else setSelMovs(selMovs.filter(x=>x!==m.id));}} style={{cursor:"pointer",width:16,height:16,accentColor:T.gold}}/></td>}
                   <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap"}}>{idx+1}</td>
                   <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.muted,whiteSpace:"nowrap",fontSize:11}}>{fd(m.fecha)}</td>
@@ -1545,7 +1784,7 @@ export default function App(){
                   {user.rol==="admin"&&<td style={{padding:"6px 8px",textAlign:"center"}}>
                     <div style={{display:"flex",gap:2,justifyContent:"center"}}>
                       <button onClick={e=>{e.stopPropagation();om("editMov",m);}} style={{background:"rgba(255,255,255,.06)",border:"none",color:T.yellow,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}}>✏️</button>
-                      <button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar?")){if(m.t==="caja"){setCaja(caja.filter(x=>x.id!==m.cajaId));}else{setMovs(movs.filter(x=>"m"+x.id!==m.id));}show("Eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}}>🗑</button>
+                      <button onClick={e=>{e.stopPropagation();if(confirm("¿Eliminar?\n\nIrá a la Papelera, puedes recuperarlo por 30 días.")){if(m.t==="caja"){const cajaItem=caja.find(x=>x.id===m.cajaId);if(cajaItem)enviarAPapelera("caja",cajaItem);setCaja(caja.filter(x=>x.id!==m.cajaId));}else{const movItem=movs.find(x=>"m"+x.id===m.id);if(movItem)enviarAPapelera("mov",movItem);setMovs(movs.filter(x=>"m"+x.id!==m.id));}show("🗑 A papelera");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}}>🗑</button>
                     </div>
                   </td>}
                 </tr>;})}
@@ -1595,17 +1834,17 @@ export default function App(){
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?720:480}}>
               <thead>
                 <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
-                  <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}>Fecha</th>
-                  <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}>Concepto</th>
-                  {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Resp</th>}
-                  {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}>Obra</th>}
-                  <th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}>Status</th>
-                  <th style={{padding:"8px 10px",textAlign:"right",fontSize:9,fontWeight:700,color:T.orange,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}>Monto</th>
+                  <SortTh col="fecha" label="Fecha" sort={sortCaja} setSort={setSortCaja} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}/>
+                  <SortTh col="concepto" label="Concepto" sort={sortCaja} setSort={setSortCaja} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}/>
+                  {D&&<SortTh col="resp" label="Resp" sort={sortCaja} setSort={setSortCaja} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>}
+                  {D&&<SortTh col="obra" label="Obra" sort={sortCaja} setSort={setSortCaja} style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
+                  <SortTh col="status" label="Status" sort={sortCaja} setSort={setSortCaja} style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}/>
+                  <SortTh col="monto" label="Monto" sort={sortCaja} setSort={setSortCaja} style={{padding:"8px 10px",textAlign:"right",fontSize:9,fontWeight:700,color:T.orange,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>
                   {user.rol==="admin"&&<th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.muted,width:90}}></th>}
                 </tr>
               </thead>
               <tbody>
-                {wkKeys.map(wk=>{const items=weeks[wk].sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));const wkTot=items.reduce((s,c)=>s+c.monto,0);const colSpan=D?(user.rol==="admin"?7:6):(user.rol==="admin"?5:4);return [
+                {wkKeys.map(wk=>{const items=[...weeks[wk]].sort((a,b)=>cmpVal(a[sortCaja.col],b[sortCaja.col],sortCaja.dir));const wkTot=items.reduce((s,c)=>s+c.monto,0);const colSpan=D?(user.rol==="admin"?7:6):(user.rol==="admin"?5:4);return [
                   <tr key={wk+"-h"} style={{background:"rgba(201,149,107,.06)",borderBottom:"1px solid #2a2a2a"}}>
                     <td colSpan={colSpan-1} style={{padding:"5px 10px",fontSize:10,fontWeight:700,color:T.gold,letterSpacing:.5,textTransform:"uppercase"}}>📅 Semana del {fd(wk)} <span style={{color:T.muted,fontWeight:500,marginLeft:6}}>({items.length} gasto{items.length!==1?"s":""})</span></td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontSize:11,fontWeight:800,color:T.orange,whiteSpace:"nowrap"}}>{$(wkTot)}</td>
@@ -1634,7 +1873,7 @@ export default function App(){
                     {user.rol==="admin"&&<td style={{padding:"4px 6px",textAlign:"center"}} onClick={e=>e.stopPropagation()}>
                       <div style={{display:"flex",gap:2,justifyContent:"center"}}>
                         <button onClick={()=>om("editCj",c)} style={{background:"rgba(255,255,255,.06)",border:"none",color:T.yellow,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Editar">✏️</button>
-                        <button onClick={()=>{if(confirm("¿Eliminar este gasto?")){setCaja(caja.filter(x=>x.id!==c.id));show("Eliminado");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Eliminar">🗑</button>
+                        <button onClick={()=>{if(confirm("¿Eliminar este gasto?\n\nIrá a la Papelera 30 días.")){enviarAPapelera("caja",c);setCaja(caja.filter(x=>x.id!==c.id));show("🗑 A papelera");}}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Eliminar">🗑</button>
                       </div>
                     </td>}
                   </tr>;})
@@ -1802,6 +2041,48 @@ export default function App(){
         {filtDocs.filter(d=>!d.obra).length>0&&<div><div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Sin obra asignada</div><div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{filtDocs.filter(d=>!d.obra).map(d=><Card key={d.id} onClick={()=>openDoc(d)} style={{cursor:"pointer",padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>{d.tipo==="recibo"?"🧾":"📄"}</span><div><div style={{fontWeight:700,fontSize:13}}>{d.titulo}</div><div style={{fontSize:10,color:T.muted}}>{fd(d.fecha)}{d.hora&&" "+d.hora}</div></div></div>{d.monto>0&&<span style={{fontWeight:800,color:T.green}}>{$(d.monto)}</span>}</div></Card>)}</div></div>}
       </div>;})()}
 
+    {sec==="papelera"&&<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:800}}>🗑 Papelera <span style={{color:T.muted,fontWeight:500,fontSize:13}}>· {papelera.length}</span></div>
+          <div style={{fontSize:11,color:T.muted,marginTop:2}}>Los registros borrados se guardan 30 días. Puedes recuperarlos antes.</div>
+        </div>
+        {papelera.length>0&&user.rol==="admin"&&<button onClick={()=>{if(confirm("¿Vaciar TODA la papelera? Esto borra "+papelera.length+" registro(s) PERMANENTEMENTE."))setPapelera([]);}} style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.08)",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer"}}>🚨 Vaciar papelera</button>}
+      </div>
+      {papelera.length===0?<Card style={{textAlign:"center",padding:30}}><div style={{fontSize:32,marginBottom:8}}>✨</div><div style={{color:T.muted}}>La papelera está vacía</div></Card>:<div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?700:480}}>
+            <thead>
+              <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
+                <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}>Tipo</th>
+                <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,borderRight:"1px solid #333"}}>Descripción</th>
+                {D&&<th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:120}}>Borrado por</th>}
+                <th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}>Fecha</th>
+                <th style={{padding:"8px 10px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.6,whiteSpace:"nowrap",width:130}}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...papelera].sort((a,b)=>b.ts-a.ts).map((p,idx)=>{const tipoBadge={obra:["🏗 Obra",T.blue],mov:["💰 Movimiento",T.green],caja:["🧾 Caja",T.orange],recibo:["📄 Recibo",T.purple]}[p.tipo]||["📎 Item",T.muted];const dias=Math.floor((Date.now()-p.ts)/(24*60*60*1000));const diasRestantes=30-dias;return <tr key={p.id} style={{background:idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:"1px solid #2a2a2a"}}>
+                <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a"}}><span style={{display:"inline-block",padding:"2px 6px",borderRadius:4,fontSize:9,fontWeight:700,background:tipoBadge[1]+"22",color:tipoBadge[1]}}>{tipoBadge[0]}</span></td>
+                <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontWeight:600}}>{p.descripcion}</td>
+                {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,color:T.muted}}>{p.user}</td>}
+                <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:10,textAlign:"center"}}>
+                  <div style={{color:T.muted}}>{fd(new Date(p.ts).toISOString().slice(0,10))}</div>
+                  <div style={{color:diasRestantes<7?T.red:diasRestantes<15?T.yellow:T.muted,fontSize:9,fontWeight:700}}>Caduca en {diasRestantes}d</div>
+                </td>
+                <td style={{padding:"4px 8px",textAlign:"center"}}>
+                  <div style={{display:"flex",gap:4,justifyContent:"center"}}>
+                    <button onClick={()=>{if(confirm("¿Restaurar '"+p.descripcion+"'?"))restaurarDePapelera(p);}} style={{background:"rgba(76,175,80,.12)",border:"1px solid "+T.green+"55",color:T.green,cursor:"pointer",fontSize:10,padding:"4px 8px",borderRadius:5,fontWeight:700}} title="Recuperar">↶ Recuperar</button>
+                    {user.rol==="admin"&&<button onClick={()=>{if(confirm("¿Borrar PERMANENTEMENTE '"+p.descripcion+"'?"))setPapelera(prev=>prev.filter(x=>x.id!==p.id));}} style={{background:"rgba(231,76,60,.1)",border:"none",color:T.red,cursor:"pointer",fontSize:11,padding:"3px 6px",borderRadius:4}} title="Borrar definitivamente">🗑</button>}
+                  </div>
+                </td>
+              </tr>;})}
+            </tbody>
+          </table>
+        </div>
+      </div>}
+    </div>}
+
     {sec==="usuarios"&&<div>
       <button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addUser")}>+ Agregar Usuario</button>
       <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{users.filter(u=>u.rol!=="cliente").map(u=> <Card key={u.id} style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:40,height:40,borderRadius:20,background:ROLES[u.rol].color+"22",color:ROLES[u.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{u.avatar}</div><div style={{flex:1}}><div style={{fontWeight:700}}>{u.nombre}</div><div style={{fontSize:10,color:ROLES[u.rol].color}}>{ROLES[u.rol].icon} {ROLES[u.rol].nombre}</div><div style={{fontSize:10,color:u.pin?T.green:T.muted,marginTop:2}}>{u.pin?"🔒 PIN: ••••":"🔓 Sin PIN"}</div></div><div style={{display:"flex",gap:4}}><button onClick={()=>om("setPin",u)} style={{background:"#1a1a2a",color:T.blue,border:"1px solid #2a2a4a",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>{u.pin?"Cambiar":"+ PIN"}</button>{u.id!==1&&(confirmDel===u.id?<div style={{display:"flex",gap:4}}><button onClick={()=>{setUsers(prev=>prev.filter(x=>x.id!==u.id));setConfirmDel(null);show("Eliminado");}} style={{background:T.red,color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Sí</button><button onClick={()=>setConfirmDel(null)} style={{background:"#333",color:"#aaa",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>No</button></div>:<button onClick={()=>setConfirmDel(u.id)} style={{background:"#2a1111",color:T.red,border:"1px solid #3a1a1a",borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer"}}>🗑</button>)}</div></Card>)}</div>
@@ -1825,6 +2106,76 @@ export default function App(){
 
   // ═══ MODALS ═══
   const modals= <div>
+    {/* === TOUR DE BIENVENIDA === */}
+    {tourStep>=0&&tourStep<tourSteps.length&&(()=>{const t=tourSteps[tourStep];return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:6000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{maxWidth:480,width:"100%",background:"linear-gradient(135deg,#1a1a1a,#0f0f0f)",border:"1px solid "+T.gold+"33",borderRadius:16,padding:24,boxShadow:"0 20px 60px rgba(0,0,0,.6)"}}>
+        <div style={{textAlign:"center",marginBottom:18}}>
+          <div style={{fontSize:48,marginBottom:8}}>{t.icon}</div>
+          <div style={{fontSize:18,fontWeight:800,color:T.gold,marginBottom:6}}>{t.titulo}</div>
+          <div style={{fontSize:13,color:T.text,lineHeight:1.6}}>{t.texto}</div>
+        </div>
+        {/* Dots de progreso */}
+        <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:18}}>
+          {tourSteps.map((_,i)=><span key={i} style={{width:8,height:8,borderRadius:4,background:i===tourStep?T.gold:i<tourStep?T.gold+"66":T.dim}}/>)}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={cerrarTour} style={{flex:1,padding:"12px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer"}}>Saltar tour</button>
+          {tourStep>0&&<button onClick={()=>setTourStep(tourStep-1)} style={{padding:"12px 20px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer"}}>← Atrás</button>}
+          <button onClick={()=>tourStep<tourSteps.length-1?setTourStep(tourStep+1):cerrarTour()} style={{flex:2,padding:"12px",borderRadius:8,border:"none",background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer"}}>{tourStep<tourSteps.length-1?"Siguiente →":"¡Empezar! ✓"}</button>
+        </div>
+      </div>
+    </div>;})()}
+    {/* === BÚSQUEDA GLOBAL (Ctrl+K) === */}
+    {searchOpen&&(()=>{
+      const q=normSearch(searchQ);
+      const matches=q.length<2?{obras:[],clientes:[],provs:[],movs:[]}:{
+        obras:obras.filter(o=>normSearch(o.nombre).includes(q)||normSearch(o.cliente||"").includes(q)).slice(0,8),
+        clientes:clis.filter(c=>normSearch(c.nombre).includes(q)||normSearch(c.tel||"").includes(q)||normSearch(c.email||"").includes(q)).slice(0,5),
+        provs:provs.filter(p=>normSearch(p.nombre).includes(q)).slice(0,5),
+        movs:[...movs,...caja.map(c=>({...c,desc:c.concepto,monto:c.monto}))].filter(m=>normSearch(m.desc||"").includes(q)||normSearch(m.prov||"").includes(q)).slice(0,8)
+      };
+      const total=matches.obras.length+matches.clientes.length+matches.provs.length+matches.movs.length;
+      return <div onClick={()=>{setSearchOpen(false);setSearchQ("");}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:5000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:60}}>
+        <div onClick={e=>e.stopPropagation()} style={{width:"95%",maxWidth:600,background:"#1a1a1a",border:"1px solid "+T.border,borderRadius:12,boxShadow:"0 20px 60px rgba(0,0,0,.6)",overflow:"hidden"}}>
+          <div style={{padding:"14px 18px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:18}}>🔍</span>
+            <input autoFocus value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Buscar obras, clientes, proveedores, movimientos..." style={{flex:1,background:"transparent",border:"none",color:T.text,fontSize:15,outline:"none"}}/>
+            <button onClick={()=>{setSearchOpen(false);setSearchQ("");}} style={{background:"rgba(255,255,255,.05)",border:"none",color:T.muted,padding:"4px 10px",borderRadius:6,fontSize:11,cursor:"pointer"}}>ESC</button>
+          </div>
+          <div style={{maxHeight:"60vh",overflowY:"auto",padding:8}}>
+            {q.length<2?<div style={{padding:30,textAlign:"center",color:T.muted,fontSize:12}}>Escribe al menos 2 letras para buscar...</div>:
+            total===0?<div style={{padding:30,textAlign:"center",color:T.muted,fontSize:12}}>Sin resultados para "<b style={{color:T.text}}>{searchQ}</b>"</div>:<>
+              {matches.obras.length>0&&<div style={{marginBottom:6}}>
+                <div style={{fontSize:9,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,padding:"6px 10px"}}>🏗 Obras ({matches.obras.length})</div>
+                {matches.obras.map(o=><div key={o.id} onClick={()=>{setSec("obras");setSub(o);setSearchOpen(false);setSearchQ("");}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",cursor:"pointer",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.08)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div><div style={{fontSize:13,fontWeight:600}}>{o.nombre}</div><div style={{fontSize:10,color:T.muted}}>{o.cliente||"sin cliente"} · {FASES[o.fase]||o.fase}</div></div>
+                  <div style={{color:T.gold,fontWeight:700,fontSize:12}}>{$(o.cotizado)}</div>
+                </div>)}
+              </div>}
+              {matches.clientes.length>0&&<div style={{marginBottom:6}}>
+                <div style={{fontSize:9,color:T.teal,fontWeight:700,textTransform:"uppercase",letterSpacing:1,padding:"6px 10px"}}>👤 Clientes ({matches.clientes.length})</div>
+                {matches.clientes.map(c=><div key={c.id} onClick={()=>{setSec("clis");setSearchOpen(false);setSearchQ("");}} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",cursor:"pointer",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.background="rgba(38,166,154,.08)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div><div style={{fontSize:13,fontWeight:600}}>{c.nombre}</div><div style={{fontSize:10,color:T.muted}}>{c.tel||""} {c.email?" · "+c.email:""}</div></div>
+                </div>)}
+              </div>}
+              {matches.provs.length>0&&<div style={{marginBottom:6}}>
+                <div style={{fontSize:9,color:T.orange,fontWeight:700,textTransform:"uppercase",letterSpacing:1,padding:"6px 10px"}}>🏪 Proveedores ({matches.provs.length})</div>
+                {matches.provs.map(p=><div key={p.id} onClick={()=>{setSec("taller");setSubTab("provs");setSearchOpen(false);setSearchQ("");}} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",cursor:"pointer",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,152,0,.08)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div><div style={{fontSize:13,fontWeight:600}}>{p.nombre}</div><div style={{fontSize:10,color:T.muted}}>{p.material||""}</div></div>
+                </div>)}
+              </div>}
+              {matches.movs.length>0&&<div>
+                <div style={{fontSize:9,color:T.blue,fontWeight:700,textTransform:"uppercase",letterSpacing:1,padding:"6px 10px"}}>💰 Movimientos ({matches.movs.length})</div>
+                {matches.movs.map((m,i)=><div key={i} onClick={()=>{setSec("finanzas");setFBusq(searchQ);setSearchOpen(false);setSearchQ("");}} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",cursor:"pointer",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.background="rgba(66,165,245,.08)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.desc}</div><div style={{fontSize:10,color:T.muted}}>{fd(m.fecha)} · {m.prov||m.resp||""} · {m.obra||"general"}</div></div>
+                  <div style={{fontWeight:700,fontSize:12,color:m.ing>0?T.green:T.red,whiteSpace:"nowrap"}}>{m.ing>0?"+":""}{$(m.monto||m.ing||m.egr||0)}</div>
+                </div>)}
+              </div>}
+            </>}
+          </div>
+        </div>
+      </div>;
+    })()}
     {modal==="cat"&&<ModalW title="Catálogo" onClose={cm}>{cats.map(cat=> <div key={cat} style={{marginBottom:12}}><div style={{fontSize:11,color:T.gold,fontWeight:700,borderBottom:"1px solid "+T.border,paddingBottom:3,marginBottom:4}}>{cat}</div>{catalogo.filter(c=>c.cat===cat).map(item=> <div key={item.id} onClick={()=>{addCotP(item);show(item.id+" +");}} style={{display:"flex",justifyContent:"space-between",padding:"10px 8px",borderBottom:"1px solid "+T.border,cursor:"pointer"}}><span><b style={{color:T.gold}}>{item.id}</b> {item.desc}</span><span style={{color:T.muted}}>{$(item.precio)} <span style={{color:T.green}}>+</span></span></div>)}</div>)}</ModalW>}
         {modal==="addNom"&&<ModalW title="Nuevo Pago Fijo" onClose={cm}><div><Fl l="Nombre"><input style={sI} id="nomNom" placeholder="Ej: Nómina Erik"/></Fl><Fl l="Monto"><input type="number" style={sI} id="nomMon"/></Fl><Fl l="Frecuencia"><select style={sI} id="nomFreq"><option value="semanal">Semanal</option><option value="quincenal">Quincenal</option><option value="mensual">Mensual</option></select></Fl><Fl l="Tipo"><select style={sI} id="nomTipo"><option value="Nómina">Nómina</option><option value="Renta">Renta</option><option value="Servicios">Servicios</option><option value="IMSS">IMSS</option><option value="Destajo">Destajo</option><option value="Otro">Otro</option></select></Fl><button style={sB} onClick={()=>{const n=document.getElementById("nomNom").value;const m=Number(document.getElementById("nomMon").value);const f=document.getElementById("nomFreq").value;const t=document.getElementById("nomTipo").value;if(n&&m>0){setNominas(prev=>[...prev,{id:"N"+Date.now(),nombre:n,monto:m,frecuencia:f,tipo:t}]);cm();show("Pago fijo creado");}}}>Guardar</button></div></ModalW>}
     {modal==="addOb"&&<ModalW title="Nueva Obra" onClose={cm}><ObraForm clientes={clis} onNewCli={nombre=>ensureCli(nombre)} onSave={o=>{setObras(prev=>[...prev,{...o,id:"OB"+String(prev.length+1).padStart(2,"0"),egreso:0,extras:[],pagos:[],docs:[],bitacora:[],creadoPor:user.nombre,creadoFecha:td()}]);cm();show("Obra ✓");}}/></ModalW>}
@@ -1863,12 +2214,17 @@ export default function App(){
         newMovs=movs.map(m=>{if(normSearch(m.obra||"")===k){nMovs++;return{...m,obra:""};}return m;});
         newCaja=caja.map(c=>{if(normSearch(c.obra||"")===k){nCaja++;return{...c,obra:""};}return c;});
       }else if(accion==="borrar"){
-        newMovs=movs.filter(m=>{if(normSearch(m.obra||"")===k){nMovs++;return false;}return true;});
-        newCaja=caja.filter(c=>{if(normSearch(c.obra||"")===k){nCaja++;return false;}return true;});
+        // Mandar movs y caja a papelera antes de borrar
+        movs.forEach(m=>{if(normSearch(m.obra||"")===k){enviarAPapelera("mov",m);nMovs++;}});
+        caja.forEach(c=>{if(normSearch(c.obra||"")===k){enviarAPapelera("caja",c);nCaja++;}});
+        newMovs=movs.filter(m=>normSearch(m.obra||"")!==k);
+        newCaja=caja.filter(c=>normSearch(c.obra||"")!==k);
       }
       // Aplicar cambios (en orden: primero movs/caja, luego obra)
       if(accion!=="solo")setMovs(newMovs);
       if(accion!=="solo")setCaja(newCaja);
+      // Mandar la obra a papelera
+      enviarAPapelera("obra",md);
       const newObras=obras.filter(o=>o.id!==md.id);
       setObras(newObras);
       // Bloquear sync por 30s y forzar push directo
@@ -1900,8 +2256,8 @@ export default function App(){
       <button style={{...sB,background:T.green}} onClick={()=>{const newMovs=md.map((m,i)=>({...m,id:movs.length+i+1,status:"aprobado",user:user.nombre}));setMovs(prev=>[...prev,...newMovs]);cm();show("✅ "+md.length+" movimientos importados");}}>✅ Confirmar Importación</button>
       <button style={{...sB,background:"transparent",color:T.muted,border:"1px solid "+T.border}} onClick={cm}>Cancelar</button>
     </ModalW>}
-    {modal==="addIng"&&<ModalW title="Registrar Ingreso" onClose={cm}><IngForm obras={obras} movs={movs} clis={clis} onSave={m=>{const rid=genRec(m);setMovs(prev=>[...prev,{...m,id:prev.length+1,user:user.nombre}]);try{saveDoc("recibo","Recibo "+rid,m.prov,m.obra,m.ing,{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}catch{}cm();om("vRec",{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}}/></ModalW>}
-    {modal==="addEgr"&&<ModalW title="Egreso" onClose={cm}><EgrForm obras={obras} provs={provs} onNewProv={nombre=>{setProvs(prev=>[...prev,{id:"P"+String(prev.length+1).padStart(2,"0"),nombre,contacto:"",tel:"",material:"",credito:0,total:0,calif:3}]);}} onSave={m=>{setMovs(prev=>[...prev,{...m,id:prev.length+1,user:user.nombre}]);cm();show("Egreso ✓");}}/></ModalW>}
+    {modal==="addIng"&&<ModalW title="Registrar Ingreso" onClose={cm}><IngForm obras={obras} movs={movs} clis={clis} onSave={m=>{const rid=genRec(m);const newId=movs.length+1;setMovs(prev=>[...prev,{...m,id:newId,user:user.nombre}]);highlightNew("m"+newId);try{saveDoc("recibo","Recibo "+rid,m.prov,m.obra,m.ing,{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}catch{}cm();om("vRec",{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}}/></ModalW>}
+    {modal==="addEgr"&&<ModalW title="Egreso" onClose={cm}><EgrForm obras={obras} provs={provs} onNewProv={nombre=>{setProvs(prev=>[...prev,{id:"P"+String(prev.length+1).padStart(2,"0"),nombre,contacto:"",tel:"",material:"",credito:0,total:0,calif:3}]);}} onSave={m=>{const newId=movs.length+1;setMovs(prev=>[...prev,{...m,id:newId,user:user.nombre}]);highlightNew("m"+newId);cm();show("✓ Egreso registrado");}}/></ModalW>}
     {modal==="addCj"&&<ModalW title="Gasto Caja Chica" onClose={cm}><CajaForm users={users} obras={obras} onSave={c=>{setCaja(prev=>[...prev,{...c,id:prev.length+1,status:user.rol==="admin"?"aprobado":"pendiente"}]);cm();show(user.rol==="admin"?"Gasto registrado":"Enviado para aprobación");}}/></ModalW>}
     {modal==="editCj"&&md&&<ModalW title="Editar Gasto" onClose={cm}><div><Fl l="Concepto"><input style={sI} defaultValue={md.concepto} id="editCjConc"/></Fl><Fl l="Monto"><input type="number" style={sI} defaultValue={md.monto} id="editCjMonto"/></Fl><Fl l="Obra"><select style={sI} defaultValue={md.obra} id="editCjObra"><option value="">Seleccionar obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General</option></select></Fl><Fl l="Responsable"><input style={sI} defaultValue={md.resp} id="editCjResp"/></Fl><button style={{...sB,marginTop:8}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;const nr=document.getElementById("editCjResp").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,resp:nr||x.resp}:x));cm();show("Gasto actualizado ✓");}}>💾 Guardar Cambios</button>{md.status==="pendiente"&&user.rol==="admin"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}><button style={{...sB,background:"#0a2e0a",color:T.green,marginTop:0}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,status:"aprobado"}:x));cm();show("Aprobado ✓");}}>✓ Aprobar</button><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setCaja(caja.map(x=>x.id===md.id?{...x,status:"rechazado"}:x));cm();show("Rechazado");}}>✕ Rechazar</button></div>}</div></ModalW>}
     {modal==="addDoc"&&sub&&<ModalW title="Documento" onClose={cm}><DocForm onSave={d=>{const up={...sub,docs:[...(sub.docs||[]),{...d,id:(sub.docs?.length||0)+1,fecha:td(),size:"—"}]};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);cm();show("✓");}}/></ModalW>}
@@ -1928,6 +2284,36 @@ export default function App(){
       <button style={{...sB,marginTop:8}} onClick={()=>{const cat=document.getElementById("epCat").value;const desc=document.getElementById("epDesc").value;const prec=Number(document.getElementById("epPrec").value);const uni=document.getElementById("epUni").value;const not=document.getElementById("epNot").value;setPreciosUnit(prev=>prev.map(x=>x.id===md.id?{...x,cat,desc,precio:prec,unidad:uni,notas:not}:x));cm();show("Actualizado ✓");}}>💾 Guardar</button>
     </div></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+String(prev.length+1).padStart(2,"0")}]);cm();show("✓");}}/></ModalW>}
+    {modal==="obrasSimilares"&&<ModalW title="🔗 Detectar y Fusionar Obras Similares" onClose={cm}>
+      <ObrasSimilaresView obras={obras} movs={movs} caja={caja} onFusionar={(destino,fusionar)=>{
+        // 1. Reasignar TODOS los movs/caja de cada obra fusionada al destino
+        let nMovs=0,nCaja=0;
+        let newMovs=movs,newCaja=caja;
+        fusionar.forEach(o=>{
+          const k=normSearch(o.nombre);
+          newMovs=newMovs.map(m=>{if(normSearch(m.obra||"")===k){nMovs++;return{...m,obra:destino.nombre};}return m;});
+          newCaja=newCaja.map(c=>{if(normSearch(c.obra||"")===k){nCaja++;return{...c,obra:destino.nombre};}return c;});
+        });
+        setMovs(newMovs);setCaja(newCaja);
+        // 2. Eliminar las obras secundarias del array de obras (solo las que no sean fantasmas — los fantasmas no están en obras[])
+        const idsAEliminar=new Set(fusionar.filter(o=>!o.isFantasma).map(o=>o.id));
+        if(idsAEliminar.size>0){
+          // 3. Sumar los presupuestos al destino si tienen
+          const sumaCotizado=fusionar.filter(o=>!o.isFantasma).reduce((s,o)=>s+(o.cotizado||0),0);
+          const newObras=obras.filter(o=>!idsAEliminar.has(o.id)).map(o=>{
+            if(o.id===destino.id&&sumaCotizado>0){
+              return {...o,cotizado:(o.cotizado||0)+sumaCotizado,modificadoPor:user.nombre,modificadoFecha:td()};
+            }
+            return o;
+          });
+          setObras(newObras);
+        }
+        _lastWrite.current["obras"]=Date.now()+15000;
+        _lastWrite.current["movs"]=Date.now()+15000;
+        _lastWrite.current["caja"]=Date.now()+15000;
+        show("🔗 "+(fusionar.length)+" obras fusionadas en '"+destino.nombre+"' · "+(nMovs+nCaja)+" movs reasignados");
+      }}/>
+    </ModalW>}
     {modal==="analisisDesfase"&&<ModalW title="🔍 Análisis de Desfase Financiero" onClose={cm}>
       <AnalisisDesfaseView movs={movs} caja={caja} obras={obras} setMovs={setMovs} setCaja={setCaja} show={show} cm={cm}/>
     </ModalW>}
@@ -2013,6 +2399,10 @@ export default function App(){
     <div style={{width:220,minWidth:220,background:"#111",borderRight:"1px solid "+T.border,display:"flex",flexDirection:"column",height:"100vh",position:"sticky",top:0}}>
       <div style={{padding:"16px 14px 10px"}}><BrandFull size="small" color={T.gold}/></div>
       <div style={{padding:"3px 14px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}><span style={{fontSize:10,color:role.color,fontWeight:700}}>{role.icon} {role.nombre}</span><div style={{display:"flex",alignItems:"center",gap:6}}>{saveStatus.state!=="idle"&&<span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:8,background:saveStatus.state==="saving"?"rgba(66,165,245,.15)":saveStatus.state==="saved"?"rgba(76,175,80,.15)":"rgba(231,76,60,.18)",color:saveStatus.state==="saving"?T.blue:saveStatus.state==="saved"?T.green:T.red,whiteSpace:"nowrap",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis"}} title={saveStatus.err||""}>{saveStatus.msg}</span>}{CLOUD&&<span style={{fontSize:9,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} onClick={()=>location.reload()} title={_syncOk?"Nube OK - clic para actualizar":"Verificando..."}>{_syncOk?"☁️":"⏳"}</span>}</div></div>
+      <div style={{padding:"0 10px 8px"}}><button onClick={()=>setSearchOpen(true)} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid "+T.border,background:"rgba(255,255,255,.03)",color:T.muted,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:8,justifyContent:"space-between"}}>
+        <span>🔍 Buscar...</span>
+        <span style={{fontSize:9,color:T.dim,padding:"1px 4px",border:"1px solid "+T.dim,borderRadius:3}}>Ctrl+K</span>
+      </button></div>
       <div style={{flex:1,overflowY:"auto",padding:"0 6px"}}>{NAV_GRPS.map(g=>{const items=allNav.filter(n=>n.grp===g.id);if(!items.length)return null;return <div key={g.id} style={{marginBottom:8}}><div style={{fontSize:9,color:T.dim,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,padding:"8px 12px 2px"}}>{g.label}</div>{items.map(n=> <button key={n.key} onClick={()=>go(n.key)} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"9px 12px",background:sec===n.key?"#1a1a1a":"transparent",border:"none",color:sec===n.key?T.gold:"#999",cursor:"pointer",fontSize:13,fontWeight:sec===n.key?700:400,textAlign:"left",borderRadius:8,marginBottom:1}}><span style={{fontSize:14,width:20,textAlign:"center"}}>{n.icon}</span><span>{n.label}</span></button>)}</div>;})}</div>
       <div style={{padding:10,borderTop:"1px solid "+T.border}}><button onClick={()=>setUser(null)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 12px",background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:13,borderRadius:8}}>🚪 Cerrar sesión</button></div>
     </div>
@@ -2022,11 +2412,22 @@ export default function App(){
   </div>;
   // ═══ MOBILE: Header + Content + Bottom Nav ═══
   return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",fontSize:13}}>
-    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}>{saveStatus.state!=="idle"&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,background:saveStatus.state==="saving"?"rgba(66,165,245,.15)":saveStatus.state==="saved"?"rgba(76,175,80,.15)":"rgba(231,76,60,.18)",color:saveStatus.state==="saving"?T.blue:saveStatus.state==="saved"?T.green:T.red,whiteSpace:"nowrap",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis"}} title={saveStatus.err||""}>{saveStatus.msg}</span>}{CLOUD&&<span onClick={()=>location.reload()} style={{fontSize:11,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} title={_syncOk?"Nube OK":"Verificando"}>{_syncOk?"☁️":"⏳"}</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
+    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}><button onClick={()=>setSearchOpen(true)} style={{background:"rgba(255,255,255,.06)",border:"1px solid "+T.border,color:T.muted,width:32,height:32,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer"}} title="Buscar (Ctrl+K)">🔍</button>{saveStatus.state!=="idle"&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,background:saveStatus.state==="saving"?"rgba(66,165,245,.15)":saveStatus.state==="saved"?"rgba(76,175,80,.15)":"rgba(231,76,60,.18)",color:saveStatus.state==="saving"?T.blue:saveStatus.state==="saved"?T.green:T.red,whiteSpace:"nowrap",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}} title={saveStatus.err||""}>{saveStatus.msg}</span>}{CLOUD&&<span onClick={()=>location.reload()} style={{fontSize:11,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} title={_syncOk?"Nube OK":"Verificando"}>{_syncOk?"☁️":"⏳"}</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
     {content}
     {modals}
     {toast&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:"#1a3a1a",color:T.green,padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,zIndex:2000}}>{toast}</div>}
-    {moreOpen&&<div style={{position:"fixed",bottom:56,left:0,right:0,zIndex:200,display:"flex",justifyContent:"center"}} onClick={()=>setMoreOpen(false)}><div onClick={e=>e.stopPropagation()} style={{background:"#1a1a1a",border:"1px solid "+T.border,borderRadius:14,padding:6,maxWidth:360,width:"90%",boxShadow:"0 -4px 20px rgba(0,0,0,.5)",maxHeight:"50vh",overflowY:"auto"}}>{allNav.slice(4).map(i=> <button key={i.key} onClick={()=>{go(i.key);setMoreOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",background:sec===i.key?"#252525":"transparent",border:"none",color:sec===i.key?T.gold:"#bbb",cursor:"pointer",fontSize:13,textAlign:"left",borderRadius:8}}><span>{i.icon}</span>{i.label}</button>)}<button onClick={()=>{setUser(null);setMoreOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:13,borderRadius:8,borderTop:"1px solid "+T.border,marginTop:4}}>🚪 Cerrar sesión</button></div></div>}
-    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"#111",borderTop:"1px solid "+T.border,display:"flex",justifyContent:"center"}}><div style={{display:"flex",maxWidth:900,width:"100%"}}>{mobT.map(t=> <button key={t.key} onClick={()=>{if(t.key==="_more"){setMoreOpen(!moreOpen);return;}go(t.key);setMoreOpen(false);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"8px 0 6px",background:"none",border:"none",cursor:"pointer",color:(t.key==="_more"?moreOpen:sec===t.key)?T.gold:T.dim}}><span style={{fontSize:18}}>{t.icon}</span><span style={{fontSize:8,fontWeight:600}}>{t.label}</span></button>)}</div></div>
+    {/* FAB Registro Rápido (móvil) */}
+    {!moreOpen&&can("money")&&<div style={{position:"fixed",bottom:navVisible?72:16,right:16,zIndex:250,transition:"bottom .25s ease"}}>
+      <button onClick={()=>om("addEgr")} style={{width:54,height:54,borderRadius:27,border:"none",background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",color:"#fff",fontSize:24,fontWeight:800,cursor:"pointer",boxShadow:"0 6px 20px rgba(201,149,107,.4)",display:"flex",alignItems:"center",justifyContent:"center"}} title="Registro rápido de egreso">+</button>
+    </div>}
+    {moreOpen&&<div style={{position:"fixed",bottom:56,left:0,right:0,zIndex:200,display:"flex",justifyContent:"center"}} onClick={()=>setMoreOpen(false)}><div onClick={e=>e.stopPropagation()} style={{background:"#1a1a1a",border:"1px solid "+T.border,borderRadius:14,padding:8,maxWidth:380,width:"92%",boxShadow:"0 -4px 20px rgba(0,0,0,.5)",maxHeight:"60vh",overflowY:"auto"}}>
+      <button onClick={()=>{setSearchOpen(true);setMoreOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",background:"rgba(255,255,255,.04)",border:"1px solid "+T.border,color:T.gold,cursor:"pointer",fontSize:13,textAlign:"left",borderRadius:8,marginBottom:8,fontWeight:700}}><span>🔍</span>Buscar...<span style={{marginLeft:"auto",fontSize:9,color:T.dim,padding:"2px 5px",border:"1px solid "+T.dim,borderRadius:3}}>Ctrl+K</span></button>
+      {NAV_GRPS.map(g=>{const items=allNav.slice(4).filter(n=>n.grp===g.id);if(!items.length)return null;return <div key={g.id} style={{marginBottom:8}}>
+        <div style={{fontSize:9,color:T.dim,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,padding:"6px 10px 2px"}}>{g.label}</div>
+        {items.map(i=> <button key={i.key} onClick={()=>{go(i.key);setMoreOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 14px",background:sec===i.key?"#252525":"transparent",border:"none",color:sec===i.key?T.gold:"#bbb",cursor:"pointer",fontSize:13,textAlign:"left",borderRadius:8}}><span>{i.icon}</span>{i.label}</button>)}
+      </div>;})}
+      <button onClick={()=>{setUser(null);setMoreOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"11px 14px",background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:13,borderRadius:8,borderTop:"1px solid "+T.border,marginTop:4}}>🚪 Cerrar sesión</button>
+    </div></div>}
+    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"#111",borderTop:"1px solid "+T.border,display:"flex",justifyContent:"center",transform:navVisible?"translateY(0)":"translateY(110%)",transition:"transform .25s ease"}}><div style={{display:"flex",maxWidth:900,width:"100%"}}>{mobT.map(t=> <button key={t.key} onClick={()=>{if(t.key==="_more"){setMoreOpen(!moreOpen);return;}go(t.key);setMoreOpen(false);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1,padding:"8px 0 6px",background:"none",border:"none",cursor:"pointer",color:(t.key==="_more"?moreOpen:sec===t.key)?T.gold:T.dim}}><span style={{fontSize:18}}>{t.icon}</span><span style={{fontSize:8,fontWeight:600}}>{t.label}</span></button>)}</div></div>
   </div>;
 }
