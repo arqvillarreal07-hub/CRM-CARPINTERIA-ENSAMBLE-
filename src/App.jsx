@@ -366,6 +366,131 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
+function ImportadorMasivoForm({tipo,obras,onImport}){
+  // tipo: "ing" o "egr"
+  const [modo,setModo]=useState("pegar"); // pegar, foto, archivo
+  const [pegado,setPegado]=useState("");
+  const [parseado,setParseado]=useState([]);
+  const [escaneando,setEscaneando]=useState(false);
+  const titulo=tipo==="ing"?"Ingresos":"Egresos";
+  const colorTipo=tipo==="ing"?T.green:T.red;
+  // Helper: parsear texto pegado (TSV o CSV)
+  const parsearTexto=(txt)=>{
+    if(!txt.trim()){setParseado([]);return;}
+    const lineas=txt.split("\n").filter(l=>l.trim());
+    // Detectar separador: tab o coma
+    const sep=lineas[0].includes("\t")?"\t":",";
+    // Detectar si primera línea es header
+    const primera=lineas[0].split(sep).map(c=>c.trim().toLowerCase());
+    const haySSHeader=primera.some(c=>["fecha","mes","descripcion","descripción","desc","concepto","obra","total","monto","ingreso","egreso","gasto","proveedor","cliente"].includes(c));
+    const startIdx=haySSHeader?1:0;
+    const headers=haySSHeader?primera:["col0","col1","col2","col3","col4","col5","col6","col7"];
+    // Detectar índices de columnas clave
+    const findCol=(opts)=>{for(const o of opts){const i=headers.findIndex(h=>h.includes(o));if(i>=0)return i;}return -1;};
+    const colFecha=findCol(["fecha","date"]);
+    const colDesc=findCol(["descripcion","descripción","desc","concepto"]);
+    const colObra=findCol(["obra","proyecto"]);
+    const colMonto=findCol(["total","monto","ingreso","egreso","gasto"]);
+    // Función para parsear fecha "22/5/26" → "2026-05-22"
+    const parseDate=(s)=>{if(!s)return td();s=String(s).trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}return s;};
+    // Función para parsear monto "1,381.77" → 1381.77
+    const parseMonto=(s)=>{if(!s)return 0;return Number(String(s).replace(/[^0-9.-]/g,""))||0;};
+    // Match obra con fuzzy
+    const matchObra=(nombre)=>{if(!nombre)return "";const n=normSearch(nombre);const exact=obras.find(o=>normSearch(o.nombre)===n);if(exact)return exact.nombre;const part=obras.find(o=>normSearch(o.nombre).includes(n)||n.includes(normSearch(o.nombre)));return part?part.nombre:nombre;};
+    const items=[];
+    for(let i=startIdx;i<lineas.length;i++){
+      const celdas=lineas[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,""));
+      if(celdas.every(c=>!c))continue;
+      const desc=colDesc>=0?celdas[colDesc]:celdas.find(c=>c.length>5&&isNaN(Number(c)))||"";
+      const fecha=colFecha>=0?parseDate(celdas[colFecha]):td();
+      const obraStr=colObra>=0?celdas[colObra]:"";
+      const obra=matchObra(obraStr);
+      const monto=colMonto>=0?parseMonto(celdas[colMonto]):parseMonto(celdas[celdas.length-1]);
+      if(monto>0&&desc){
+        items.push({fecha,desc,obra,monto,obraOrig:obraStr,obraMatch:obraStr&&obra===obraStr?"exacto":obraStr&&obras.find(o=>normSearch(o.nombre).includes(normSearch(obraStr))||normSearch(obraStr).includes(normSearch(o.nombre)))?"fuzzy":obraStr?"sin-match":""});
+      }
+    }
+    setParseado(items);
+  };
+  const escanearFoto=async(file)=>{
+    setEscaneando(true);
+    try{
+      const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});
+      const prompt='Esta es una tabla de '+(tipo==="ing"?"INGRESOS":"GASTOS/EGRESOS")+'. Extrae TODOS los renglones como JSON array. Columnas a identificar: fecha, descripcion, obra (si tiene), monto/total. Las fechas estilo "22/5/26" conviértelas a "2026-05-22". Responde SOLO un JSON array sin markdown: [{"fecha":"2026-05-22","desc":"...","obra":"coral","monto":1234},...]. Si no detectas nada: []';
+      const data=await callAI([{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:prompt}]}],4000);
+      const text=data.content?.map(i=>i.text||"").join("")||"[]";
+      const items=JSON.parse(text.replace(/```json|```/g,"").trim());
+      if(Array.isArray(items)){
+        // Match obras
+        const matched=items.map(it=>{const n=normSearch(it.obra||"");const exact=obras.find(o=>normSearch(o.nombre)===n);const part=!exact&&n&&obras.find(o=>normSearch(o.nombre).includes(n)||n.includes(normSearch(o.nombre)));return{...it,obra:exact?exact.nombre:part?part.nombre:it.obra||"",obraOrig:it.obra||"",obraMatch:exact?"exacto":part?"fuzzy":it.obra?"sin-match":""};});
+        setParseado(matched);
+      }
+    }catch(e){if(e.message==="NO_KEY")alert("⚠️ Configura tu API Key en Más → 🔑 API Key IA");else alert("Error: "+e.message.slice(0,100));}
+    setEscaneando(false);
+  };
+  const updateItem=(idx,key,val)=>setParseado(prev=>prev.map((it,i)=>i===idx?{...it,[key]:val}:it));
+  const removeItem=(idx)=>setParseado(prev=>prev.filter((_,i)=>i!==idx));
+  const totalImport=parseado.reduce((s,it)=>s+(Number(it.monto)||0),0);
+  return <div>
+    {/* Tabs de modo */}
+    <div style={{display:"flex",gap:4,marginBottom:12}}>
+      {[{k:"pegar",i:"📋",l:"Pegar de Excel"},{k:"foto",i:"📷",l:"Subir foto (IA)"},{k:"archivo",i:"📄",l:"Archivo CSV"}].map(t=><button key={t.k} onClick={()=>setModo(t.k)} style={{flex:1,padding:"10px 6px",borderRadius:8,border:modo===t.k?"2px solid "+colorTipo:"1px solid "+T.border,background:modo===t.k?colorTipo+"15":T.card,color:modo===t.k?colorTipo:T.muted,cursor:"pointer",fontSize:11,fontWeight:700}}><div style={{fontSize:16}}>{t.i}</div>{t.l}</button>)}
+    </div>
+    {/* Modo: pegar */}
+    {modo==="pegar"&&<div>
+      <div style={{fontSize:11,color:T.muted,marginBottom:6}}>Copia las celdas de tu Excel/Sheets y pégalas aquí. El sistema detecta automáticamente las columnas.</div>
+      <textarea value={pegado} onChange={e=>{setPegado(e.target.value);parsearTexto(e.target.value);}} placeholder="fecha    descripcion    obra    total&#10;22/5/26    Gasolina ram    coral    500&#10;..." style={{...sI,minHeight:120,fontSize:11,fontFamily:"monospace"}}/>
+    </div>}
+    {/* Modo: foto */}
+    {modo==="foto"&&<label style={{display:"block",padding:24,border:"2px dashed "+(escaneando?T.blue:T.border),borderRadius:10,textAlign:"center",cursor:escaneando?"wait":"pointer",background:escaneando?"#0a1a33":"#111"}}>
+      <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{const raw=e.target.files[0];if(!raw)return;try{const f=await compressImage(raw);escanearFoto(f);}catch(err){alert(err.message);}}}/>
+      {escaneando?<div><div style={{color:T.blue,fontWeight:700,fontSize:14}}>🤖 IA analizando tabla...</div><div style={{fontSize:11,color:T.muted,marginTop:6}}>Extrayendo fechas, descripciones, obras y montos</div></div>:<div><div style={{fontSize:36}}>📷</div><div style={{color:colorTipo,fontWeight:700,fontSize:13,marginTop:4}}>Toma o sube foto de tu tabla</div><div style={{fontSize:10,color:T.muted,marginTop:4}}>La IA reconoce las columnas automáticamente</div></div>}
+    </label>}
+    {/* Modo: archivo */}
+    {modo==="archivo"&&<label style={{display:"block",padding:20,border:"2px dashed "+T.border,borderRadius:10,textAlign:"center",cursor:"pointer",background:"#111"}}>
+      <input type="file" accept=".csv,.txt" style={{display:"none"}} onChange={e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{setPegado(ev.target.result);parsearTexto(ev.target.result);};r.readAsText(file,"UTF-8");}}/>
+      <div style={{fontSize:32}}>📄</div>
+      <div style={{color:colorTipo,fontWeight:700,marginTop:4}}>Subir CSV</div>
+      <div style={{fontSize:10,color:T.muted,marginTop:4}}>Exporta de Excel como CSV → arrastra aquí</div>
+    </label>}
+    {/* Preview */}
+    {parseado.length>0&&<div style={{marginTop:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:11,color:colorTipo,fontWeight:800,letterSpacing:.5,textTransform:"uppercase"}}>📋 Preview · {parseado.length} {titulo.toLowerCase()} · {$(totalImport)}</div>
+      </div>
+      <div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:11,maxHeight:340,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead style={{position:"sticky",top:0,background:"#1a1a1a"}}>
+            <tr>
+              <th style={{padding:"6px 8px",textAlign:"left",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Fecha</th>
+              <th style={{padding:"6px 8px",textAlign:"left",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Descripción</th>
+              <th style={{padding:"6px 8px",textAlign:"left",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Obra</th>
+              <th style={{padding:"6px 8px",textAlign:"right",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Monto</th>
+              <th style={{padding:"6px",width:30}}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {parseado.map((it,idx)=><tr key={idx} style={{borderBottom:"1px solid #2a2a2a",background:idx%2===0?"rgba(255,255,255,.01)":"transparent"}}>
+              <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a"}}><input value={it.fecha} onChange={e=>updateItem(idx,"fecha",e.target.value)} type="date" style={{background:"transparent",border:"none",color:T.text,fontSize:11,width:120,outline:"none"}}/></td>
+              <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a"}}><input value={it.desc} onChange={e=>updateItem(idx,"desc",e.target.value)} style={{background:"transparent",border:"none",color:T.text,fontSize:11,width:"100%",outline:"none"}}/></td>
+              <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a"}}>
+                <select value={it.obra} onChange={e=>updateItem(idx,"obra",e.target.value)} style={{background:it.obraMatch==="sin-match"?"rgba(231,76,60,.1)":it.obraMatch==="fuzzy"?"rgba(255,213,79,.06)":"transparent",border:"none",color:it.obraMatch==="sin-match"?T.red:T.text,fontSize:11,width:"100%",outline:"none"}}>
+                  <option value="">— sin obra —</option>
+                  {obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                </select>
+                {it.obraMatch==="fuzzy"&&<div style={{fontSize:9,color:T.yellow}}>≈ "{it.obraOrig}"</div>}
+                {it.obraMatch==="sin-match"&&<div style={{fontSize:9,color:T.red}}>⚠️ "{it.obraOrig}" no existe</div>}
+              </td>
+              <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right"}}><input value={it.monto} onChange={e=>updateItem(idx,"monto",e.target.value)} type="number" style={{background:"transparent",border:"none",color:colorTipo,fontWeight:800,fontSize:12,width:80,textAlign:"right",outline:"none"}}/></td>
+              <td style={{padding:"4px",textAlign:"center"}}><button onClick={()=>removeItem(idx)} style={{background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:12}} title="Quitar">✕</button></td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+      <button onClick={()=>{const valid=parseado.filter(it=>Number(it.monto)>0&&it.desc);if(valid.length===0){alert("No hay items válidos para importar");return;}if(!confirm("¿Importar "+valid.length+" "+titulo.toLowerCase()+" ("+$(totalImport)+")?"))return;onImport(valid);}} style={{...sB,background:colorTipo,marginTop:12}}>💾 Importar {parseado.length} {titulo.toLowerCase()} · {$(totalImport)}</button>
+    </div>}
+  </div>;
+}
 function ObrasSimilaresView({obras,movs,caja,onFusionar}){
   // Incluir obras "reales" + obras fantasmas (nombres encontrados en movs/caja sin match en obras[])
   const sameObra3=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
@@ -1670,7 +1795,8 @@ export default function App(){
           <button style={{padding:"10px 20px",borderRadius:8,border:"none",background:T.red,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={()=>om("addEgr")}>＋ Egreso</button>
           <div style={{flex:1}}/>
           <button style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:12,cursor:"pointer"}} onClick={()=>{const rows=[["Fecha","Tipo","Concepto","Proveedor/Cliente","Obra","Categoría","Ingreso","Egreso","Usuario","Status"]];finFilt.forEach(m=>{rows.push([m.fecha,m.t==="ing"?"Ingreso":m.t==="egr"?"Egreso":m.t==="caja"?"Caja Chica":"Otro",'"'+(m.desc||"").replace(/"/g,"'")+'"','"'+(m.prov||"").replace(/"/g,"'")+'"','"'+(m.obra||"").replace(/"/g,"'")+'"','"'+(m.cat||"").replace(/"/g,"'")+'"',m.t==="ing"?m.monto:"",m.t!=="ing"?m.monto:"",'"'+(m.user||"").replace(/"/g,"'")+'"',m.status||"aprobado"]);});const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Finanzas_Ensamble_"+td()+".csv";a.click();URL.revokeObjectURL(url);show("📥 Exportado "+finFilt.length+" movimientos");}}>📥 Exportar</button>
-          <button style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:12,cursor:"pointer"}} onClick={()=>{const inp=document.createElement("input");inp.type="file";inp.accept=".csv,.txt";inp.onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const txt=ev.target.result;const lines=txt.split("\n").filter(l=>l.trim());if(lines.length<2){show("Archivo vacío");return;}const header=lines[0].toLowerCase();const isValid=header.includes("fecha")&&(header.includes("ingreso")||header.includes("egreso")||header.includes("monto"));if(!isValid){show("Formato inválido. Usa: Fecha,Tipo,Concepto,Proveedor,Obra,Categoría,Ingreso,Egreso");return;}const parsed=[];for(let i=1;i<lines.length;i++){const parts=[];let inQ=false,cur="";for(const ch of lines[i]){if(ch==='"'){inQ=!inQ;}else if(ch===","&&!inQ){parts.push(cur.trim());cur="";}else{cur+=ch;}}parts.push(cur.trim());const[fecha,tipo,desc,prov,obra,cat,ing,egr]=parts;if(!fecha)continue;let f=(fecha||td()).trim();if(/^\d{2}\/\d{2}\/\d{4}$/.test(f)){const[d,mm,y]=f.split("/");f=y+"-"+mm+"-"+d;}else if(/^\d{2}-\d{2}-\d{4}$/.test(f)){const[d,mm,y]=f.split("-");f=y+"-"+mm+"-"+d;}parsed.push({fecha:f,desc:desc||"Importado",prov:prov||"",obra:obra||"",cat:cat||"",ing:Number(ing)||0,egr:Number(egr)||0});}if(parsed.length===0){show("No se encontraron movimientos");return;}om("importPreview",parsed);}catch(er){show("Error al leer: "+er.message);}};reader.readAsText(file,"UTF-8");};inp.click();}}>📤 Importar</button>
+          <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.green+"44",background:"rgba(76,175,80,.08)",color:T.green,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"ing"})} title="Importar lista de ingresos desde Excel/foto/CSV">📊 Importar Ingresos</button>
+          <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.red+"44",background:"rgba(231,76,60,.08)",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"egr"})} title="Importar lista de gastos desde Excel/foto/CSV">📊 Importar Gastos</button>
           <button style={{padding:"10px 12px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:13,cursor:"pointer"}} onClick={()=>setMostrarHerramientas(!mostrarHerramientas)} title="Herramientas avanzadas">⋯</button>
         </div>
         {/* === TOOLBAR SECUNDARIO (oculto): Herramientas avanzadas === */}
@@ -2284,6 +2410,28 @@ export default function App(){
       <button style={{...sB,marginTop:8}} onClick={()=>{const cat=document.getElementById("epCat").value;const desc=document.getElementById("epDesc").value;const prec=Number(document.getElementById("epPrec").value);const uni=document.getElementById("epUni").value;const not=document.getElementById("epNot").value;setPreciosUnit(prev=>prev.map(x=>x.id===md.id?{...x,cat,desc,precio:prec,unidad:uni,notas:not}:x));cm();show("Actualizado ✓");}}>💾 Guardar</button>
     </div></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+String(prev.length+1).padStart(2,"0")}]);cm();show("✓");}}/></ModalW>}
+    {modal==="importarMasivo"&&<ModalW title={"📊 Importar masivo · "+(md?.tipo==="ing"?"Ingresos":"Egresos")} onClose={cm}>
+      <ImportadorMasivoForm tipo={md?.tipo||"egr"} obras={obras} onImport={items=>{
+        const tipo=md?.tipo||"egr";
+        const nuevos=items.map((it,i)=>({
+          fecha:it.fecha||td(),
+          desc:it.desc,
+          prov:it.prov||"",
+          obra:it.obra||"",
+          cat:tipo==="ing"?"":"Material",
+          ing:tipo==="ing"?Number(it.monto):0,
+          egr:tipo==="ing"?0:Number(it.monto),
+          user:user.nombre,
+          importadoEl:td()
+        }));
+        const baseId=movs.length;
+        setMovs(prev=>[...prev,...nuevos.map((m,i)=>({...m,id:baseId+i+1}))]);
+        // Highlight todos los nuevos
+        nuevos.forEach((_,i)=>highlightNew("m"+(baseId+i+1)));
+        cm();
+        show("✓ "+items.length+" "+(tipo==="ing"?"ingresos":"egresos")+" importados");
+      }}/>
+    </ModalW>}
     {modal==="obrasSimilares"&&<ModalW title="🔗 Detectar y Fusionar Obras Similares" onClose={cm}>
       <ObrasSimilaresView obras={obras} movs={movs} caja={caja} onFusionar={(destino,fusionar)=>{
         // 1. Reasignar TODOS los movs/caja de cada obra fusionada al destino
