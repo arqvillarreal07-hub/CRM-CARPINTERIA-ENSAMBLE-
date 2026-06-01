@@ -429,6 +429,91 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
+function AuditoriaSistemaView({obras,movs,caja,onNormalizar,onEliminarObrasDup,onFusionarVariantes}){
+  // 1. Detectar obras DUPLICADAS en obras[] (mismo nombre normalizado, distinto id)
+  const dupGroups={};
+  obras.forEach(o=>{const k=normSearch(o.nombre);if(!dupGroups[k])dupGroups[k]=[];dupGroups[k].push(o);});
+  const obrasDuplicadas=Object.entries(dupGroups).filter(([k,arr])=>arr.length>1).map(([k,arr])=>({key:k,nombre:arr[0].nombre,obras:arr}));
+  // 2. Variantes de nombre en movs/caja (ej: "CORAL #39" vs "Coral 39" vs "CORAL#39")
+  const variantesPorKey={};
+  const todasObrasNombres=new Set(obras.map(o=>o.nombre));
+  const procesar=(obraStr)=>{if(!obraStr||obraStr==="General")return;const k=normSearch(obraStr);if(!variantesPorKey[k])variantesPorKey[k]={canonico:"",variantes:new Map()};const vm=variantesPorKey[k].variantes;vm.set(obraStr,(vm.get(obraStr)||0)+1);};
+  movs.forEach(m=>procesar(m.obra));
+  caja.forEach(c=>procesar(c.obra));
+  Object.entries(variantesPorKey).forEach(([k,v])=>{const real=obras.find(o=>normSearch(o.nombre)===k);v.canonico=real?real.nombre:[...v.variantes.keys()].sort((a,b)=>v.variantes.get(b)-v.variantes.get(a))[0];v.esFantasma=!real;});
+  const variantesMultiples=Object.entries(variantesPorKey).filter(([k,v])=>v.variantes.size>1).map(([k,v])=>({key:k,canonico:v.canonico,esFantasma:v.esFantasma,variantes:[...v.variantes.entries()].map(([n,c])=>({nombre:n,count:c}))}));
+  // 3. Obras fantasma (movs/caja con obra que no existe en obras[])
+  const fantasmas=Object.entries(variantesPorKey).filter(([k,v])=>v.esFantasma).map(([k,v])=>({key:k,canonico:v.canonico,nMovs:[...v.variantes.values()].reduce((s,n)=>s+n,0)}));
+  // 4. Movimientos sin obra
+  const sinObra=movs.filter(m=>!m.obra||m.obra==="General").length+caja.filter(c=>!c.obra||c.obra==="General").length;
+  // 5. Variantes con espacios o caracteres raros
+  const sucias=Object.entries(variantesPorKey).filter(([k,v])=>{return [...v.variantes.keys()].some(n=>n!==n.trim()||/  +/.test(n));}).length;
+  const totalProblemas=obrasDuplicadas.length+variantesMultiples.length+fantasmas.length+sucias;
+  return <div>
+    {/* Resumen */}
+    <div style={{background:totalProblemas>0?"rgba(231,76,60,.06)":"rgba(76,175,80,.06)",border:"1px solid "+(totalProblemas>0?T.red+"33":T.green+"33"),borderRadius:10,padding:14,marginBottom:14}}>
+      <div style={{fontSize:11,color:totalProblemas>0?T.red:T.green,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>{totalProblemas>0?"⚠️ Encontré "+totalProblemas+" problema"+(totalProblemas!==1?"s":"")+" en tus datos":"✓ Sistema limpio"}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+        <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Obras Duplicadas</div><div style={{fontSize:22,fontWeight:800,color:obrasDuplicadas.length>0?T.red:T.muted}}>{obrasDuplicadas.length}</div></div>
+        <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Variantes Nombre</div><div style={{fontSize:22,fontWeight:800,color:variantesMultiples.length>0?T.yellow:T.muted}}>{variantesMultiples.length}</div></div>
+        <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Fantasmas</div><div style={{fontSize:22,fontWeight:800,color:fantasmas.length>0?T.purple:T.muted}}>{fantasmas.length}</div></div>
+        <div><div style={{fontSize:9,color:T.muted,textTransform:"uppercase"}}>Sin Obra</div><div style={{fontSize:22,fontWeight:800,color:T.muted}}>{sinObra}</div></div>
+      </div>
+    </div>
+    {/* Botón Magic: arreglar todo de un click */}
+    {(obrasDuplicadas.length>0||variantesMultiples.length>0)&&<button onClick={()=>{if(!confirm("🪄 LIMPIEZA AUTOMÁTICA:\n\n• Unificar nombres de obra (todas las variantes a uno solo)\n• Fusionar obras duplicadas en obras[]\n\n¿Continuar?"))return;onNormalizar();}} style={{...sB,background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",marginBottom:12,fontSize:14}}>🪄 ARREGLAR TODO AUTOMÁTICAMENTE</button>}
+    {/* Sección 1: Obras Duplicadas en obras[] */}
+    {obrasDuplicadas.length>0&&<div style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:T.red,fontWeight:800,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🔴 1. Obras duplicadas en sistema ({obrasDuplicadas.length})</div>
+      <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Tienes varios "registros de obra" con el mismo nombre. Esto causa que aparezcan dos veces en TODOS los listados.</div>
+      {obrasDuplicadas.map(d=><div key={d.key} style={{background:"rgba(231,76,60,.04)",border:"1px solid "+T.red+"22",borderRadius:8,padding:10,marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={{fontSize:13,fontWeight:700,color:T.red}}>"{d.nombre}" — {d.obras.length} copias</div>
+          <button onClick={()=>{if(confirm("¿Fusionar las "+d.obras.length+" copias de '"+d.nombre+"' en una sola?\n\nSe suma el cotizado y se preservan partidas/movs."))onEliminarObrasDup(d.obras);}} style={{padding:"5px 12px",borderRadius:6,border:"none",background:T.red,color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>🔗 Fusionar</button>
+        </div>
+        <div style={{display:"grid",gap:4}}>
+          {d.obras.map(o=><div key={o.id} style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.muted,padding:"4px 8px",background:"rgba(255,255,255,.02)",borderRadius:5}}>
+            <span>{o.cliente||"sin cliente"} · {FASES[o.fase]||o.fase}</span>
+            <span style={{color:T.gold,fontWeight:700}}>{$(o.cotizado||0)}</span>
+          </div>)}
+        </div>
+      </div>)}
+    </div>}
+    {/* Sección 2: Variantes de nombre en movimientos */}
+    {variantesMultiples.length>0&&<div style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:T.yellow,fontWeight:800,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🟡 2. Variantes de nombre en movs ({variantesMultiples.length})</div>
+      <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Misma obra escrita de diferentes formas. Causa que el filtro no encuentre todos los movs.</div>
+      {variantesMultiples.map(v=><div key={v.key} style={{background:"rgba(255,213,79,.04)",border:"1px solid "+T.yellow+"22",borderRadius:8,padding:10,marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={{fontSize:13,fontWeight:700,color:T.yellow}}>Canónico: "{v.canonico}" {v.esFantasma&&<span style={{fontSize:9,color:T.purple,marginLeft:6}}>👻 fantasma</span>}</div>
+          <button onClick={()=>{if(confirm("¿Cambiar TODAS las variantes ("+v.variantes.length+") a '"+v.canonico+"'?\n\nActualiza todos los movs y caja chica."))onFusionarVariantes(v.key,v.canonico);}} style={{padding:"5px 12px",borderRadius:6,border:"none",background:T.yellow,color:"#000",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Unificar</button>
+        </div>
+        <div style={{display:"grid",gap:3}}>
+          {v.variantes.sort((a,b)=>b.count-a.count).map(va=><div key={va.nombre} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 8px",background:"rgba(255,255,255,.02)",borderRadius:4}}>
+            <span style={{color:va.nombre===v.canonico?T.green:T.text,fontFamily:"monospace"}}>{va.nombre===v.canonico?"✓ ":"  "}"{va.nombre}"</span>
+            <span style={{color:T.muted}}>{va.count} mov{va.count!==1?"s":""}</span>
+          </div>)}
+        </div>
+      </div>)}
+    </div>}
+    {/* Sección 3: Fantasmas */}
+    {fantasmas.length>0&&<div style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:T.purple,fontWeight:800,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>👻 3. Obras fantasma ({fantasmas.length})</div>
+      <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Movimientos asociados a obras que ya no existen. Ve a Finanzas → "🔍 Analizar desfase" para reasignarlas.</div>
+      <div style={{display:"grid",gap:4}}>
+        {fantasmas.map(f=><div key={f.key} style={{display:"flex",justifyContent:"space-between",padding:"6px 10px",background:"rgba(171,71,188,.04)",border:"1px solid "+T.purple+"22",borderRadius:5,fontSize:11}}>
+          <span style={{color:T.purple,fontWeight:600}}>👻 "{f.canonico}"</span>
+          <span style={{color:T.muted}}>{f.nMovs} mov{f.nMovs!==1?"s":""}</span>
+        </div>)}
+      </div>
+    </div>}
+    {totalProblemas===0&&<div style={{textAlign:"center",padding:30,color:T.green}}>
+      <div style={{fontSize:48,marginBottom:8}}>✨</div>
+      <div style={{fontWeight:700,marginBottom:4}}>¡Todo limpio!</div>
+      <div style={{fontSize:11,color:T.muted}}>No detecté problemas de duplicación o inconsistencia.</div>
+    </div>}
+  </div>;
+}
 function ImportadorMasivoForm({tipo,obras,onImport}){
   // tipo: "ing" o "egr"
   const [modo,setModo]=useState("pegar"); // pegar, foto, archivo
@@ -698,28 +783,51 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
     setReasignarFrom(null);setReasignarTo("");
     if(show)show("✓ "+(nM+nC)+" movs reasignados a "+(destino||"General"));
   };
-  // Construir mapa: por cada "obra" string en movs/caja, sumar ingresos y egresos
-  const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
-  const obrasNorm=new Set(obras.map(o=>(o.nombre||"").trim().toLowerCase().replace(/\s+/g," ")));
+  // === FIX: Agrupar por nombre NORMALIZADO para evitar duplicados (CORAL #39 vs coral 39) ===
+  const sameObra=(a,b)=>{const na=normSearch(a||"");const nb=normSearch(b||"");return na===nb;};
+  // Usa el nombre canónico de la obra REAL si existe, si no usa el nombre tal cual aparece en el primer mov
   const map={};
+  const getKey=(rawNombre)=>{
+    if(!rawNombre)return "__GENERAL__";
+    return normSearch(rawNombre);
+  };
+  const getNombreCanonico=(rawNombre,key)=>{
+    if(key==="__GENERAL__")return "📂 General (sin obra)";
+    // Si hay obra real con ese nombre normalizado, usar el nombre oficial
+    const real=obras.find(o=>normSearch(o.nombre)===key);
+    return real?real.nombre:rawNombre;
+  };
   movs.forEach(m=>{
-    const k=(m.obra||"").trim()||"__GENERAL__";
-    if(!map[k])map[k]={nombre:k==="__GENERAL__"?"📂 General (sin obra)":m.obra,ing:0,egr:0,cot:0,cat:{},isFantasma:false};
+    const k=getKey(m.obra);
+    if(!map[k])map[k]={nombre:getNombreCanonico(m.obra,k),ing:0,egr:0,cot:0,cat:{},isFantasma:false,nMovs:0};
+    map[k].nMovs++;
     if(m.ing>0)map[k].ing+=m.ing;
     if(m.egr>0){map[k].egr+=m.egr;const c=m.cat||"Sin cat";map[k].cat[c]=(map[k].cat[c]||0)+m.egr;}
   });
   caja.filter(c=>c.status!=="rechazado").forEach(c=>{
-    const k=(c.obra||"").trim()||"__GENERAL__";
-    if(!map[k])map[k]={nombre:k==="__GENERAL__"?"📂 General (sin obra)":c.obra,ing:0,egr:0,cot:0,cat:{},isFantasma:false};
+    const k=getKey(c.obra);
+    if(!map[k])map[k]={nombre:getNombreCanonico(c.obra,k),ing:0,egr:0,cot:0,cat:{},isFantasma:false,nMovs:0};
+    map[k].nMovs++;
     map[k].egr+=c.monto;
     map[k].cat["Caja Chica"]=(map[k].cat["Caja Chica"]||0)+c.monto;
   });
-  // Marcar cotización y fantasma
-  Object.values(map).forEach(o=>{
-    if(o.nombre==="📂 General (sin obra)"){o.isFantasma=false;o.tipo="general";return;}
-    const obraReal=obras.find(x=>sameObra(x.nombre,o.nombre));
-    if(obraReal){o.cot=obraReal.cotizado||0;o.fase=obraReal.fase;o.isFantasma=false;o.tipo="obra";}
-    else{o.isFantasma=true;o.tipo="fantasma";}
+  // Marcar cotización y fantasma + sumar cotizado de obras reales agrupadas
+  Object.keys(map).forEach(k=>{
+    const o=map[k];
+    if(k==="__GENERAL__"){o.isFantasma=false;o.tipo="general";return;}
+    // Sumar cotizados de TODAS las obras reales que normalizan a esta key (puede haber duplicadas en obras[])
+    const realesMatch=obras.filter(x=>normSearch(x.nombre)===k);
+    if(realesMatch.length>0){
+      o.cot=realesMatch.reduce((s,r)=>s+(r.cotizado||0),0);
+      o.fase=realesMatch[0].fase;
+      o.isFantasma=false;
+      o.tipo="obra";
+      // Si hay >1 obra real con el mismo nombre normalizado, marcarla como duplicada en obras[]
+      if(realesMatch.length>1)o.duplicadaEnObras=realesMatch.length;
+    }else{
+      o.isFantasma=true;
+      o.tipo="fantasma";
+    }
   });
   // Calcular diferencia
   const lista=Object.values(map).map(o=>{
@@ -789,7 +897,7 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
                   <span style={{display:"inline-block",width:10,height:10,borderRadius:5,background:sem}}/>
                 </td>
                 <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a"}}>
-                  <div style={{fontWeight:600,fontSize:12}}>{o.nombre} {o.isFantasma&&<span style={{fontSize:9,color:T.purple,marginLeft:4}}>👻 fantasma</span>}</div>
+                  <div style={{fontWeight:600,fontSize:12}}>{o.nombre} {o.isFantasma&&<span style={{fontSize:9,color:T.purple,marginLeft:4}}>👻 fantasma</span>} {o.duplicadaEnObras&&<span style={{fontSize:9,color:T.red,marginLeft:4,background:"rgba(231,76,60,.1)",padding:"1px 5px",borderRadius:4}}>⚠️ {o.duplicadaEnObras} registros duplicados en Obras</span>}</div>
                   {o.cot>0&&<div style={{fontSize:9,color:T.muted}}>Cotizado {$(o.cot)} · Cobrado {o.cobPct}% · Gastado {o.gasPct}%</div>}
                   {!o.cot&&o.tipo!=="general"&&<div style={{fontSize:9,color:T.muted}}>Sin presupuesto registrado</div>}
                 </td>
@@ -1205,6 +1313,7 @@ export default function App(){
   allNav.push({key:"docs_sec",icon:"📁",label:"Documentos",grp:"sys"});
   allNav.push({key:"apikey",icon:"🔑",label:"API Key IA",grp:"sys"});
   if(can("usuarios"))allNav.push({key:"usuarios",icon:"👥",label:"Usuarios",grp:"sys"});
+  allNav.push({key:"auditoria",icon:"🔬",label:"Auditoría",grp:"sys"});
   allNav.push({key:"papelera",icon:"🗑",label:"Papelera"+(papelera.length>0?" ("+papelera.length+")":""),grp:"sys"});
   const NAV_GRPS=[{id:"neg",label:"NEGOCIO"},{id:"fin",label:"FINANZAS"},{id:"tal",label:"TALLER"},{id:"sys",label:"SISTEMA"}];
   const mobT=allNav.slice(0,4);if(allNav.length>4)mobT.push({key:"_more",icon:"☰",label:"Más"});
@@ -2247,6 +2356,54 @@ export default function App(){
         {filtDocs.filter(d=>!d.obra).length>0&&<div><div style={{fontSize:10,color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Sin obra asignada</div><div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{filtDocs.filter(d=>!d.obra).map(d=><Card key={d.id} onClick={()=>openDoc(d)} style={{cursor:"pointer",padding:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>{d.tipo==="recibo"?"🧾":"📄"}</span><div><div style={{fontWeight:700,fontSize:13}}>{d.titulo}</div><div style={{fontSize:10,color:T.muted}}>{fd(d.fecha)}{d.hora&&" "+d.hora}</div></div></div>{d.monto>0&&<span style={{fontWeight:800,color:T.green}}>{$(d.monto)}</span>}</div></Card>)}</div></div>}
       </div>;})()}
 
+    {sec==="auditoria"&&<div>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:18,fontWeight:800}}>🔬 Auditoría del sistema</div>
+        <div style={{fontSize:11,color:T.muted,marginTop:2}}>Detecta y arregla inconsistencias en tus datos: obras duplicadas, variantes de nombre, fantasmas.</div>
+      </div>
+      <AuditoriaSistemaView obras={obras} movs={movs} caja={caja}
+        onNormalizar={()=>{
+          // 1. Normalizar TODOS los nombres de obra en movs/caja al nombre canónico (de obras[] si existe)
+          let nMovs=0,nCaja=0;
+          const newMovs=movs.map(m=>{if(!m.obra)return m;const real=obras.find(o=>normSearch(o.nombre)===normSearch(m.obra));if(real&&real.nombre!==m.obra){nMovs++;return{...m,obra:real.nombre};}return m;});
+          const newCaja=caja.map(c=>{if(!c.obra)return c;const real=obras.find(o=>normSearch(o.nombre)===normSearch(c.obra));if(real&&real.nombre!==c.obra){nCaja++;return{...c,obra:real.nombre};}return c;});
+          // 2. Eliminar obras duplicadas (deja la más completa)
+          const seen={};const newObras=[];
+          obras.forEach(o=>{const k=normSearch(o.nombre);if(!seen[k]){seen[k]=o;newObras.push(o);}else{
+            // Fusionar: sumar cotizado, preservar el más rico
+            const idx=newObras.findIndex(x=>normSearch(x.nombre)===k);
+            const ex=newObras[idx];
+            newObras[idx]={...ex,cotizado:(ex.cotizado||0)+(o.cotizado||0),partidas:[...(ex.partidas||[]),...(o.partidas||[])],pagos:[...(ex.pagos||[]),...(o.pagos||[])],extras:[...(ex.extras||[]),...(o.extras||[])]};
+          }});
+          const nObrasFusionadas=obras.length-newObras.length;
+          setMovs(newMovs);setCaja(newCaja);setObras(newObras);
+          _lastWrite.current["obras"]=Date.now()+15000;
+          _lastWrite.current["movs"]=Date.now()+15000;
+          _lastWrite.current["caja"]=Date.now()+15000;
+          show("🪄 Limpieza: "+(nMovs+nCaja)+" movs normalizados, "+nObrasFusionadas+" obras duplicadas fusionadas");
+        }}
+        onEliminarObrasDup={(obrasDup)=>{
+          // Fusiona N obras duplicadas en una sola (la primera por id menor)
+          const principal=obrasDup.sort((a,b)=>String(a.id).localeCompare(String(b.id)))[0];
+          const aEliminar=obrasDup.filter(o=>o.id!==principal.id);
+          const idsAEliminar=new Set(aEliminar.map(o=>o.id));
+          const sumaCot=aEliminar.reduce((s,o)=>s+(o.cotizado||0),0);
+          const newObras=obras.filter(o=>!idsAEliminar.has(o.id)).map(o=>o.id===principal.id?{...o,cotizado:(o.cotizado||0)+sumaCot}:o);
+          setObras(newObras);
+          _lastWrite.current["obras"]=Date.now()+15000;
+          show("🔗 "+aEliminar.length+" copias de '"+principal.nombre+"' fusionadas");
+        }}
+        onFusionarVariantes={(key,canonico)=>{
+          let nMovs=0,nCaja=0;
+          const newMovs=movs.map(m=>{if(m.obra&&normSearch(m.obra)===key&&m.obra!==canonico){nMovs++;return{...m,obra:canonico};}return m;});
+          const newCaja=caja.map(c=>{if(c.obra&&normSearch(c.obra)===key&&c.obra!==canonico){nCaja++;return{...c,obra:canonico};}return c;});
+          setMovs(newMovs);setCaja(newCaja);
+          _lastWrite.current["movs"]=Date.now()+15000;
+          _lastWrite.current["caja"]=Date.now()+15000;
+          show("✓ "+(nMovs+nCaja)+" movs unificados a '"+canonico+"'");
+        }}
+      />
+    </div>}
     {sec==="papelera"&&<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div>
