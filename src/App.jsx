@@ -15,6 +15,41 @@ const SUPA_URL='https://zzxabnvjooosgqviucct.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6eGFibnZqb29vc2dxdml1Y2N0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1Njg4NzIsImV4cCI6MjA4ODE0NDg3Mn0.um2zAO9liOBuQ-YbBxL4CR9S1eKw7t34F3MLERaUdpc';
 const CLOUD=SUPA_URL!=='___TU_URL___';
 let _syncOk=false;
+// ═══ AUTH (Supabase) — login real con correo+contraseña ═══
+// El token de sesión reemplaza a la anon key en las peticiones, para poder cerrar el acceso público.
+const AUTH={
+  _s:null, // {access_token, refresh_token, expires_at, email}
+  load(){try{const r=localStorage.getItem('ev_auth');if(r)this._s=JSON.parse(r);}catch{}return this._s;},
+  save(){try{this._s?localStorage.setItem('ev_auth',JSON.stringify(this._s)):localStorage.removeItem('ev_auth');}catch{}},
+  token(){return (this._s&&this._s.access_token)?this._s.access_token:SUPA_KEY;},
+  isAuthed(){return !!(this._s&&this._s.access_token);},
+  email(){return this._s?this._s.email:"";},
+  async signIn(email,password){
+    const r=await fetch(SUPA_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},body:JSON.stringify({email:String(email||"").trim().toLowerCase(),password})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j.access_token)throw new Error(j.error_description||j.msg||j.error||'Correo o contraseña incorrectos');
+    this._s={access_token:j.access_token,refresh_token:j.refresh_token,expires_at:Date.now()+((j.expires_in||3600)*1000),email:(j.user&&j.user.email)||email};
+    this.save();return this._s;
+  },
+  async refresh(){
+    if(!this._s||!this._s.refresh_token)return false;
+    try{
+      const r=await fetch(SUPA_URL+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},body:JSON.stringify({refresh_token:this._s.refresh_token})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok||!j.access_token){return false;}
+      this._s={access_token:j.access_token,refresh_token:j.refresh_token||this._s.refresh_token,expires_at:Date.now()+((j.expires_in||3600)*1000),email:(j.user&&j.user.email)||this._s.email};
+      this.save();return true;
+    }catch{return false;}
+  },
+  async ensureFresh(){
+    if(!this._s)return false;
+    if(Date.now()>(this._s.expires_at||0)-120000)return await this.refresh();
+    return true;
+  },
+  signOut(){this._s=null;this.save();}
+};
+AUTH.load();
+const _bearer=()=>'Bearer '+AUTH.token();
 // Listener global para que la UI muestre estado de guardado
 const _saveListeners=new Set();
 const _notifySave=(status,key,err)=>{_saveListeners.forEach(fn=>{try{fn({status,key,err});}catch{}});};
@@ -32,7 +67,8 @@ const DB={
   // En caso de fallo persistente, guarda en cola de pendientes.
   push:async(k,v,maxRetries=4)=>{
     if(!CLOUD)return true;
-    const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};
+    await AUTH.ensureFresh();
+    const headers={'apikey':SUPA_KEY,'Authorization':_bearer(),'Content-Type':'application/json'};
     // Stamp con timestamp del lado del cliente para resolver conflictos
     const payload={key:k,value:v,updated_at:new Date().toISOString()};
     let lastErr=null;
@@ -89,9 +125,10 @@ const DB={
   get:async(k,def)=>{
     let cloudVal=null,localVal=null;
     if(CLOUD){
+      await AUTH.ensureFresh();
       try{
         // Leer TODAS las filas con esta key, ordenadas por updated_at desc para tomar la más reciente
-        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value,updated_at&order=updated_at.desc.nullslast',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
+        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value,updated_at&order=updated_at.desc.nullslast',{headers:{'apikey':SUPA_KEY,'Authorization':_bearer()}});
         if(r.ok){
           const j=await r.json();
           if(Array.isArray(j)&&j.length>0){
@@ -100,7 +137,7 @@ const DB={
             // Si hay duplicados en Supabase, limpiar (deja solo el más reciente)
             if(j.length>1){
               console.warn('DB.get: '+k+' tiene '+j.length+' filas duplicadas en Supabase. Limpiando...');
-              const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};
+              const headers={'apikey':SUPA_KEY,'Authorization':_bearer(),'Content-Type':'application/json'};
               await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+encodeURIComponent(k),{method:'DELETE',headers}).catch(()=>{});
               await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{...headers,'Prefer':'return=minimal'},body:JSON.stringify({key:k,value:cloudVal,updated_at:new Date().toISOString()})}).catch(()=>{});
             }
@@ -181,9 +218,15 @@ const fixDateGlobal=f=>{if(!f)return"";f=String(f).trim();if(/^\d{4}-\d{2}-\d{2}
 const fd=d=>{if(!d)return "—";try{const ds=fixDateGlobal(d);const dt=new Date(ds+"T12:00:00");if(isNaN(dt.getTime()))return d;return dt.toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"2-digit"});}catch{return d;}};
 const pc=(a,b)=>b?Math.round((a/b)*100):0;
 const td=()=>new Date().toISOString().slice(0,10);
+// Siguiente ID numérico libre = (máximo id existente)+1. Evita colisiones tras borrar registros.
+const _nextNumId=arr=>(Array.isArray(arr)?arr:[]).reduce((mx,x)=>{const n=Number(x&&x.id);return Number.isFinite(n)&&n>mx?n:mx;},0)+1;
+// Sufijo aleatorio corto para IDs con prefijo (clientes, documentos) — evita colisiones por mismo milisegundo.
+const _rid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+// Reasigna SOLO los IDs numéricos repetidos (no borra nada). Devuelve {out, changed}.
+const _dedupNumIds=arr=>{if(!Array.isArray(arr))return{out:arr,changed:false};const seen=new Set();let mx=arr.reduce((m,x)=>{const n=Number(x&&x.id);return Number.isFinite(n)&&n>m?n:m;},0);let changed=false;const out=arr.map(x=>{if(x&&x.id!=null&&!seen.has(x.id)){seen.add(x.id);return x;}changed=true;mx+=1;seen.add(mx);return{...x,id:mx};});return{out,changed};};
 // === Helpers globales para matching robusto ===
 const normName=s=>{if(!s)return"";return s.toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9 ]/g,"").replace(/\s+/g," ").trim();};
-const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
+const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");return na===nb;};
 // Cargar pdf.js dinámicamente desde CDN cuando se necesite
 let _pdfjsLoaded=false;
 const loadPdfJs=()=>new Promise((resolve,reject)=>{
@@ -417,10 +460,10 @@ function ObrasSelect({value,onChange,obras,allowGeneral,placeholder}){
   </div>;
 }
 function IngForm({obras,movs,clis,onSave}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",ing:"",obra:""});const ob=obras.find(o=>o.nombre===f.obra);const pagado=ob?movs.filter(m=>m.ing>0&&sameObra(m.obra,ob.nombre)).reduce((s,m)=>s+m.ing,0):0;const a1=ob?Math.round(ob.cotizado*.6):0;const a2=ob?Math.round(ob.cotizado*.2):0;const a3=ob?Math.round(ob.cotizado*.2):0;const sugerido=ob?(pagado<a1?a1-pagado:pagado<a1+a2?a1+a2-pagado:pagado<ob.cotizado?ob.cotizado-pagado:0):0;const etapa=ob?(pagado<a1?"Anticipo 60%":pagado<a1+a2?"Avance 20%":"Entrega 20%"):"";return <div><Fl l="Obra"><ObrasSelect value={f.obra} obras={obras} onChange={e=>{const selOb=obras.find(o=>o.nombre===e.target.value);sf({...f,obra:e.target.value,desc:"",prov:selOb&&selOb.cliente?selOb.cliente:f.prov});}} placeholder="Seleccionar obra"/></Fl>{ob&&<div style={{background:"rgba(201,149,107,.08)",border:"1px solid rgba(201,149,107,.15)",borderRadius:10,padding:12,marginBottom:12,marginTop:8}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:8}}><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold}}>{$(ob.cotizado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green}}>{$(pagado)}</div></div><div style={{textAlign:"center"}}><div style={{fontSize:9,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:ob.cotizado-pagado>0?T.yellow:T.green}}>{$(ob.cotizado-pagado)}</div></div></div>{sugerido>0&&<div><div style={{fontSize:10,color:T.gold,fontWeight:700,marginBottom:4}}>Siguiente pago: {etapa}</div><div style={{display:"flex",gap:6}}>{[{l:etapa,v:sugerido},{l:"Total restante",v:ob.cotizado-pagado}].filter((x,i,a)=>i===0||x.v!==a[0].v).map(x=><button key={x.l} onClick={()=>sf({...f,ing:String(x.v),desc:x.l+" - "+ob.nombre,prov:ob.cliente||f.prov})} style={{flex:1,padding:"8px 6px",borderRadius:8,border:"1px solid "+T.gold+"33",background:Number(f.ing)===x.v?T.gold+"22":"transparent",color:Number(f.ing)===x.v?T.gold:T.muted,fontSize:11,fontWeight:700,cursor:"pointer"}}>{x.l}: {$(x.v)}</button>)}</div></div>}</div>}<Fl l="Recibido de"><input list="ing-cli-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Nombre del cliente"/><datalist id="ing-cli-list">{(clis||[]).map(c=><option key={c.id} value={c.nombre}/>)}</datalist></Fl><Fl l="Concepto"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})} placeholder="Ej: Anticipo 60%"/></Fl><Fl l="Monto"><input type="number" style={{...sI,fontSize:20,fontWeight:800,textAlign:"center"}} value={f.ing} onChange={e=>sf({...f,ing:e.target.value})} placeholder="$0"/></Fl><button style={{...sB,background:T.green,opacity:Number(f.ing)>0?1:.5}} onClick={()=>{const m=Number(f.ing);if(m>0){const desc=f.desc||f.prov||("Ingreso "+f.obra);onSave({...f,desc,ing:m,egr:0});}}}>💰 Registrar + Generar Recibo</button></div>;}
-function EgrForm({obras,provs,onSave,onNewProv}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});const exists=provs.some(p=>p.nombre.toLowerCase()===f.prov.toLowerCase());return <div><Fl l="Proveedor"><input list="prov-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="prov-list">{provs.map(p=> <option key={p.id} value={p.nombre}/>)}</datalist>{f.prov&&!exists&&<div style={{fontSize:10,color:T.orange,marginTop:3}}>⚡ Nuevo proveedor — se creará automáticamente</div>}</Fl><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})}/></Fl><Fl l="Obra"><ObrasSelect value={f.obra} obras={obras} allowGeneral onChange={e=>sf({...f,obra:e.target.value})} placeholder="Seleccionar obra"/></Fl><button style={{...sB,background:T.red,color:"#fff",marginTop:12}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0){if(f.prov&&!exists&&onNewProv)onNewProv(f.prov);onSave({...f,egr:m,ing:0});}}}>Registrar Egreso</button></div>;}
+function EgrForm({obras,provs,onSave,onNewProv}){const[f,sf]=useState({fecha:td(),prov:"",desc:"",egr:"",obra:"",cat:"Material"});const exists=provs.some(p=>p.nombre.toLowerCase()===f.prov.toLowerCase());return <div><Fl l="Proveedor"><input list="prov-list" style={sI} value={f.prov} onChange={e=>sf({...f,prov:e.target.value})} placeholder="Seleccionar o escribir nuevo"/><datalist id="prov-list">{provs.map(p=> <option key={p.id} value={p.nombre}/>)}</datalist>{f.prov&&!exists&&<div style={{fontSize:10,color:T.orange,marginTop:3}}>⚡ Nuevo proveedor — se creará automáticamente</div>}</Fl><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.egr} onChange={e=>sf({...f,egr:e.target.value})}/></Fl><Fl l="Obra"><ObrasSelect value={f.obra} obras={obras} allowGeneral onChange={e=>sf({...f,obra:e.target.value})} placeholder="Seleccionar obra"/></Fl>{(()=>{const so=f.obra&&f.obra!=="General"?obras.find(o=>sameObra(o.nombre,f.obra)):null;return so&&so.cliente?<div style={{fontSize:11,color:T.teal,margin:"-2px 0 8px",padding:"6px 10px",background:"rgba(38,166,154,.06)",border:"1px solid "+T.teal+"22",borderRadius:6}}>👤 Cliente de esta obra: <b style={{color:T.teal}}>{so.cliente}</b></div>:null;})()}<button style={{...sB,background:T.red,color:"#fff",marginTop:12}} onClick={()=>{const m=Number(f.egr);if(f.desc&&m>0){if(f.prov&&!exists&&onNewProv)onNewProv(f.prov);onSave({...f,egr:m,ing:0});}}}>Registrar Egreso</button></div>;}
 const getApiKey=()=>localStorage.getItem('ev_apikey')||"";
 const callAI=async(messages,max_tokens=1000,system)=>{const key=getApiKey();if(!key)throw new Error("NO_KEY");const body={model:"claude-sonnet-4-20250514",max_tokens,messages};if(system)body.system=system;const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify(body)});if(!r.ok){const t=await r.text().catch(()=>"");throw new Error("API "+r.status+": "+t.slice(0,200));}return r.json();};
-function CajaForm({onSave,users,obras}){const[f,sf]=useState({fecha:td(),concepto:"",monto:"",resp:"Taller",obra:"",ticket:""});const[scanning,setScanning]=useState(false);const scanTicket=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});sf(prev=>({...prev,ticket:"data:"+(file.type||"image/jpeg")+";base64,"+b64}));const data=await callAI([{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Este es un ticket/recibo de compra. Extrae: concepto (qué se compró, resumido), monto total. Responde SOLO JSON sin markdown: {"concepto":"x","monto":0}'}]}],500);const text=data.content?.map(i=>i.text||"").join("")||"{}";const info=JSON.parse(text.replace(/```json|```/g,"").trim());if(info.concepto)sf(prev=>({...prev,concepto:info.concepto,monto:String(info.monto||"")}));}catch(e){if(e.message==="NO_KEY")alert("Configura tu API Key en ⚙️ Más → API Key Claude");else console.warn("Scan error:",e);}setScanning(false);};return <div><div style={{marginBottom:12}}><label style={{display:"block",padding:16,border:"2px dashed "+(scanning?T.blue:f.ticket?T.green:T.border),borderRadius:10,textAlign:"center",cursor:scanning?"wait":"pointer",background:scanning?"#0a1a33":f.ticket?"#0a1a0a":"#111"}}><input type="file" accept="image/*,.pdf,application/pdf" style={{display:"none"}} onChange={async e=>{const raw=e.target.files[0];if(!raw)return;try{const f=await compressImage(raw);scanTicket(f);}catch(err){alert(err.message);}}}/>{scanning?<div style={{color:T.blue,fontWeight:700}}>🔄 Leyendo ticket...</div>:f.ticket?<div><img src={f.ticket} style={{maxHeight:120,borderRadius:8,marginBottom:6}} alt=""/><div style={{fontSize:10,color:T.green,fontWeight:700}}>✅ Ticket cargado</div></div>:<div><div style={{fontSize:24}}>🧾</div><div style={{color:T.gold,fontWeight:700,fontSize:12}}>Escanear Ticket</div><div style={{fontSize:10,color:T.muted}}>📷 Cámara · 🖼️ Galería · 📄 PDF</div></div>}</label></div><Fl l="Concepto"><input style={sI} value={f.concepto} onChange={e=>sf({...f,concepto:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Responsable"><select style={sI} value={f.resp} onChange={e=>sf({...f,resp:e.target.value})}>{users.map(u=> <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></Fl><Fl l="Obra"><ObrasSelect value={f.obra} obras={obras||[]} allowGeneral onChange={e=>sf({...f,obra:e.target.value})} placeholder="Seleccionar obra"/></Fl><button style={{...sB,marginTop:12}} onClick={()=>{if(f.concepto&&Number(f.monto)>0&&f.obra)onSave({...f,monto:Number(f.monto)});else if(!f.obra)alert("Selecciona una obra");}}>Guardar</button></div>;}
+function CajaForm({onSave,users,obras}){const[f,sf]=useState({fecha:td(),concepto:"",monto:"",resp:"Taller",obra:"",ticket:""});const[scanning,setScanning]=useState(false);const scanTicket=async(file)=>{setScanning(true);try{const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});sf(prev=>({...prev,ticket:"data:"+(file.type||"image/jpeg")+";base64,"+b64}));const data=await callAI([{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:'Este es un ticket/recibo de compra. Extrae: concepto (qué se compró, resumido), monto total. Responde SOLO JSON sin markdown: {"concepto":"x","monto":0}'}]}],500);const text=data.content?.map(i=>i.text||"").join("")||"{}";const info=JSON.parse(text.replace(/```json|```/g,"").trim());if(info.concepto)sf(prev=>({...prev,concepto:info.concepto,monto:String(info.monto||"")}));}catch(e){if(e.message==="NO_KEY")alert("Configura tu API Key en ⚙️ Más → API Key Claude");else console.warn("Scan error:",e);}setScanning(false);};return <div><div style={{marginBottom:12}}><label style={{display:"block",padding:16,border:"2px dashed "+(scanning?T.blue:f.ticket?T.green:T.border),borderRadius:10,textAlign:"center",cursor:scanning?"wait":"pointer",background:scanning?"#0a1a33":f.ticket?"#0a1a0a":"#111"}}><input type="file" accept="image/*,.pdf,application/pdf" style={{display:"none"}} onChange={async e=>{const raw=e.target.files[0];if(!raw)return;try{const f=await compressImage(raw);scanTicket(f);}catch(err){alert(err.message);}}}/>{scanning?<div style={{color:T.blue,fontWeight:700}}>🔄 Leyendo ticket...</div>:f.ticket?<div><img src={f.ticket} style={{maxHeight:120,borderRadius:8,marginBottom:6}} alt=""/><div style={{fontSize:10,color:T.green,fontWeight:700}}>✅ Ticket cargado</div></div>:<div><div style={{fontSize:24}}>🧾</div><div style={{color:T.gold,fontWeight:700,fontSize:12}}>Escanear Ticket</div><div style={{fontSize:10,color:T.muted}}>📷 Cámara · 🖼️ Galería · 📄 PDF</div></div>}</label></div><Fl l="Concepto"><input style={sI} value={f.concepto} onChange={e=>sf({...f,concepto:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><Fl l="Responsable"><select style={sI} value={f.resp} onChange={e=>sf({...f,resp:e.target.value})}>{users.map(u=> <option key={u.id} value={u.nombre}>{u.nombre}</option>)}</select></Fl><Fl l="Obra"><ObrasSelect value={f.obra} obras={obras||[]} allowGeneral onChange={e=>sf({...f,obra:e.target.value})} placeholder="Seleccionar obra"/></Fl>{(()=>{const so=f.obra&&f.obra!=="General"?(obras||[]).find(o=>sameObra(o.nombre,f.obra)):null;return so&&so.cliente?<div style={{fontSize:11,color:T.teal,margin:"-2px 0 8px",padding:"6px 10px",background:"rgba(38,166,154,.06)",border:"1px solid "+T.teal+"22",borderRadius:6}}>👤 Cliente de esta obra: <b style={{color:T.teal}}>{so.cliente}</b></div>:null;})()}<button style={{...sB,marginTop:12}} onClick={()=>{if(f.concepto&&Number(f.monto)>0&&f.obra)onSave({...f,monto:Number(f.monto)});else if(!f.obra)alert("Selecciona una obra");}}>Guardar</button></div>;}
 function ExtraForm({onSave}){const[f,sf]=useState({desc:"",monto:""});return <div><Fl l="Descripción"><input style={sI} value={f.desc} onChange={e=>sf({...f,desc:e.target.value})}/></Fl><Fl l="Monto"><input type="number" style={sI} value={f.monto} onChange={e=>sf({...f,monto:e.target.value})}/></Fl><button style={{...sB,background:T.orange}} onClick={()=>{const m=Number(f.monto);if(f.desc&&m>0)onSave({desc:f.desc,monto:m});}}>Enviar</button></div>;}
 function ClienteForm({onSave}){const[f,sf]=useState({nombre:"",tel:"",email:"",dir:""});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Teléfono"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><Fl l="Email"><input style={sI} value={f.email} onChange={e=>sf({...f,email:e.target.value})}/></Fl></div><Fl l="Dirección"><input style={sI} value={f.dir} onChange={e=>sf({...f,dir:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave(f)}>Guardar</button></div>;}
 function DocForm({onSave}){const[f,sf]=useState({nombre:"",tipo:"plano",ext:"PDF"});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Tipo"><select style={sI} value={f.tipo} onChange={e=>sf({...f,tipo:e.target.value})}><option value="plano">Plano</option><option value="render">Render</option><option value="contrato">Contrato</option><option value="avance">Avance</option></select></Fl><button style={sB} onClick={()=>f.nombre&&onSave(f)}>Subir</button></div>;}
@@ -641,7 +684,7 @@ function ImportadorMasivoForm({tipo,obras,onImport}){
 }
 function ObrasSimilaresView({obras,movs,caja,onFusionar}){
   // Incluir obras "reales" + obras fantasmas (nombres encontrados en movs/caja sin match en obras[])
-  const sameObra3=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
+  const sameObra3=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");return na===nb;};
   const todosNombres=new Map();
   obras.forEach(o=>todosNombres.set(normSearch(o.nombre),{id:o.id,nombre:o.nombre,cotizado:o.cotizado||0,cliente:o.cliente||"",fase:o.fase,isFantasma:false}));
   movs.forEach(m=>{if(m.obra){const k=normSearch(m.obra);if(!todosNombres.has(k))todosNombres.set(k,{id:"F-"+k,nombre:m.obra,cotizado:0,cliente:"",isFantasma:true});}});
@@ -709,7 +752,7 @@ function ObrasSimilaresView({obras,movs,caja,onFusionar}){
   </div>;
 }
 function DelObraForm({obra,obras,movs,caja,onDone}){
-  const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
+  const sameObra=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");return na===nb;};
   const movsObra=movs.filter(m=>sameObra(m.obra,obra.nombre));
   const cajaObra=caja.filter(c=>sameObra(c.obra,obra.nombre));
   const totalMovs=movsObra.length+cajaObra.length;
@@ -770,10 +813,49 @@ function DelObraForm({obra,obras,movs,caja,onDone}){
     </button>
   </div>;
 }
-function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
+function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,setObras,show,cm}){
   const [reasignarFrom,setReasignarFrom]=useState(null);
   const [reasignarTo,setReasignarTo]=useState("");
-  const sameObra2=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().replace(/\s+/g," ");return na===nb;};
+  // Selección múltiple para fusión inline
+  const [seleccionadas,setSeleccionadas]=useState(new Set()); // Set de keys de obras a fusionar
+  const [elegirPrincipal,setElegirPrincipal]=useState(false);
+  const [principalKey,setPrincipalKey]=useState(null);
+  const toggleSel=(key)=>setSeleccionadas(prev=>{const s=new Set(prev);if(s.has(key))s.delete(key);else s.add(key);return s;});
+  const sameObra2=(a,b)=>{const na=(a||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");const nb=(b||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");return na===nb;};
+  // Fusiona N keys de obras: reasigna todos los movs/caja a la principal + elimina obras duplicadas del array obras
+  const fusionarSeleccionadas=(listaFull,principalK)=>{
+    const seleccionadasObj=listaFull.filter(o=>seleccionadas.has(o.key));
+    const principal=seleccionadasObj.find(o=>o.key===principalK);
+    if(!principal){if(show)show("⚠️ Selecciona la obra principal");return;}
+    const otras=seleccionadasObj.filter(o=>o.key!==principalK);
+    let nMovs=0,nCaja=0;
+    let newMovs=movs,newCaja=caja;
+    otras.forEach(o=>{
+      newMovs=newMovs.map(m=>{if(normSearch(m.obra||"")===o.key){nMovs++;return{...m,obra:principal.nombre};}return m;});
+      newCaja=newCaja.map(c=>{if(normSearch(c.obra||"")===o.key){nCaja++;return{...c,obra:principal.nombre};}return c;});
+    });
+    // También: si la principal tiene un nombre distinto al canónico, normalizar TODOS sus movs al canónico
+    const realPrincipal=obras.find(o=>normSearch(o.nombre)===principalK);
+    if(realPrincipal&&realPrincipal.nombre!==principal.nombre){
+      newMovs=newMovs.map(m=>{if(normSearch(m.obra||"")===principalK&&m.obra!==realPrincipal.nombre){nMovs++;return{...m,obra:realPrincipal.nombre};}return m;});
+      newCaja=newCaja.map(c=>{if(normSearch(c.obra||"")===principalK&&c.obra!==realPrincipal.nombre){nCaja++;return{...c,obra:realPrincipal.nombre};}return c;});
+    }
+    setMovs(newMovs);setCaja(newCaja);
+    // Si las "otras" tienen obras REALES (no fantasmas) en obras[], eliminarlas (después de transferir sus movs)
+    if(setObras){
+      const aEliminarKeys=new Set(otras.filter(o=>!o.isFantasma).map(o=>o.key));
+      if(aEliminarKeys.size>0){
+        const sumaCotizado=obras.filter(o=>aEliminarKeys.has(normSearch(o.nombre))).reduce((s,o)=>s+(o.cotizado||0),0);
+        const newObras=obras.filter(o=>!aEliminarKeys.has(normSearch(o.nombre))).map(o=>{
+          if(normSearch(o.nombre)===principalK&&sumaCotizado>0)return{...o,cotizado:(o.cotizado||0)+sumaCotizado};
+          return o;
+        });
+        setObras(newObras);
+      }
+    }
+    setSeleccionadas(new Set());setElegirPrincipal(false);setPrincipalKey(null);
+    if(show)show("🔗 "+otras.length+" obras fusionadas en '"+principal.nombre+"' · "+(nMovs+nCaja)+" movs reasignados");
+  };
   const doReasignar=(origen,destino)=>{
     const newMovs=movs.map(m=>{if(sameObra2(m.obra,origen)){return{...m,obra:destino};}return m;});
     const newCaja=caja.map(c=>{if(sameObra2(c.obra,origen)){return{...c,obra:destino};}return c;});
@@ -829,17 +911,17 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
       o.tipo="fantasma";
     }
   });
-  // Calcular diferencia
-  const lista=Object.values(map).map(o=>{
+  // Calcular diferencia (con key para selección múltiple)
+  const lista=Object.entries(map).map(([key,o])=>{
     const dif=o.ing-o.egr;
     const cobPct=o.cot?Math.round((o.ing/o.cot)*100):0;
     const gasPct=o.cot?Math.round((o.egr/o.cot)*100):0;
-    const desfase=gasPct-cobPct; // si es positivo, gastaste más % de lo cobrado
+    const desfase=gasPct-cobPct;
     let status="ok";
-    if(dif<0)status="perdida"; // gastaste más que cobraste
-    else if(o.cot&&desfase>20)status="descapitalizado"; // vas atrasado en cobranza
-    return {...o,dif,cobPct,gasPct,desfase,status};
-  }).sort((a,b)=>a.dif-b.dif); // peor primero
+    if(dif<0)status="perdida";
+    else if(o.cot&&desfase>20)status="descapitalizado";
+    return {...o,key,dif,cobPct,gasPct,desfase,status};
+  }).sort((a,b)=>a.dif-b.dif);
   const totIng=lista.reduce((s,o)=>s+o.ing,0);
   const totEgr=lista.reduce((s,o)=>s+o.egr,0);
   const totDif=totIng-totEgr;
@@ -877,9 +959,10 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
     {/* Tabla compacta de obras */}
     <div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
       <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:620}}>
           <thead>
             <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
+              <th style={{padding:"8px 4px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",borderRight:"1px solid #333",width:30}} title="Marca varias y fusiónalas">☑</th>
               <th style={{padding:"8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",borderRight:"1px solid #333",width:24}}>●</th>
               <th style={{padding:"8px 10px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",borderRight:"1px solid #333"}}>Proyecto</th>
               <th style={{padding:"8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",borderRight:"1px solid #333",width:100}}>Cobrado</th>
@@ -892,7 +975,11 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
             {lista.map((o,idx)=>{
               const sem=o.status==="perdida"?T.red:o.status==="descapitalizado"?T.yellow:o.isFantasma?T.purple:T.green;
               const isOpen=reasignarFrom===o.nombre;
-              return [<tr key={idx} style={{background:idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:isOpen?"none":"1px solid #2a2a2a"}}>
+              const isSel=seleccionadas.has(o.key);
+              return [<tr key={idx} style={{background:isSel?"rgba(171,71,188,.12)":idx%2===0?"rgba(255,255,255,.01)":"transparent",borderBottom:isOpen?"none":"1px solid #2a2a2a",boxShadow:isSel?"inset 4px 0 0 "+T.purple:"none"}}>
+                <td style={{padding:"6px 4px",textAlign:"center",borderRight:"1px solid #2a2a2a"}}>
+                  {o.tipo!=="general"&&<input type="checkbox" checked={isSel} onChange={()=>toggleSel(o.key)} style={{cursor:"pointer",accentColor:T.purple,width:16,height:16}} title="Marcar para fusionar"/>}
+                </td>
                 <td style={{padding:"6px",textAlign:"center",borderRight:"1px solid #2a2a2a"}} title={o.status}>
                   <span style={{display:"inline-block",width:10,height:10,borderRadius:5,background:sem}}/>
                 </td>
@@ -909,7 +996,7 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
                 </td>
               </tr>,
               isOpen&&<tr key={idx+"-r"} style={{background:"rgba(171,71,188,.06)",borderBottom:"1px solid #2a2a2a"}}>
-                <td colSpan={6} style={{padding:"10px 14px"}}>
+                <td colSpan={7} style={{padding:"10px 14px"}}>
                   <div style={{fontSize:11,color:T.purple,fontWeight:700,marginBottom:6}}>🔀 Reasignar TODOS los movs de "{o.nombre}" a:</div>
                   <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                     <select style={{...sI,flex:1,minWidth:200,fontSize:12,padding:"8px"}} value={reasignarTo} onChange={e=>setReasignarTo(e.target.value)}>
@@ -926,7 +1013,7 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
           </tbody>
           <tfoot>
             <tr style={{background:"#1a1a1a",borderTop:"2px solid #444"}}>
-              <td colSpan={2} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.gold}}>TOTAL ({lista.length})</td>
+              <td colSpan={3} style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.gold}}>TOTAL ({lista.length})</td>
               <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.green,fontSize:13,borderLeft:"1px solid #333"}}>{$(totIng)}</td>
               <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:T.red,fontSize:13,borderLeft:"1px solid #333"}}>{$(totEgr)}</td>
               <td style={{padding:"8px",textAlign:"right",fontWeight:800,color:totDif>=0?T.green:T.red,fontSize:14,borderLeft:"1px solid #333"}}>{$(totDif)}</td>
@@ -941,9 +1028,54 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
       <div style={{color:T.gold,fontWeight:700,marginBottom:4}}>📖 Cómo leer:</div>
       <div>🔴 <b style={{color:T.red}}>Pérdida</b>: gastaste MÁS de lo que cobraste. Te están metiendo de tu bolsa.</div>
       <div>🟡 <b style={{color:T.yellow}}>Descapitalizado</b>: vas a buen ritmo de gasto pero atrasado en cobranza (gastaste {">"} 20% más que lo que llevas cobrado). Pídele al cliente.</div>
-      <div>👻 <b style={{color:T.purple}}>Fantasma</b>: tiene movimientos pero la obra ya no existe en tu sistema. Fusiónala con una obra activa.</div>
+      <div>👻 <b style={{color:T.purple}}>Fantasma</b>: tiene movimientos pero la obra ya no existe en tu sistema. Marcala con ☑ y la fusionas en un clic.</div>
       <div>🟢 <b style={{color:T.green}}>OK</b>: cobranza al día y rentable.</div>
+      <div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border,color:T.purple}}>💡 <b>Tip:</b> Marca con ☑ las obras que sean LA MISMA y aparece abajo un botón "Fusionar X obras". Sin salir del análisis.</div>
     </div>
+    {/* === BARRA INFERIOR FLOTANTE: Acciones con selección múltiple === */}
+    {seleccionadas.size>=2&&!elegirPrincipal&&(()=>{
+      const sels=lista.filter(o=>seleccionadas.has(o.key));
+      const totIng=sels.reduce((s,o)=>s+o.ing,0);
+      const totEgr=sels.reduce((s,o)=>s+o.egr,0);
+      return <div style={{position:"sticky",bottom:0,marginTop:14,padding:"12px 14px",background:"linear-gradient(135deg,rgba(171,71,188,.18),rgba(171,71,188,.08))",border:"2px solid "+T.purple,borderRadius:10,boxShadow:"0 -4px 20px rgba(0,0,0,.5)",zIndex:50}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:12,fontWeight:800,color:T.purple}}>🔗 {seleccionadas.size} obras seleccionadas → si son LA MISMA, fusionarlas</div>
+            <div style={{fontSize:10,color:T.muted,marginTop:2}}>{sels.map(s=>s.nombre).join(" + ")} · Total: cobrado {$(totIng)} · gastado {$(totEgr)}</div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>{setSeleccionadas(new Set());setPrincipalKey(null);}} style={{padding:"8px 12px",borderRadius:6,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:11,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={()=>setElegirPrincipal(true)} style={{padding:"8px 16px",borderRadius:6,border:"none",background:T.purple,color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>Fusionar {seleccionadas.size} obras →</button>
+          </div>
+        </div>
+      </div>;
+    })()}
+    {/* === MODAL DE ELEGIR PRINCIPAL === */}
+    {elegirPrincipal&&(()=>{
+      const sels=lista.filter(o=>seleccionadas.has(o.key));
+      return <div onClick={()=>setElegirPrincipal(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:5500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div onClick={e=>e.stopPropagation()} style={{maxWidth:520,width:"100%",background:"#1a1a1a",border:"1px solid "+T.purple,borderRadius:12,padding:18,boxShadow:"0 20px 60px rgba(0,0,0,.6)"}}>
+          <div style={{fontSize:14,fontWeight:800,color:T.purple,marginBottom:6}}>🔗 ¿Cuál es la obra PRINCIPAL?</div>
+          <div style={{fontSize:11,color:T.muted,marginBottom:12}}>Las demás se fusionarán en esa. Sus movs se reasignan y se eliminan las obras secundarias.</div>
+          <div style={{display:"grid",gap:6,marginBottom:14}}>
+            {sels.map(o=>{const isPrincipal=principalKey===o.key;return <div key={o.key} onClick={()=>setPrincipalKey(o.key)} style={{padding:"10px 12px",background:isPrincipal?"rgba(76,175,80,.12)":"rgba(255,255,255,.02)",border:"2px solid "+(isPrincipal?T.green:T.border),borderRadius:8,cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:13}}>{o.nombre} {isPrincipal&&<span style={{fontSize:10,color:T.green,marginLeft:6,fontWeight:800}}>✓ PRINCIPAL</span>} {o.isFantasma&&<span style={{fontSize:9,color:T.purple,marginLeft:4}}>👻</span>}</div>
+                  <div style={{fontSize:10,color:T.muted,marginTop:2}}>{o.cot>0?"Cotizado "+$(o.cot)+" · ":""}{o.nMovs} mov{o.nMovs!==1?"s":""} · Ing {$(o.ing)} · Eg {$(o.egr)}</div>
+                </div>
+                <span style={{width:18,height:18,borderRadius:9,border:"2px solid "+(isPrincipal?T.green:T.dim),display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:10,color:T.green,background:isPrincipal?T.green:"transparent"}}>{isPrincipal?"✓":""}</span>
+              </div>
+            </div>;})}
+          </div>
+          <div style={{padding:10,background:"rgba(255,213,79,.06)",borderRadius:6,fontSize:11,color:T.muted,marginBottom:12}}>💡 Tip: elige la obra REAL (no fantasma) con más cotizado o más cliente registrado.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{setElegirPrincipal(false);setPrincipalKey(null);}} style={{flex:1,padding:"10px",borderRadius:6,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={()=>{if(!principalKey){if(show)show("Selecciona cuál es la principal");return;}const p=sels.find(s=>s.key===principalKey);if(!confirm("¿Fusionar "+(sels.length-1)+" obra(s) en '"+p.nombre+"'?\n\nNo se puede deshacer."))return;fusionarSeleccionadas(lista,principalKey);}} disabled={!principalKey} style={{flex:2,padding:"10px",borderRadius:6,border:"none",background:principalKey?T.purple:T.dim,color:"#fff",fontWeight:800,fontSize:13,cursor:principalKey?"pointer":"not-allowed"}}>🔗 Fusionar todo en {principalKey?(sels.find(s=>s.key===principalKey)||{}).nombre:"..."}</button>
+          </div>
+        </div>
+      </div>;
+    })()}
   </div>;
 }
 function FusionarObrasForm({finObras,obras,countMovs,onFuse}){
@@ -981,10 +1113,44 @@ function FusionarObrasForm({finObras,obras,countMovs,onFuse}){
   </div>;
 }
 
+// ═══ PUERTA DE ACCESO (Supabase Auth) — cuenta compartida del taller ═══
+// Correo fijo (no es secreto). Lo único que se teclea es la contraseña, UNA vez por dispositivo.
+const TEAM_EMAIL="arq.villarreal07@gmail.com";
+function LoginGate({onAuthed}){
+  const[pass,setPass]=useState("");
+  const[err,setErr]=useState("");
+  const[busy,setBusy]=useState(false);
+  const entrar=async()=>{
+    if(busy)return;
+    if(!pass){setErr("Escribe la contraseña del taller");return;}
+    setBusy(true);setErr("");
+    try{await AUTH.signIn(TEAM_EMAIL,pass);onAuthed();}
+    catch(e){const m=String(e.message||"");setErr(/invalid login|credentials|invalid/i.test(m)?"Contraseña incorrecta":(m||"No se pudo iniciar sesión"));setBusy(false);}
+  };
+  return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{width:"100%",maxWidth:360}}>
+      <div style={{textAlign:"center",marginBottom:24,display:"flex",flexDirection:"column",alignItems:"center"}}>
+        <BrandFull size="big" sub="Carpintería Arquitectónica"/>
+        <div style={{fontSize:9,color:T.dim,marginTop:8,fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div>
+      </div>
+      <div style={{background:"rgba(255,255,255,.025)",border:"1px solid rgba(255,255,255,.06)",borderRadius:14,padding:18}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.gold,marginBottom:2}}>🔒 Acceso del taller</div>
+        <div style={{fontSize:11,color:T.muted,marginBottom:14}}>Solo la primera vez en este dispositivo. Después entras directo con tu PIN.</div>
+        {/* Correo oculto para que el navegador guarde la contraseña, pero no se teclea */}
+        <input type="email" autoComplete="username" value={TEAM_EMAIL} readOnly style={{display:"none"}}/>
+        <Fl l="Contraseña del taller"><input id="login-pass" type="password" autoFocus autoComplete="current-password" style={sI} value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")entrar();}} placeholder="••••••••"/></Fl>
+        {err&&<div style={{fontSize:11,color:T.red,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"33",borderRadius:8,padding:"8px 10px",marginBottom:8}}>⚠️ {err}</div>}
+        <button style={{...sB,opacity:busy?.6:1,cursor:busy?"wait":"pointer"}} onClick={entrar} disabled={busy}>{busy?"Entrando...":"Entrar"}</button>
+      </div>
+    </div>
+  </div>;
+}
+
 export default function App(){
   const[w,setW]=useState(typeof window!=="undefined"?window.innerWidth:400);
   useEffect(()=>{const h=()=>setW(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
   const D=w>=860;const G=D?"1fr 1fr":"1fr";
+  const[authed,setAuthed]=useState(()=>AUTH.isAuthed());
   const[user,setUser]=useState(null);
   const[sec,setSec]=useState("dash");
   const[sub,setSub]=useState(null);
@@ -1075,7 +1241,7 @@ export default function App(){
   const[documentos,setDocumentosR]=useState([]);
   const[preciosUnit,setPreciosUnitR]=useState(PRECIOS_INIT);
   const[papelera,setPapeleraR]=useState([]);
-  useEffect(()=>{(async()=>{
+  useEffect(()=>{if(CLOUD&&!authed)return;(async()=>{
     if(CLOUD)setSyncStatus("Conectando a la nube...");
     const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[]),preciosUnit:await DB.get('preciosUnit',PRECIOS_INIT),papelera:await DB.get('papelera',[])};
     if(CLOUD)setSyncStatus(_syncOk?"☁️ Nube sincronizada":"⚠️ Usando datos locales");
@@ -1086,24 +1252,30 @@ export default function App(){
 
     // Fix duplicate obra IDs
     const seenIds=new Set();d.obras=d.obras.map(o=>{if(seenIds.has(o.id)){return{...o,id:"OB"+Date.now()+Math.random().toString(36).slice(2,6)};}seenIds.add(o.id);return o;});
+    // Fix duplicate movs/caja IDs (causaban editar/borrar el registro equivocado)
+    const movsDedup=_dedupNumIds(d.movs);d.movs=movsDedup.out;
+    const cajaDedup=_dedupNumIds(d.caja);d.caja=cajaDedup.out;
     setObrasR(d.obras);setMovsR(d.movs);setCajaR(d.caja);setAutsR(d.auts);setRecR(d.rec);setInvR(d.inv);setClisR(d.clis);setContR(d.cont);setProvsR(d.provs);setUsersR(d.users);setCatalogoR(d.catalogo);if(d.nominas)setNominasR(d.nominas);if(d.documentos)setDocumentosR(d.documentos);if(d.preciosUnit)setPreciosUnitR(d.preciosUnit);
+    if(movsDedup.changed)DB.set('movs',d.movs);
+    if(cajaDedup.changed)DB.set('caja',d.caja);
     // Auto-purge papelera >30 días
     const now=Date.now();const pap=(d.papelera||[]).filter(p=>now-(p.ts||0)<30*24*60*60*1000);
     setPapeleraR(pap);
     if(pap.length<(d.papelera||[]).length)DB.set('papelera',pap);
     // Save fixed obras back if duplicates were found
     if(seenIds.size<d.obras.length)DB.set('obras',d.obras);
-    setLoading(false);})();},[]);
+    setLoading(false);})();},[authed]);
   // Auto-sync cada 30s — compara por HASH (no por longitud) para detectar modificaciones
   const _lastWrite=useRef({});
   const _lastHash=useRef({});
   useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{
+    await AUTH.ensureFresh();
     // Reintentar pendientes ANTES de leer (los pendientes son la verdad local)
     await DB.reintentarPendientes();
     const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){
     // Cooldown extendido a 60s tras escritura local — protege modificaciones
     if(_lastWrite.current[k]&&now-_lastWrite.current[k]<60000)continue;
-    const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
+    const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':_bearer()}});
     if(!r.ok)continue;
     const j=await r.json();if(!Array.isArray(j)||j.length===0)continue;
     const cloud=j[0].value;
@@ -1181,7 +1353,6 @@ export default function App(){
   const tCaja=caja.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
   const cajaPend=caja.filter(c=>c.status==="pendiente").length;
   const tCot=obras.reduce((s,o)=>s+o.cotizado,0);
-  const tEgrO=obras.reduce((s,o)=>s+o.egreso,0);
   const pendA=auts.filter(a=>a.status==="pendiente").length;
   const lowS=inv.filter(i=>i.stock<=i.minimo);
   const oAct=obras.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="entregado"&&o.fase!=="cancelado");
@@ -1190,10 +1361,10 @@ export default function App(){
   const totCot=conIva?subCot*1.16:subCot;
   const addCotP=item=>{const ex=cotP.find(p=>p.id===item.id);if(ex)setCotP(cotP.map(p=>p.id===item.id?{...p,cant:p.cant+1}:p));else setCotP([...cotP,{...item,cant:1}]);};
   const genRec=m=>{const id="R-"+String(recibos.length+1).padStart(3,"0");setRecibos(prev=>[...prev,{id,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra}]);return id;};
-  const saveDoc=(tipo,titulo,cliente,obra,monto,data)=>{const id="D-"+Date.now();setDocumentos(prev=>{const updated=prev.map(d=>(d.tipo===tipo&&d.obra===obra&&d.vigente)?{...d,vigente:false}:d);return[...updated,{id,tipo,titulo,cliente:cliente||"",obra:obra||"",monto:monto||0,fecha:td(),hora:new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}),user:user?.nombre||"",data,vigente:true,version:(prev.filter(d=>d.tipo===tipo&&d.obra===obra).length)+1}];});return id;};
+  const saveDoc=(tipo,titulo,cliente,obra,monto,data)=>{const id="D-"+_rid();setDocumentos(prev=>{const updated=prev.map(d=>(d.tipo===tipo&&d.obra===obra&&d.vigente)?{...d,vigente:false}:d);return[...updated,{id,tipo,titulo,cliente:cliente||"",obra:obra||"",monto:monto||0,fecha:td(),hora:new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}),user:user?.nombre||"",data,vigente:true,version:(prev.filter(d=>d.tipo===tipo&&d.obra===obra).length)+1}];});return id;};
   const openPdfCot=(o)=>{om("pdfCot",o);try{saveDoc("cotizacion","Cotización "+o.nombre,o.cliente,o.nombre,o.cotizado,{obraId:o.id});}catch{}};
   const openPdfCli=(data)=>{om("pdfCli",data);try{saveDoc("estado_cuenta","Estado de Cuenta "+data.ob.nombre,data.cli.nombre,data.ob.nombre,data.ob.cotizado,{obraId:data.ob.id,cliId:data.cli.id});}catch{}};
-  const ensureCli=(nombre)=>{if(!nombre)return;const n=nombre.trim();const nn=normName(n);if(!nn)return;setClis(prev=>{if(prev.some(c=>normName(c.nombre)===nn))return prev;return[...prev,{id:"C"+Date.now(),nombre:n,tel:"",email:"",dir:""}];});};
+  const ensureCli=(nombre)=>{if(!nombre)return;const n=nombre.trim();const nn=normName(n);if(!nn)return;setClis(prev=>{if(prev.some(c=>normName(c.nombre)===nn))return prev;return[...prev,{id:"C"+_rid(),nombre:n,tel:"",email:"",dir:""}];});};
   const scanFile=async(fileOrPages)=>{setScanning(true);try{
     // Si es un objeto multiplePages (PDF convertido a varias imágenes), procesar todas
     let content;
@@ -1318,6 +1489,9 @@ export default function App(){
   const NAV_GRPS=[{id:"neg",label:"NEGOCIO"},{id:"fin",label:"FINANZAS"},{id:"tal",label:"TALLER"},{id:"sys",label:"SISTEMA"}];
   const mobT=allNav.slice(0,4);if(allNav.length>4)mobT.push({key:"_more",icon:"☰",label:"Más"});
 
+  // ═══ PUERTA DE ACCESO ═══ (login real de nube antes de cualquier dato)
+  if(CLOUD&&!authed)return <LoginGate onAuthed={()=>setAuthed(true)}/>;
+
   // ═══ LOADING ═══
   if(loading)return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{marginTop:20,fontSize:13,color:T.muted}}>{syncStatus||"Cargando..."}</div><div style={{width:40,height:4,background:"#222",borderRadius:2,margin:"12px auto",overflow:"hidden"}}><div style={{width:"60%",height:"100%",background:T.gold,borderRadius:2,animation:"load 1s infinite alternate"}}></div></div></div></div>;
 
@@ -1340,7 +1514,7 @@ export default function App(){
     // User list
     return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
     <div style={{width:"100%",maxWidth:D?500:420}}>
-      <div style={{textAlign:"center",marginBottom:28,display:"flex",flexDirection:"column",alignItems:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{fontSize:9,color:T.dim,marginTop:8,fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div>{CLOUD&&<div style={{marginTop:6,fontSize:10,color:_syncOk?T.green:T.yellow}}>{_syncOk?"☁️ Nube sincronizada":"⏳ Verificando nube..."}</div>}</div>
+      <div style={{textAlign:"center",marginBottom:28,display:"flex",flexDirection:"column",alignItems:"center"}}><BrandFull size="big" sub="Carpintería Arquitectónica"/><div style={{fontSize:9,color:T.dim,marginTop:8,fontStyle:"italic"}}>— Donde la madera encuentra su forma —</div>{CLOUD&&<div style={{marginTop:6,fontSize:10,color:_syncOk?T.green:T.yellow}}>{_syncOk?"☁️ Nube sincronizada":"⏳ Verificando nube..."}</div>}{CLOUD&&AUTH.isAuthed()&&<div style={{marginTop:8}}><button onClick={()=>{AUTH.signOut();setUser(null);setAuthed(false);}} style={{background:"none",border:"none",color:T.dim,cursor:"pointer",fontSize:10,textDecoration:"underline"}}>Cerrar sesión de nube ({AUTH.email()})</button></div>}</div>
       {users.filter(u=>u.rol!=="cliente").length>0&&<div><div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:8}}>Equipo</div>
       <div style={{display:"grid",gridTemplateColumns:G,gap:6}}>{users.filter(u=>u.rol!=="cliente").map(u=> <button key={u.id} onClick={()=>{if(u.pin){setLoginUser(u);setPinInput("");}else{setUser(u);setSec(ROLES[u.rol].permisos[0]);}}} style={{display:"flex",alignItems:"center",gap:12,width:"100%",padding:"12px 14px",background:"rgba(255,255,255,.025)",border:"1px solid rgba(255,255,255,.06)",backdropFilter:"blur(4px)",borderRadius:10,cursor:"pointer",textAlign:"left"}}><div style={{width:40,height:40,borderRadius:20,background:ROLES[u.rol].color+"22",color:ROLES[u.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{u.avatar}</div><div style={{flex:1}}><div style={{fontWeight:700,fontSize:14,color:T.text}}>{u.nombre}</div><div style={{fontSize:10,color:T.muted}}>{ROLES[u.rol].icon} {ROLES[u.rol].nombre}</div></div>{u.pin&&<span style={{color:T.dim,fontSize:14}}>🔒</span>}</button>)}</div></div>}
       {users.filter(u=>u.rol==="cliente").length>0&&<div><div style={{fontSize:11,color:T.teal,fontWeight:700,textTransform:"uppercase",marginBottom:8,marginTop:18,paddingTop:14,borderTop:"1px solid "+T.border}}>Portal Clientes</div>
@@ -1662,8 +1836,11 @@ export default function App(){
         {editObraId&&cotP.length===0&&<div style={{fontSize:11,color:T.yellow,padding:"6px 10px",background:"rgba(255,213,79,.08)",borderRadius:6,marginBottom:8,textAlign:"center"}}>⚠️ Esta cotización no tiene partidas. Puedes guardar solo con cliente/obra actualizados.</div>}
         <button style={{...sB,fontSize:15}} onClick={()=>{
           if(!cotNom&&!cotEmp){show("Pon al menos un cliente o nombre de obra");return;}
-          ensureCli(cotNom);
+          // El cliente se registra al AUTORIZAR la obra, NO al cotizar.
+          // Solo lo aseguramos si se edita una obra YA autorizada (no una cotización).
           if(editObraId){
+            const _obEdit=obras.find(o=>o.id===editObraId);
+            if(_obEdit&&_obEdit.fase&&_obEdit.fase!=="cotizacion")ensureCli(cotNom);
             setObras(prev=>prev.map(o=>o.id===editObraId?{...o,nombre:cotEmp||cotNom||o.nombre,cliente:cotNom||o.cliente,cotizado:totCot,subtotal:subCot,conIva,partidas:[...cotP],modificadoPor:user.nombre,modificadoFecha:td()}:o));
             setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);
             show("✓ Cotización actualizada");
@@ -1734,7 +1911,7 @@ export default function App(){
                       show("🗑 Eliminando...");
                       try{
                         if(CLOUD){
-                          const r=await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},body:JSON.stringify({key:"obras",value:newObras})});
+                          const r=await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{'apikey':SUPA_KEY,'Authorization':_bearer(),'Content-Type':'application/json','Prefer':'resolution=merge-duplicates'},body:JSON.stringify({key:"obras",value:newObras})});
                           if(r.ok)show("🗑 "+o.nombre+" eliminada ✓");
                           else show("⚠️ Error nube — eliminada local");
                         }else show("🗑 Eliminada");
@@ -1933,7 +2110,7 @@ export default function App(){
 
       <Card><div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>Estatus del Proyecto</div><div style={{display:"flex",gap:2,marginBottom:12,overflowX:"auto"}}>{FASE_ORD.map((f,i)=>{const cur=FASE_ORD.indexOf(sub.fase);const done=i<=cur;return <div key={f} style={{flex:1,textAlign:"center",minWidth:D?0:60}}><div style={{width:"100%",height:4,borderRadius:2,background:done?FCC[f]:T.border,marginBottom:4}}/><div style={{fontSize:9,color:done?FCC[f]:T.dim,fontWeight:done?700:400}}>{FASES[f]}</div></div>})}</div>{user.rol==="admin"&&<div><div style={{fontSize:10,color:T.muted,marginBottom:6}}>Cambiar estatus:</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{FASE_ORD.map(f=><button key={f} onClick={()=>{const up={...sub,fase:f,status:f==="cotizacion"?"cotizado":f==="entregado"?"completado":"en_proceso"};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show(FASES[f]+" ✓");}} style={{padding:"6px 12px",borderRadius:8,border:sub.fase===f?"2px solid "+FCC[f]:"1px solid "+T.border,background:sub.fase===f?FCC[f]+"22":"transparent",color:sub.fase===f?FCC[f]:T.muted,fontSize:10,fontWeight:sub.fase===f?700:400,cursor:"pointer"}}>{FASES[f]}</button>)}<button onClick={()=>{const up={...sub,fase:"cancelado",status:"cancelado"};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);show("Cancelado");}} style={{padding:"6px 12px",borderRadius:8,border:sub.fase==="cancelado"?"2px solid "+FCC.cancelado:"1px solid "+T.border,background:sub.fase==="cancelado"?FCC.cancelado+"22":"transparent",color:sub.fase==="cancelado"?FCC.cancelado:T.dim,fontSize:10,cursor:"pointer"}}>Cancelado</button></div></div>}</Card>
 
-      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:8}}><button style={{...sB,background:"rgba(38,166,154,.08)",color:T.teal,border:"1px solid "+T.teal+"33",marginTop:0}} onClick={()=>{if(sub.cliente){const cn=sub.cliente.toLowerCase();let cli=clis.find(c=>c.nombre.toLowerCase()===cn);if(!cli){cli={id:"C"+Date.now(),nombre:sub.cliente,tel:"",email:"",dir:""};ensureCli(sub.cliente);cli=clis.find(c2=>c2.nombre.toLowerCase()===sub.cliente.toLowerCase())||cli;}go("clis",cli);}else{show("Esta obra no tiene cliente asignado");}}}>👤 Estado de Cuenta</button><button style={{...sB,background:"#1a1510",color:T.gold,border:"1px solid "+T.gold+"44",marginTop:0}} onClick={()=>{setCotP(sub.partidas||[]);setCotNom(sub.cliente||"");setCotEmp(sub.nombre||"");setConIva(sub.conIva!==false);setEditObraId(sub.id);setSub(null);go("cot");}}>📝 Editar Cotización</button><button style={{...sB,background:"#0a1a0a",color:T.green,border:"1px solid "+T.green+"44",marginTop:0}} onClick={()=>openPdfCot(sub)}>📄 Generar PDF</button><button style={{...sB,background:"#1a1a2a",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0}} onClick={()=>{const dup={...sub,id:"OB"+Date.now(),nombre:sub.nombre+" (copia)",fase:"cotizacion",status:"cotizado",avance:0,partidas:(sub.partidas||[]).map(p=>({...p,id:"C-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)})),extras:[],pagos:[],docs:[],bitacora:[]};setObras(prev=>[...prev,dup]);show("Duplicada como cotización ✓");go("cotizaciones");}}>📋 Duplicar</button><button style={{...sB,background:"#1a0a0a",color:T.red,border:"1px solid "+T.red+"33",marginTop:0}} onClick={()=>om("delOb",sub)}>🗑 Eliminar</button></div>
+      <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:6,marginBottom:8}}><button style={{...sB,background:"rgba(38,166,154,.08)",color:T.teal,border:"1px solid "+T.teal+"33",marginTop:0}} onClick={()=>{if(sub.cliente){const cn=sub.cliente.toLowerCase();let cli=clis.find(c=>c.nombre.toLowerCase()===cn);if(!cli){cli={id:"C"+_rid(),nombre:sub.cliente,tel:"",email:"",dir:""};ensureCli(sub.cliente);cli=clis.find(c2=>c2.nombre.toLowerCase()===sub.cliente.toLowerCase())||cli;}go("clis",cli);}else{show("Esta obra no tiene cliente asignado");}}}>👤 Estado de Cuenta</button><button style={{...sB,background:"#1a1510",color:T.gold,border:"1px solid "+T.gold+"44",marginTop:0}} onClick={()=>{setCotP(sub.partidas||[]);setCotNom(sub.cliente||"");setCotEmp(sub.nombre||"");setConIva(sub.conIva!==false);setEditObraId(sub.id);setSub(null);go("cot");}}>📝 Editar Cotización</button><button style={{...sB,background:"#0a1a0a",color:T.green,border:"1px solid "+T.green+"44",marginTop:0}} onClick={()=>openPdfCot(sub)}>📄 Generar PDF</button><button style={{...sB,background:"#1a1a2a",color:T.blue,border:"1px solid "+T.blue+"33",marginTop:0}} onClick={()=>{const dup={...sub,id:"OB"+Date.now(),nombre:sub.nombre+" (copia)",fase:"cotizacion",status:"cotizado",avance:0,partidas:(sub.partidas||[]).map(p=>({...p,id:"C-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)})),extras:[],pagos:[],docs:[],bitacora:[]};setObras(prev=>[...prev,dup]);show("Duplicada como cotización ✓");go("cotizaciones");}}>📋 Duplicar</button><button style={{...sB,background:"#1a0a0a",color:T.red,border:"1px solid "+T.red+"33",marginTop:0}} onClick={()=>om("delOb",sub)}>🗑 Eliminar</button></div>
 
       {(sub.partidas||[]).length>0&&<Card><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:10,color:T.gold,fontWeight:700}}>PARTIDAS ({sub.partidas.length})</div></div>{sub.partidas.map((p,i)=> <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+T.border,fontSize:12}}><div style={{flex:1}}>{p.id&&<b style={{color:T.gold}}>{p.id} </b>}{p.desc}{p.cant>1&&<span style={{color:T.muted}}> ×{p.cant}</span>}</div><div style={{display:"flex",alignItems:"center",gap:4}}><span style={{color:T.muted,fontSize:11}}>$</span><input inputMode="numeric" value={p.precio||""} onFocus={e=>e.target.select()} onChange={e=>{const np=Number(e.target.value.replace(/[^0-9]/g,""))||0;const newP=[...sub.partidas];newP[i]={...newP[i],precio:np};const newSub=newP.reduce((s,x)=>s+x.precio*x.cant,0);const up={...sub,partidas:newP,subtotal:newSub,cotizado:sub.conIva!==false?Math.round(newSub*1.16):newSub};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);}} style={{background:"transparent",border:"1px solid "+T.border,borderRadius:6,color:T.text,fontSize:13,fontWeight:700,width:80,textAlign:"right",padding:"4px 6px",outline:"none"}}/></div></div>)}<div style={{borderTop:"2px solid "+T.border,marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between",fontWeight:800,color:T.gold}}><span>TOTAL{sub.conIva!==false?" (IVA incl.)":""}</span><span>{$(sub.cotizado)}</span></div></Card>}
 
@@ -1949,7 +2126,7 @@ export default function App(){
     {sec==="nominas"&&<div>
       <div style={{fontSize:18,fontWeight:800,marginBottom:12}}>Nóminas y Pagos Fijos</div>
       <button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addNom")}>+ Agregar Pago Fijo</button>
-      <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{nominas.map(n=> <Card key={n.id}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:14}}>{n.nombre}</div><div style={{fontSize:10,color:T.muted}}>{n.tipo} · {n.frecuencia}</div></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,color:T.orange,fontSize:16}}>{$(n.monto)}</div><div style={{display:"flex",gap:4,marginTop:4,justifyContent:"flex-end"}}><button onClick={()=>{const m={fecha:td(),prov:n.nombre,desc:n.nombre,ing:0,egr:n.monto,obra:"CARPINTERIA",cat:n.tipo,user:user.nombre,id:movs.length+1};setMovs(prev=>[...prev,m]);show(n.nombre+" registrado");}} style={{background:"#1a1a0a",color:T.yellow,border:"1px solid "+T.yellow+"33",borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer",fontWeight:700}}>💸 Pagar</button><button onClick={()=>{setNominas(prev=>prev.filter(x=>x.id!==n.id));show("Eliminado");}} style={{background:"#2a0a0a",color:T.red,border:"1px solid "+T.red+"33",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>🗑</button></div></div></div></Card>)}</div>
+      <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{nominas.map(n=> <Card key={n.id}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:14}}>{n.nombre}</div><div style={{fontSize:10,color:T.muted}}>{n.tipo} · {n.frecuencia}</div></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,color:T.orange,fontSize:16}}>{$(n.monto)}</div><div style={{display:"flex",gap:4,marginTop:4,justifyContent:"flex-end"}}><button onClick={()=>{const m={fecha:td(),prov:n.nombre,desc:n.nombre,ing:0,egr:n.monto,obra:"CARPINTERIA",cat:n.tipo,user:user.nombre,id:_nextNumId(movs)};setMovs(prev=>[...prev,m]);show(n.nombre+" registrado");}} style={{background:"#1a1a0a",color:T.yellow,border:"1px solid "+T.yellow+"33",borderRadius:6,padding:"4px 10px",fontSize:10,cursor:"pointer",fontWeight:700}}>💸 Pagar</button><button onClick={()=>{setNominas(prev=>prev.filter(x=>x.id!==n.id));show("Eliminado");}} style={{background:"#2a0a0a",color:T.red,border:"1px solid "+T.red+"33",borderRadius:6,padding:"4px 8px",fontSize:10,cursor:"pointer"}}>🗑</button></div></div></div></Card>)}</div>
       {nominas.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin pagos fijos</div></Card>}
       <div style={{marginTop:16,fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Historial de Nóminas</div>
       <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{movs.filter(m=>["Nómina","Renta","IMSS","Destajo"].includes(m.cat)).slice().reverse().map(m=> <Card key={m.id}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:600}}>{m.desc}</div><div style={{fontSize:10,color:T.dim}}>{fd(m.fecha)} · {m.cat}</div></div><span style={{fontWeight:700,color:T.red}}>{$(m.egr)}</span></div></Card>)}</div>
@@ -2241,11 +2418,54 @@ export default function App(){
       })}
       {preciosUnit.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin precios unitarios. Agrega uno para que la IA empiece a cotizar.</div></Card>}
     </div>}
-    {sec==="clis"&&!sub&&(()=>{const seen=new Set();const clisUniq=clis.filter(c=>{const k=normName(c.nombre);if(!k||seen.has(k))return false;seen.add(k);return true;});return <div><button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addCli")}>+ Cliente</button>{clis.length!==clisUniq.length&&<button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300,background:"#2a2000",color:T.yellow,border:"1px solid "+T.yellow+"33"}} onClick={()=>{const merged=[];const map={};clis.forEach(c=>{const k=normName(c.nombre);if(!k)return;if(!map[k]){map[k]={...c};merged.push(map[k]);}else{if(c.tel&&!map[k].tel)map[k].tel=c.tel;if(c.email&&!map[k].email)map[k].email=c.email;if(c.dir&&!map[k].dir)map[k].dir=c.dir;}});setClis(merged);show("Clientes duplicados fusionados ✓");}}>🔄 Fusionar {clis.length-clisUniq.length} duplicado(s)</button>}<div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{clisUniq.map(c=>{const cn=normName(c.nombre);const cOb=obras.filter(o=>normName(o.cliente||"")===cn);const cPag=movs.filter(m=>m.ing>0&&cOb.some(o=>sameObra(o.nombre,m.obra))).reduce((s,m)=>s+m.ing,0);const cTot=cOb.reduce((s,o)=>s+(o.cotizado||0),0);return <Card key={c.id} onClick={()=>setSub(c)} style={{cursor:"pointer"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4,alignItems:"flex-start"}}><div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>{c.nombre}</div>{cOb.length>0&&<span style={{fontSize:10,color:T.gold,fontWeight:700}}>{cOb.length} obra(s)</span>}</div>{user.rol==="admin"&&<button onClick={e=>{e.stopPropagation();if(cOb.length>0){if(!confirm("⚠️ "+c.nombre+" tiene "+cOb.length+" obra(s) vinculadas.\n\nSi lo borras, las obras quedarán sin cliente (pero NO se borran).\n\n¿Continuar?"))return;}else{if(!confirm("¿Eliminar a "+c.nombre+"?"))return;}setClis(prev=>prev.filter(x=>x.id!==c.id));show("🗑 Cliente eliminado");}} style={{background:"rgba(231,76,60,.1)",border:"1px solid "+T.red+"33",color:T.red,borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer",marginLeft:6}}>🗑</button>}</div><div style={{fontSize:11,color:T.muted}}>{c.tel&&c.tel}{c.email&&" · "+c.email}</div>{c.dir&&<div style={{fontSize:11,color:T.muted}}>📍 {c.dir}</div>}{cOb.length>0&&<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid "+T.border}}><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}><div><div style={{fontSize:9,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold,fontSize:13}}>{$(cTot)}</div></div><div><div style={{fontSize:9,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green,fontSize:13}}>{$(cPag)}</div></div><div><div style={{fontSize:9,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:cTot-cPag>0?T.yellow:T.green,fontSize:13}}>{$(cTot-cPag)}</div></div></div>{cOb.map(o=><div key={o.id} style={{fontSize:10,color:T.muted,marginTop:3}}>{o.nombre} · <span style={{color:FCC[o.fase]||T.muted}}>{FASES[o.fase]||o.fase}</span></div>)}</div>}</Card>})}</div>{clisUniq.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin clientes</div></Card>}</div>})()}
+    {sec==="clis"&&!sub&&(()=>{
+      const seen=new Set();
+      const clisUniq=clis.filter(c=>{const k=normName(c.nombre);if(!k||seen.has(k))return false;seen.add(k);return true;});
+      const rows=clisUniq.map(c=>{
+        const cn=normName(c.nombre);
+        const cOb=obras.filter(o=>normName(o.cliente||"")===cn);
+        const cPag=movs.filter(m=>m.ing>0&&cOb.some(o=>sameObra(o.nombre,m.obra))).reduce((s,m)=>s+m.ing,0);
+        const cTot=cOb.reduce((s,o)=>s+(o.cotizado||0),0);
+        const cMov=movs.filter(m=>cOb.some(o=>sameObra(o.nombre,m.obra))).length+caja.filter(x=>cOb.some(o=>sameObra(o.nombre,x.obra))).length;
+        // Obras "reales" = ya autorizadas (no cotización ni cancelada). Es cliente real si tiene una obra real
+        // o si no tiene obras (cliente capturado a mano). Los que SOLO tienen cotización viven en Cotizaciones.
+        const realObras=cOb.filter(o=>o.fase&&o.fase!=="cotizacion"&&o.fase!=="cancelado");
+        const esReal=realObras.length>0||cOb.length===0;
+        return {c,cOb,cPag,resta:cTot-cPag,esReal,hasMov:(cMov>0||cPag>0||realObras.length>0)};
+      });
+      rows.sort((a,b)=>{if(a.hasMov!==b.hasMov)return a.hasMov?-1:1;if(b.cPag!==a.cPag)return b.cPag-a.cPag;return a.c.nombre.localeCompare(b.c.nombre,"es");});
+      const visibles=rows.filter(r=>r.esReal);
+      const prospectos=rows.length-visibles.length;
+      const conMov=visibles.filter(r=>r.hasMov),sinMov=visibles.filter(r=>!r.hasMov);
+      const borrarCli=(r)=>{const{c,cOb}=r;if(cOb.length>0){if(!confirm("⚠️ "+c.nombre+" tiene "+cOb.length+" obra(s) vinculadas.\n\nLas obras NO se borran, solo quedan sin cliente.\n\n¿Borrar el cliente?"))return;}else if(!confirm("¿Borrar a "+c.nombre+"?"))return;setClis(prev=>prev.filter(x=>x.id!==c.id));show("🗑 Cliente borrado");};
+      const fila=(r)=>{const{c,cOb,cPag,resta}=r;return <Card key={c.id} onClick={()=>setSub(c)} style={{cursor:"pointer",display:"flex",alignItems:"center",gap:10,padding:"12px 14px"}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:700,fontSize:15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.nombre}</div>
+          <div style={{fontSize:11,color:T.muted,marginTop:2}}>{cOb.length>0?cOb.length+" obra"+(cOb.length>1?"s":""):"Sin obras"}{cPag>0&&<span> · Cobrado <b style={{color:T.green}}>{$(cPag)}</b></span>}{resta>0&&<span> · Resta <b style={{color:T.yellow}}>{$(resta)}</b></span>}</div>
+          {(c.tel||c.email)&&<div style={{fontSize:10,color:T.dim,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.tel}{c.tel&&c.email?" · ":""}{c.email}</div>}
+        </div>
+        {user.rol==="admin"&&<button onClick={e=>{e.stopPropagation();borrarCli(r);}} title="Borrar cliente" style={{background:"rgba(231,76,60,.1)",border:"1px solid "+T.red+"33",color:T.red,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>🗑 Borrar</button>}
+        <span style={{color:T.dim,fontSize:20}}>›</span>
+      </Card>;};
+      return <div>
+        <button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300}} onClick={()=>om("addCli")}>+ Cliente</button>
+        {clis.length!==clisUniq.length&&<button style={{...sB,marginBottom:8,marginTop:0,maxWidth:300,background:"#2a2000",color:T.yellow,border:"1px solid "+T.yellow+"33"}} onClick={()=>{const merged=[];const map={};clis.forEach(c=>{const k=normName(c.nombre);if(!k)return;if(!map[k]){map[k]={...c};merged.push(map[k]);}else{if(c.tel&&!map[k].tel)map[k].tel=c.tel;if(c.email&&!map[k].email)map[k].email=c.email;if(c.dir&&!map[k].dir)map[k].dir=c.dir;}});setClis(merged);show("Clientes duplicados fusionados ✓");}}>🔄 Fusionar {clis.length-clisUniq.length} duplicado(s)</button>}
+        {clisUniq.length===0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Sin clientes</div></Card>}
+        {prospectos>0&&<div onClick={()=>go("cotizaciones")} style={{cursor:"pointer",fontSize:11,color:T.muted,background:"rgba(255,183,77,.06)",border:"1px solid "+T.yellow+"22",borderRadius:8,padding:"8px 12px",marginBottom:8}}>📋 {prospectos} {prospectos===1?"prospecto está":"prospectos están"} en cotización (aún no son clientes) → velos en <b style={{color:T.yellow}}>Cotizaciones</b></div>}
+        {visibles.length===0&&clisUniq.length>0&&<Card style={{textAlign:"center",padding:20}}><div style={{color:T.muted}}>Todavía no hay clientes reales. Autoriza una cotización para que pase a Clientes.</div></Card>}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>{conMov.map(fila)}</div>
+        {sinMov.length>0&&<div style={{marginTop:16}}>
+          <div style={{fontSize:10,color:T.dim,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>— Sin movimiento aún ({sinMov.length}) —</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>{sinMov.map(fila)}</div>
+        </div>}
+      </div>;
+    })()}
 
     {sec==="clis"&&sub&&<div style={{maxWidth:800}}>
       <button onClick={()=>{setSub(null);setCliObraTab(null);}} style={{background:"none",border:"none",color:T.gold,cursor:"pointer",fontSize:13,padding:0,marginBottom:12}}>← Clientes</button>
       {(()=>{const c=sub;const cn=normName(c.nombre);const cOb=obras.filter(o=>normName(o.cliente||"")===cn);const cPag=movs.filter(m=>m.ing>0&&cOb.some(o=>sameObra(o.nombre,m.obra))).reduce((s,m)=>s+m.ing,0);const cTot=cOb.reduce((s,o)=>s+(o.cotizado||0),0);
+      const cGas=movs.filter(m=>m.egr>0&&cOb.some(o=>sameObra(o.nombre,m.obra))).reduce((s,m)=>s+m.egr,0)+caja.filter(x=>x.status!=="rechazado"&&cOb.some(o=>sameObra(o.nombre,x.obra))).reduce((s,x)=>s+x.monto,0);
+      const cUtil=cPag-cGas;
       const selOb=cliObraTab?cOb.find(o=>o.id===cliObraTab):null;
       return <div>
         <Card><div style={{fontSize:22,fontWeight:800,marginBottom:4}}>{c.nombre}</div><div style={{fontSize:12,color:T.muted}}>{c.tel&&"📱 "+c.tel}{c.email&&" · "+c.email}</div>{c.dir&&<div style={{fontSize:12,color:T.muted}}>📍 {c.dir}</div>}</Card>
@@ -2255,19 +2475,24 @@ export default function App(){
         </div>
 
         {!cliObraTab&&<div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             <Card style={{background:"rgba(201,149,107,.06)",borderColor:"rgba(201,149,107,.15)"}}><Stat label="Cotizado Total" value={$(cTot)} color={T.gold}/></Card>
             <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Pagado Total" value={$(cPag)} color={T.green}/></Card>
             <Card style={{background:cTot-cPag>0?"rgba(255,215,84,.06)":"rgba(76,175,80,.06)",borderColor:cTot-cPag>0?"rgba(255,215,84,.15)":"rgba(76,175,80,.15)"}}><Stat label="Resta Total" value={$(cTot-cPag)} color={cTot-cPag>0?T.yellow:T.green}/></Card>
           </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+            <Card style={{background:"rgba(239,83,80,.06)",borderColor:"rgba(239,83,80,.15)"}}><Stat label="Gastado en sus obras" value={$(cGas)} color={T.red}/></Card>
+            <Card style={{background:cUtil>=0?"rgba(76,175,80,.06)":"rgba(239,83,80,.06)",borderColor:cUtil>=0?"rgba(76,175,80,.15)":"rgba(239,83,80,.15)"}}><Stat label="Utilidad (cobrado − gastado)" value={$(cUtil)} color={cUtil>=0?T.green:T.red}/></Card>
+          </div>
           <Card><div style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:4}}><span style={{color:T.muted}}>Pagado total: {$(cPag)}</span><span style={{color:T.gold,fontWeight:700}}>de {$(cTot)}</span></div><Bar v={cPag} mx={cTot} c={T.green} h={8}/><div style={{textAlign:"right",fontSize:10,color:T.muted,marginTop:3}}>{pc(cPag,cTot)}% cobrado</div></div></Card>
           <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1,margin:"10px 0 8px"}}>Obras ({cOb.length})</div>
-          <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{cOb.map(ob=>{const obPag=movs.filter(m=>m.ing>0&&sameObra(m.obra,ob.nombre)).reduce((s,m)=>s+m.ing,0);return <Card key={ob.id} onClick={()=>setCliObraTab(ob.id)} style={{cursor:"pointer"}}>
+          <div style={{display:"grid",gridTemplateColumns:G,gap:8}}>{cOb.map(ob=>{const obPag=movs.filter(m=>m.ing>0&&sameObra(m.obra,ob.nombre)).reduce((s,m)=>s+m.ing,0);const obGas=movs.filter(m=>m.egr>0&&sameObra(m.obra,ob.nombre)).reduce((s,m)=>s+m.egr,0)+caja.filter(x=>x.status!=="rechazado"&&sameObra(x.obra,ob.nombre)).reduce((s,x)=>s+x.monto,0);return <Card key={ob.id} onClick={()=>setCliObraTab(ob.id)} style={{cursor:"pointer"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><div><div style={{fontWeight:700,fontSize:14}}>{ob.nombre}</div><span style={{fontSize:10,background:FCC[ob.fase]+"33",color:FCC[ob.fase],padding:"2px 8px",borderRadius:8,fontWeight:700}}>{FASES[ob.fase]}</span></div><div style={{textAlign:"right"}}><div style={{fontWeight:800,color:T.gold}}>{$(ob.cotizado)}</div></div></div>
             <Bar v={obPag} mx={ob.cotizado} c={T.green} h={4}/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginTop:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:4,marginTop:8}}>
               <div><div style={{fontSize:8,color:T.muted}}>COTIZADO</div><div style={{fontWeight:700,color:T.gold,fontSize:12}}>{$(ob.cotizado)}</div></div>
               <div><div style={{fontSize:8,color:T.muted}}>PAGADO</div><div style={{fontWeight:700,color:T.green,fontSize:12}}>{$(obPag)}</div></div>
+              <div><div style={{fontSize:8,color:T.muted}}>GASTADO</div><div style={{fontWeight:700,color:T.red,fontSize:12}}>{$(obGas)}</div></div>
               <div><div style={{fontSize:8,color:T.muted}}>RESTA</div><div style={{fontWeight:700,color:ob.cotizado-obPag>0?T.yellow:T.green,fontSize:12}}>{$(ob.cotizado-obPag)}</div></div>
             </div>
             {(ob.inicio||ob.entrega)&&<div style={{display:"flex",gap:12,marginTop:6,fontSize:10,color:T.dim}}>
@@ -2541,7 +2766,7 @@ export default function App(){
     })()}
     {modal==="cat"&&<ModalW title="Catálogo" onClose={cm}>{cats.map(cat=> <div key={cat} style={{marginBottom:12}}><div style={{fontSize:11,color:T.gold,fontWeight:700,borderBottom:"1px solid "+T.border,paddingBottom:3,marginBottom:4}}>{cat}</div>{catalogo.filter(c=>c.cat===cat).map(item=> <div key={item.id} onClick={()=>{addCotP(item);show(item.id+" +");}} style={{display:"flex",justifyContent:"space-between",padding:"10px 8px",borderBottom:"1px solid "+T.border,cursor:"pointer"}}><span><b style={{color:T.gold}}>{item.id}</b> {item.desc}</span><span style={{color:T.muted}}>{$(item.precio)} <span style={{color:T.green}}>+</span></span></div>)}</div>)}</ModalW>}
         {modal==="addNom"&&<ModalW title="Nuevo Pago Fijo" onClose={cm}><div><Fl l="Nombre"><input style={sI} id="nomNom" placeholder="Ej: Nómina Erik"/></Fl><Fl l="Monto"><input type="number" style={sI} id="nomMon"/></Fl><Fl l="Frecuencia"><select style={sI} id="nomFreq"><option value="semanal">Semanal</option><option value="quincenal">Quincenal</option><option value="mensual">Mensual</option></select></Fl><Fl l="Tipo"><select style={sI} id="nomTipo"><option value="Nómina">Nómina</option><option value="Renta">Renta</option><option value="Servicios">Servicios</option><option value="IMSS">IMSS</option><option value="Destajo">Destajo</option><option value="Otro">Otro</option></select></Fl><button style={sB} onClick={()=>{const n=document.getElementById("nomNom").value;const m=Number(document.getElementById("nomMon").value);const f=document.getElementById("nomFreq").value;const t=document.getElementById("nomTipo").value;if(n&&m>0){setNominas(prev=>[...prev,{id:"N"+Date.now(),nombre:n,monto:m,frecuencia:f,tipo:t}]);cm();show("Pago fijo creado");}}}>Guardar</button></div></ModalW>}
-    {modal==="addOb"&&<ModalW title="Nueva Obra" onClose={cm}><ObraForm clientes={clis} onNewCli={nombre=>ensureCli(nombre)} onSave={o=>{setObras(prev=>[...prev,{...o,id:"OB"+String(prev.length+1).padStart(2,"0"),egreso:0,extras:[],pagos:[],docs:[],bitacora:[],creadoPor:user.nombre,creadoFecha:td()}]);cm();show("Obra ✓");}}/></ModalW>}
+    {modal==="addOb"&&<ModalW title="Nueva Obra" onClose={cm}><ObraForm clientes={clis} onNewCli={nombre=>ensureCli(nombre)} onSave={o=>{setObras(prev=>[...prev,{...o,id:"OB"+_rid(),egreso:0,extras:[],pagos:[],docs:[],bitacora:[],creadoPor:user.nombre,creadoFecha:td()}]);cm();show("Obra ✓");}}/></ModalW>}
     {modal==="delMasivo"&&<ModalW title={"⚠ Eliminar "+selMovs.length+" movimientos"} onClose={cm}><div>
       <div style={{background:"rgba(231,76,60,.1)",border:"1px solid "+T.red+"55",borderRadius:8,padding:14,marginBottom:12}}>
         <div style={{color:T.red,fontWeight:800,marginBottom:8,fontSize:14}}>🗑 Esta acción es irreversible</div>
@@ -2616,16 +2841,16 @@ export default function App(){
         <div><div style={{fontSize:9,color:T.muted}}>EGRESOS</div><div style={{fontWeight:800,color:T.red}}>{$(md.reduce((s,m)=>s+m.egr,0))}</div></div>
         <div><div style={{fontSize:9,color:T.muted}}>TOTAL MOVS</div><div style={{fontWeight:800}}>{md.length}</div></div>
       </div>
-      <button style={{...sB,background:T.green}} onClick={()=>{const newMovs=md.map((m,i)=>({...m,id:movs.length+i+1,status:"aprobado",user:user.nombre}));setMovs(prev=>[...prev,...newMovs]);cm();show("✅ "+md.length+" movimientos importados");}}>✅ Confirmar Importación</button>
+      <button style={{...sB,background:T.green}} onClick={()=>{const _base=_nextNumId(movs);const newMovs=md.map((m,i)=>({...m,id:_base+i,status:"aprobado",user:user.nombre}));setMovs(prev=>[...prev,...newMovs]);cm();show("✅ "+md.length+" movimientos importados");}}>✅ Confirmar Importación</button>
       <button style={{...sB,background:"transparent",color:T.muted,border:"1px solid "+T.border}} onClick={cm}>Cancelar</button>
     </ModalW>}
-    {modal==="addIng"&&<ModalW title="Registrar Ingreso" onClose={cm}><IngForm obras={obras} movs={movs} clis={clis} onSave={m=>{const rid=genRec(m);const newId=movs.length+1;setMovs(prev=>[...prev,{...m,id:newId,user:user.nombre}]);highlightNew("m"+newId);try{saveDoc("recibo","Recibo "+rid,m.prov,m.obra,m.ing,{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}catch{}cm();om("vRec",{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}}/></ModalW>}
-    {modal==="addEgr"&&<ModalW title="Egreso" onClose={cm}><EgrForm obras={obras} provs={provs} onNewProv={nombre=>{setProvs(prev=>[...prev,{id:"P"+String(prev.length+1).padStart(2,"0"),nombre,contacto:"",tel:"",material:"",credito:0,total:0,calif:3}]);}} onSave={m=>{const newId=movs.length+1;setMovs(prev=>[...prev,{...m,id:newId,user:user.nombre}]);highlightNew("m"+newId);cm();show("✓ Egreso registrado");}}/></ModalW>}
-    {modal==="addCj"&&<ModalW title="Gasto Caja Chica" onClose={cm}><CajaForm users={users} obras={obras} onSave={c=>{setCaja(prev=>[...prev,{...c,id:prev.length+1,status:user.rol==="admin"?"aprobado":"pendiente"}]);cm();show(user.rol==="admin"?"Gasto registrado":"Enviado para aprobación");}}/></ModalW>}
+    {modal==="addIng"&&<ModalW title="Registrar Ingreso" onClose={cm}><IngForm obras={obras} movs={movs} clis={clis} onSave={m=>{const rid=genRec(m);const newId=_nextNumId(movs);setMovs(prev=>[...prev,{...m,id:newId,user:user.nombre}]);highlightNew("m"+newId);try{saveDoc("recibo","Recibo "+rid,m.prov,m.obra,m.ing,{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}catch{}cm();om("vRec",{id:rid,fecha:m.fecha,cliente:m.prov,concepto:m.desc,monto:m.ing,obra:m.obra});}}/></ModalW>}
+    {modal==="addEgr"&&<ModalW title="Egreso" onClose={cm}><EgrForm obras={obras} provs={provs} onNewProv={nombre=>{setProvs(prev=>[...prev,{id:"P"+_rid(),nombre,contacto:"",tel:"",material:"",credito:0,total:0,calif:3}]);}} onSave={m=>{const newId=_nextNumId(movs);setMovs(prev=>[...prev,{...m,id:newId,user:user.nombre}]);highlightNew("m"+newId);cm();show("✓ Egreso registrado");}}/></ModalW>}
+    {modal==="addCj"&&<ModalW title="Gasto Caja Chica" onClose={cm}><CajaForm users={users} obras={obras} onSave={c=>{setCaja(prev=>[...prev,{...c,id:_nextNumId(prev),status:user.rol==="admin"?"aprobado":"pendiente"}]);cm();show(user.rol==="admin"?"Gasto registrado":"Enviado para aprobación");}}/></ModalW>}
     {modal==="editCj"&&md&&<ModalW title="Editar Gasto" onClose={cm}><div><Fl l="Concepto"><input style={sI} defaultValue={md.concepto} id="editCjConc"/></Fl><Fl l="Monto"><input type="number" style={sI} defaultValue={md.monto} id="editCjMonto"/></Fl><Fl l="Obra"><select style={sI} defaultValue={md.obra} id="editCjObra"><option value="">Seleccionar obra</option>{obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}<option value="General">General</option></select></Fl><Fl l="Responsable"><input style={sI} defaultValue={md.resp} id="editCjResp"/></Fl><button style={{...sB,marginTop:8}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;const nr=document.getElementById("editCjResp").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,resp:nr||x.resp}:x));cm();show("Gasto actualizado ✓");}}>💾 Guardar Cambios</button>{md.status==="pendiente"&&user.rol==="admin"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}><button style={{...sB,background:"#0a2e0a",color:T.green,marginTop:0}} onClick={()=>{const nc=document.getElementById("editCjConc").value;const nm=Number(document.getElementById("editCjMonto").value);const no=document.getElementById("editCjObra").value;setCaja(caja.map(x=>x.id===md.id?{...x,concepto:nc||x.concepto,monto:nm||x.monto,obra:no||x.obra,status:"aprobado"}:x));cm();show("Aprobado ✓");}}>✓ Aprobar</button><button style={{...sB,background:"#2a0a0a",color:T.red,marginTop:0}} onClick={()=>{setCaja(caja.map(x=>x.id===md.id?{...x,status:"rechazado"}:x));cm();show("Rechazado");}}>✕ Rechazar</button></div>}</div></ModalW>}
     {modal==="addDoc"&&sub&&<ModalW title="Documento" onClose={cm}><DocForm onSave={d=>{const up={...sub,docs:[...(sub.docs||[]),{...d,id:(sub.docs?.length||0)+1,fecha:td(),size:"—"}]};setObras(obras.map(o=>o.id===sub.id?up:o));setSub(up);cm();show("✓");}}/></ModalW>}
-    {modal==="addCli"&&<ModalW title="Cliente" onClose={cm}><ClienteForm onSave={c=>{const nn=normName(c.nombre);if(!nn){show("Pon un nombre válido");return;}if(clis.some(x=>normName(x.nombre)===nn)){show("Este cliente ya existe");return;}setClis(prev=>[...prev,{...c,nombre:c.nombre.trim(),id:"C"+Date.now()}]);cm();show("✓");}}/></ModalW>}
-    {modal==="addInv"&&<ModalW title="Material" onClose={cm}><InvForm onSave={i=>{setInv(prev=>[...prev,{...i,id:"I"+String(prev.length+1)}]);cm();show("✓");}}/></ModalW>}
+    {modal==="addCli"&&<ModalW title="Cliente" onClose={cm}><ClienteForm onSave={c=>{const nn=normName(c.nombre);if(!nn){show("Pon un nombre válido");return;}if(clis.some(x=>normName(x.nombre)===nn)){show("Este cliente ya existe");return;}setClis(prev=>[...prev,{...c,nombre:c.nombre.trim(),id:"C"+_rid()}]);cm();show("✓");}}/></ModalW>}
+    {modal==="addInv"&&<ModalW title="Material" onClose={cm}><InvForm onSave={i=>{setInv(prev=>[...prev,{...i,id:"I"+_rid()}]);cm();show("✓");}}/></ModalW>}
     {modal==="addPrec"&&<ModalW title="💰 Nuevo Precio Unitario" onClose={cm}><div>
       <Fl l="Categoría"><select style={sI} id="pCat" defaultValue="Cocinas">{ALL_CATS.map(c=><option key={c} value={c}>{c}</option>)}</select></Fl>
       <Fl l="Descripción"><input style={sI} id="pDesc" placeholder="Ej: Cocina integral acabado madera"/></Fl>
@@ -2646,7 +2871,7 @@ export default function App(){
       <Fl l="Notas"><input style={sI} defaultValue={md.notas||""} id="epNot"/></Fl>
       <button style={{...sB,marginTop:8}} onClick={()=>{const cat=document.getElementById("epCat").value;const desc=document.getElementById("epDesc").value;const prec=Number(document.getElementById("epPrec").value);const uni=document.getElementById("epUni").value;const not=document.getElementById("epNot").value;setPreciosUnit(prev=>prev.map(x=>x.id===md.id?{...x,cat,desc,precio:prec,unidad:uni,notas:not}:x));cm();show("Actualizado ✓");}}>💾 Guardar</button>
     </div></ModalW>}
-    {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+String(prev.length+1).padStart(2,"0")}]);cm();show("✓");}}/></ModalW>}
+    {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+_rid()}]);cm();show("✓");}}/></ModalW>}
     {modal==="importarMasivo"&&<ModalW title={"📊 Importar masivo · "+(md?.tipo==="ing"?"Ingresos":"Egresos")} onClose={cm}>
       <ImportadorMasivoForm tipo={md?.tipo||"egr"} obras={obras} onImport={items=>{
         const tipo=md?.tipo||"egr";
@@ -2700,7 +2925,7 @@ export default function App(){
       }}/>
     </ModalW>}
     {modal==="analisisDesfase"&&<ModalW title="🔍 Análisis de Desfase Financiero" onClose={cm}>
-      <AnalisisDesfaseView movs={movs} caja={caja} obras={obras} setMovs={setMovs} setCaja={setCaja} show={show} cm={cm}/>
+      <AnalisisDesfaseView movs={movs} caja={caja} obras={obras} setMovs={setMovs} setCaja={setCaja} setObras={setObras} show={show} cm={cm}/>
     </ModalW>}
     {modal==="fusionarObras"&&<ModalW title="🔀 Fusionar obras" onClose={cm}>
       <FusionarObrasForm
