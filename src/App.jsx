@@ -19,49 +19,104 @@ let _syncOk=false;
 const _saveListeners=new Set();
 const _notifySave=(status,key,err)=>{_saveListeners.forEach(fn=>{try{fn({status,key,err});}catch{}});};
 const _hash=v=>{try{const s=JSON.stringify(v);let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return h;}catch{return 0;}};
+
+// === COLA DE PENDIENTES (persistente en localStorage) ===
+const _getPendientes=()=>{try{return JSON.parse(localStorage.getItem("ev_pendientes")||"{}");}catch{return{};}};
+const _setPendientes=(p)=>{try{localStorage.setItem("ev_pendientes",JSON.stringify(p));}catch{}};
+const _addPendiente=(k,v)=>{const p=_getPendientes();p[k]={value:v,ts:Date.now(),tries:0};_setPendientes(p);_notifySave('pending',k);};
+const _removePendiente=(k)=>{const p=_getPendientes();delete p[k];_setPendientes(p);};
+const _getPendienteCount=()=>Object.keys(_getPendientes()).length;
+
 const DB={
-  // Push robusto: devuelve Promise<boolean>, detecta errores HTTP, retry con backoff
-  push:async(k,v,maxRetries=3)=>{
+  // Push HIPER ROBUSTO: PATCH primero (actualiza existente), si no existe → POST inicial.
+  // En caso de fallo persistente, guarda en cola de pendientes.
+  push:async(k,v,maxRetries=4)=>{
     if(!CLOUD)return true;
-    const body=JSON.stringify({key:k,value:v});
-    const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'};
+    const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};
+    // Stamp con timestamp del lado del cliente para resolver conflictos
+    const payload={key:k,value:v,updated_at:new Date().toISOString()};
     let lastErr=null;
     for(let attempt=0;attempt<maxRetries;attempt++){
       try{
-        const r=await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers,body});
-        if(r.ok){_syncOk=true;_notifySave('saved',k);return true;}
-        // HTTP 409 (conflict) → intentar PATCH en lugar de POST upsert
-        if(r.status===409||r.status===400){
-          const patchHeaders={...headers,'Prefer':'return=minimal'};
-          const patchBody=JSON.stringify({value:v});
-          const r2=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+encodeURIComponent(k),{method:'PATCH',headers:patchHeaders,body:patchBody});
-          if(r2.ok){_syncOk=true;_notifySave('saved',k);return true;}
-          lastErr='HTTP '+r2.status+': '+await r2.text().catch(()=>'(sin detalle)');
+        // 1° intento: PATCH (UPDATE) — actualiza fila existente con key=X
+        const patchH={...headers,'Prefer':'return=minimal'};
+        const patchBody=JSON.stringify({value:v,updated_at:payload.updated_at});
+        const rPatch=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+encodeURIComponent(k),{method:'PATCH',headers:patchH,body:patchBody});
+        if(rPatch.ok){
+          // PATCH OK pero quizás no había fila — verificar leyendo
+          const rCheck=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+encodeURIComponent(k)+'&select=key',{headers});
+          if(rCheck.ok){
+            const j=await rCheck.json();
+            if(Array.isArray(j)&&j.length>0){
+              // Si hay duplicados, dejar solo el más reciente
+              if(j.length>1){
+                // Borra duplicados (deja solo 1, idealmente el más nuevo) — no podemos saber cuál sin id, así que borramos TODOS y reinsertamos
+                await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+encodeURIComponent(k),{method:'DELETE',headers}).catch(()=>{});
+                // Reinsertar limpio
+                const rIns=await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{...headers,'Prefer':'return=minimal'},body:JSON.stringify(payload)});
+                if(rIns.ok){_syncOk=true;_notifySave('saved',k);_removePendiente(k);return true;}
+                lastErr="No se pudo limpiar duplicados ("+rIns.status+")";continue;
+              }
+              _syncOk=true;_notifySave('saved',k);_removePendiente(k);return true;
+            }
+          }
+          // No existía: hacer INSERT
+          const rIns=await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{...headers,'Prefer':'return=minimal'},body:JSON.stringify(payload)});
+          if(rIns.ok){_syncOk=true;_notifySave('saved',k);_removePendiente(k);return true;}
+          lastErr='INSERT HTTP '+rIns.status+': '+await rIns.text().catch(()=>'(sin detalle)');
         }else{
-          lastErr='HTTP '+r.status+': '+await r.text().catch(()=>'(sin detalle)');
+          lastErr='PATCH HTTP '+rPatch.status+': '+await rPatch.text().catch(()=>'(sin detalle)');
         }
       }catch(e){lastErr=String(e.message||e);}
-      if(attempt<maxRetries-1)await new Promise(res=>setTimeout(res,800*Math.pow(2,attempt))); // 800ms, 1600ms, 3200ms
+      if(attempt<maxRetries-1)await new Promise(res=>setTimeout(res,1000*Math.pow(2,attempt))); // 1s, 2s, 4s, 8s
     }
-    console.warn('DB.push falló para',k,':',lastErr);
+    console.warn('DB.push FALLÓ para',k,':',lastErr,'— guardado en cola de pendientes');
+    _addPendiente(k,v);
     _notifySave('error',k,lastErr);
     return false;
+  },
+  // Reintenta TODOS los pendientes (llamado al cargar app y cada N min)
+  reintentarPendientes:async()=>{
+    const p=_getPendientes();const keys=Object.keys(p);
+    if(keys.length===0)return 0;
+    let ok=0;
+    for(const k of keys){
+      const success=await DB.push(k,p[k].value);
+      if(success)ok++;
+    }
+    return ok;
   },
   get:async(k,def)=>{
     let cloudVal=null,localVal=null;
     if(CLOUD){
       try{
-        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
-        if(r.ok){const j=await r.json();if(Array.isArray(j)&&j.length>0)cloudVal=j[0].value;_syncOk=true;}
+        // Leer TODAS las filas con esta key, ordenadas por updated_at desc para tomar la más reciente
+        const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value,updated_at&order=updated_at.desc.nullslast',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
+        if(r.ok){
+          const j=await r.json();
+          if(Array.isArray(j)&&j.length>0){
+            cloudVal=j[0].value;
+            _syncOk=true;
+            // Si hay duplicados en Supabase, limpiar (deja solo el más reciente)
+            if(j.length>1){
+              console.warn('DB.get: '+k+' tiene '+j.length+' filas duplicadas en Supabase. Limpiando...');
+              const headers={'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json'};
+              await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+encodeURIComponent(k),{method:'DELETE',headers}).catch(()=>{});
+              await fetch(SUPA_URL+'/rest/v1/ev_data',{method:'POST',headers:{...headers,'Prefer':'return=minimal'},body:JSON.stringify({key:k,value:cloudVal,updated_at:new Date().toISOString()})}).catch(()=>{});
+            }
+          }
+        }
       }catch(e){console.warn('DB nube:',e);}
     }
     try{const v=localStorage.getItem('ev_'+k);if(v)localVal=JSON.parse(v);}catch{}
+    // Si hay pendientes para esta key, el local es la verdad absoluta — NUNCA sobrescribir
+    const pend=_getPendientes();
+    if(pend[k]){console.log('DB.get: usando local porque hay pendiente para',k);return pend[k].value;}
     const cLen=Array.isArray(cloudVal)?cloudVal.length:(cloudVal?1:0);
     const lLen=Array.isArray(localVal)?localVal.length:(localVal?1:0);
     if(cLen>0&&lLen>0){
-      // Si tienen el mismo número, comparar por hash y elegir el más "rico" (mayor JSON)
       if(cLen===lLen){const cH=_hash(cloudVal),lH=_hash(localVal);if(cH===lH){return cloudVal;}
-        // Distintos pero misma longitud — preferir el que tenga JSON más largo (más datos por item)
+        // Mismo número, contenido distinto — preferir JSON más largo (más datos)
         const cLenStr=JSON.stringify(cloudVal).length,lLenStr=JSON.stringify(localVal).length;
         if(cLenStr>=lLenStr){try{localStorage.setItem('ev_'+k,JSON.stringify(cloudVal));}catch{};return cloudVal;}
         else{DB.push(k,localVal);return localVal;}
@@ -74,7 +129,6 @@ const DB={
     return def;
   },
   set:(k,v)=>{
-    // Sincrónico: guarda local Y dispara push a nube en background
     const lite=k==='caja'&&Array.isArray(v)?v.map(c=>{if(c.ticket&&c.ticket.length>500)return{...c,ticket:'[nube]'};return c;}):v;
     try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch(e){console.warn('localStorage full for '+k);try{localStorage.removeItem('ev_'+k);localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}}
     if(CLOUD){_notifySave('saving',k);DB.push(k,v);}
@@ -214,6 +268,15 @@ const Stat=({label,value,color,small})=> <div><div style={{fontSize:small?8:9,co
 const normSearch=s=>(s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
 // Tokens "significativos" para fuzzy match: quita números, #, símbolos. Devuelve palabras de 4+ letras
 const obraTokens=s=>{const n=normSearch(s).replace(/[#\d]+/g," ").replace(/[^a-z\s]/g," ").replace(/\s+/g," ").trim();return n.split(" ").filter(t=>t.length>=4);};
+// Helper: obras válidas como DESTINO de fusión/reasignación (en proceso, autorizada, etc.) — NO cotizaciones, NO canceladas, NO entregadas
+const obrasDestinoValidas=(obras,excludeId)=>{
+  return obras.filter(o=>{
+    if(excludeId&&o.id===excludeId)return false;
+    if(!o.fase)return false;
+    if(o.fase==="cotizacion"||o.fase==="cancelado"||o.fase==="entregado")return false;
+    return true;
+  });
+};
 // Devuelve obras similares (comparten al menos 1 token significativo) excluyendo match exacto
 const findSimilarObras=(nombre,obras,excludeId)=>{
   const tgt=obraTokens(nombre);if(tgt.length===0)return [];
@@ -743,8 +806,8 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
                   <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                     <select style={{...sI,flex:1,minWidth:200,fontSize:12,padding:"8px"}} value={reasignarTo} onChange={e=>setReasignarTo(e.target.value)}>
                       <option value="">— Selecciona obra destino —</option>
-                      {obras.filter(x=>!sameObra2(x.nombre,o.nombre)).map(x=><option key={x.id} value={x.nombre}>{x.nombre}</option>)}
                       <option value="__general__">📂 General (sin obra)</option>
+                      {obrasDestinoValidas(obras).filter(x=>!sameObra2(x.nombre,o.nombre)).sort((a,b)=>(b.cotizado||0)-(a.cotizado||0)).map(x=><option key={x.id} value={x.nombre}>{x.nombre}{x.cliente?" — "+x.cliente:""}{x.cotizado>0?" ($"+Math.round(x.cotizado/1000)+"K)":""}</option>)}
                     </select>
                     <button onClick={()=>{if(!reasignarTo){if(show)show("Selecciona destino");return;}const dest=reasignarTo==="__general__"?"":reasignarTo;if(!confirm("¿Reasignar todos los movs de '"+o.nombre+"' a '"+(dest||"General")+"'?"))return;doReasignar(o.nombre,dest);}} style={{padding:"8px 16px",borderRadius:6,border:"none",background:T.purple,color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>Fusionar</button>
                     <button onClick={()=>{setReasignarFrom(null);setReasignarTo("");}} style={{padding:"8px 12px",borderRadius:6,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontSize:11,cursor:"pointer"}}>Cancelar</button>
@@ -778,7 +841,8 @@ function AnalisisDesfaseView({movs,caja,obras,setMovs,setCaja,show,cm}){
 function FusionarObrasForm({finObras,obras,countMovs,onFuse}){
   const[origen,setOrigen]=useState("");
   const[destino,setDestino]=useState("");
-  const obrasActivas=obras.map(o=>o.nombre).sort();
+  // Solo obras destino válidas (activas, con cliente o cotizado >0 preferidas)
+  const obrasActivas=obrasDestinoValidas(obras).sort((a,b)=>(b.cotizado||0)-(a.cotizado||0)).map(o=>({nombre:o.nombre,cliente:o.cliente,cotizado:o.cotizado||0}));
   const oCount=origen?countMovs(origen):0;
   return <div>
     <div style={{background:"rgba(171,71,188,.08)",border:"1px solid rgba(171,71,188,.2)",borderRadius:8,padding:12,marginBottom:14,fontSize:11,color:T.muted,lineHeight:1.5}}>
@@ -796,7 +860,7 @@ function FusionarObrasForm({finObras,obras,countMovs,onFuse}){
     <Fl l="Obra DESTINO (a dónde mover)">
       <select style={sI} value={destino} onChange={e=>setDestino(e.target.value)} disabled={!origen}>
         <option value="">— Selecciona obra destino —</option>
-        {obrasActivas.filter(n=>normSearch(n)!==normSearch(origen)).map(n=><option key={n} value={n}>{n}</option>)}
+        {obrasActivas.filter(o=>normSearch(o.nombre)!==normSearch(origen)).map(o=><option key={o.nombre} value={o.nombre}>{o.nombre}{o.cliente?" — "+o.cliente:""}{o.cotizado>0?" ($"+Math.round(o.cotizado/1000)+"K)":""}</option>)}
         <option value="__general__">📂 General (sin obra)</option>
       </select>
     </Fl>
@@ -865,18 +929,29 @@ export default function App(){
     window.addEventListener("keydown",h);
     return ()=>window.removeEventListener("keydown",h);
   },[]);
+  const[pendientesCount,setPendientesCount]=useState(()=>_getPendienteCount());
   // Suscribirse a eventos de guardado para mostrar indicador visual
   useEffect(()=>{
     const fn=({status,key,err})=>{
+      setPendientesCount(_getPendienteCount());
       if(status==="saving")setSaveStatus({state:"saving",msg:"💾 Guardando..."});
       else if(status==="saved")setSaveStatus({state:"saved",msg:"✓ Guardado"});
-      else if(status==="error")setSaveStatus({state:"error",msg:"⚠️ Error: "+(err||"reintentar"),key,err});
+      else if(status==="error")setSaveStatus({state:"error",msg:"⚠️ "+(err?String(err).slice(0,40):"Sin guardar — en cola")+" — reintentando",key,err});
+      else if(status==="pending")setSaveStatus({state:"error",msg:"⏳ Pendiente — en cola para reintentar"});
     };
     _saveListeners.add(fn);
     return ()=>_saveListeners.delete(fn);
   },[]);
   // Auto-ocultar "Guardado" tras 2s
   useEffect(()=>{if(saveStatus.state==="saved"){const t=setTimeout(()=>setSaveStatus({state:"idle",msg:""}),2500);return ()=>clearTimeout(t);}},[saveStatus.state]);
+  // Reintenta pendientes cada 45s si quedan
+  useEffect(()=>{const iv=setInterval(()=>{if(_getPendienteCount()>0){DB.reintentarPendientes().then(ok=>{if(ok>0)console.log(ok+" pendientes sincronizados");setPendientesCount(_getPendienteCount());});}},45000);return ()=>clearInterval(iv);},[]);
+  // Pre-guardado: no salir si hay pendientes sin sincronizar
+  useEffect(()=>{
+    const h=(e)=>{if(_getPendienteCount()>0){e.preventDefault();e.returnValue="Tienes "+_getPendienteCount()+" cambios sin sincronizar a la nube. ¿Salir de todas formas?";return e.returnValue;}};
+    window.addEventListener("beforeunload",h);
+    return ()=>window.removeEventListener("beforeunload",h);
+  },[]);
   const[obras,setObrasR]=useState([]);
   const[movs,setMovsR]=useState([]);
   const[caja,setCajaR]=useState([]);
@@ -896,6 +971,8 @@ export default function App(){
     if(CLOUD)setSyncStatus("Conectando a la nube...");
     const d={obras:await DB.get('obras',[]),movs:await DB.get('movs',[]),caja:await DB.get('caja',[]),auts:await DB.get('auts',[]),rec:await DB.get('rec',[]),inv:await DB.get('inv',INV_INIT),clis:await DB.get('clis',[]),cont:await DB.get('cont',[]),provs:await DB.get('provs',PROVS_INIT),users:await DB.get('users',USERS_SEED),catalogo:await DB.get('catalogo',CATALOGO_INIT),nominas:await DB.get('nominas',[]),documentos:await DB.get('documentos',[]),preciosUnit:await DB.get('preciosUnit',PRECIOS_INIT),papelera:await DB.get('papelera',[])};
     if(CLOUD)setSyncStatus(_syncOk?"☁️ Nube sincronizada":"⚠️ Usando datos locales");
+    // Reintenta pendientes al cargar
+    if(CLOUD){DB.reintentarPendientes().then(ok=>{if(ok>0)console.log("✓ "+ok+" pendientes sincronizados al cargar");});}
     // Datos ya viven en Supabase — no se tocan al actualizar el código
     if(!d.nominas||d.nominas.length===0)d.nominas=[{id:"N01",nombre:"Nómina Carpintería",monto:15000,frecuencia:"semanal",tipo:"Nómina"},{id:"N02",nombre:"Renta Carpintería",monto:11000,frecuencia:"mensual",tipo:"Renta"},{id:"N05",nombre:"IMSS",monto:16563,frecuencia:"mensual",tipo:"IMSS"},{id:"N06",nombre:"Luz Carpintería",monto:2500,frecuencia:"mensual",tipo:"Servicios"},{id:"N07",nombre:"Caja Chica Carpintería",monto:5000,frecuencia:"semanal",tipo:"Caja chica"},{id:"N08",nombre:"Francisco — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N09",nombre:"Erik — Carpintero",monto:4000,frecuencia:"semanal",tipo:"Nómina"},{id:"N10",nombre:"Héctor — Carpintero",monto:3500,frecuencia:"semanal",tipo:"Nómina"},{id:"N11",nombre:"Barnizador",monto:3500,frecuencia:"semanal",tipo:"Nómina"}];
 
@@ -912,7 +989,10 @@ export default function App(){
   // Auto-sync cada 30s — compara por HASH (no por longitud) para detectar modificaciones
   const _lastWrite=useRef({});
   const _lastHash=useRef({});
-  useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){
+  useEffect(()=>{if(!CLOUD)return;const iv=setInterval(async()=>{try{
+    // Reintentar pendientes ANTES de leer (los pendientes son la verdad local)
+    await DB.reintentarPendientes();
+    const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){
     // Cooldown extendido a 60s tras escritura local — protege modificaciones
     if(_lastWrite.current[k]&&now-_lastWrite.current[k]<60000)continue;
     const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY}});
@@ -2560,7 +2640,7 @@ export default function App(){
   </div>;
   // ═══ MOBILE: Header + Content + Bottom Nav ═══
   return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",fontSize:13}}>
-    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}><button onClick={()=>setSearchOpen(true)} style={{background:"rgba(255,255,255,.06)",border:"1px solid "+T.border,color:T.muted,width:32,height:32,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer"}} title="Buscar (Ctrl+K)">🔍</button>{saveStatus.state!=="idle"&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,background:saveStatus.state==="saving"?"rgba(66,165,245,.15)":saveStatus.state==="saved"?"rgba(76,175,80,.15)":"rgba(231,76,60,.18)",color:saveStatus.state==="saving"?T.blue:saveStatus.state==="saved"?T.green:T.red,whiteSpace:"nowrap",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}} title={saveStatus.err||""}>{saveStatus.msg}</span>}{CLOUD&&<span onClick={()=>location.reload()} style={{fontSize:11,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} title={_syncOk?"Nube OK":"Verificando"}>{_syncOk?"☁️":"⏳"}</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
+    <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}><button onClick={()=>setSearchOpen(true)} style={{background:"rgba(255,255,255,.06)",border:"1px solid "+T.border,color:T.muted,width:32,height:32,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer"}} title="Buscar (Ctrl+K)">🔍</button>{pendientesCount>0&&<span onClick={()=>{DB.reintentarPendientes().then(()=>{setPendientesCount(_getPendienteCount());show("Reintentado");});}} style={{fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:10,background:"rgba(255,152,0,.18)",color:T.orange,whiteSpace:"nowrap",cursor:"pointer"}} title="Cambios sin sincronizar — click para reintentar">⏳ {pendientesCount} pend.</span>}{saveStatus.state!=="idle"&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,background:saveStatus.state==="saving"?"rgba(66,165,245,.15)":saveStatus.state==="saved"?"rgba(76,175,80,.15)":"rgba(231,76,60,.18)",color:saveStatus.state==="saving"?T.blue:saveStatus.state==="saved"?T.green:T.red,whiteSpace:"nowrap",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}} title={saveStatus.err||""}>{saveStatus.msg}</span>}{CLOUD&&<span onClick={()=>location.reload()} style={{fontSize:11,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} title={_syncOk?"Nube OK":"Verificando"}>{_syncOk?"☁️":"⏳"}</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
     {content}
     {modals}
     {toast&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:"#1a3a1a",color:T.green,padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,zIndex:2000}}>{toast}</div>}
