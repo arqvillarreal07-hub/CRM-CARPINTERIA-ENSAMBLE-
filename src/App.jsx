@@ -1272,29 +1272,26 @@ export default function App(){
     await AUTH.ensureFresh();
     // Reintentar pendientes ANTES de leer (los pendientes son la verdad local)
     await DB.reintentarPendientes();
-    const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();for(const[k,setter]of keys){
-    // Cooldown extendido a 60s tras escritura local — protege modificaciones
+    const keys=[['obras',setObrasR],['movs',setMovsR],['caja',setCajaR],['rec',setRecR],['users',setUsersR],['nominas',setNominasR],['inv',setInvR],['clis',setClisR],['provs',setProvsR],['catalogo',setCatalogoR],['auts',setAutsR],['documentos',setDocumentosR]];const now=Date.now();const pend=_getPendientes();for(const[k,setter]of keys){
+    // Cooldown 60s tras escritura local — protege cambios recientes (incluidos borrados)
     if(_lastWrite.current[k]&&now-_lastWrite.current[k]<60000)continue;
-    const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value',{headers:{'apikey':SUPA_KEY,'Authorization':_bearer()}});
+    // Si hay cambios locales EN COLA, no tocar: la cola es la verdad local (evita revivir borrados)
+    if(pend[k])continue;
+    const r=await fetch(SUPA_URL+'/rest/v1/ev_data?key=eq.'+k+'&select=value,updated_at',{headers:{'apikey':SUPA_KEY,'Authorization':_bearer()}});
     if(!r.ok)continue;
     const j=await r.json();if(!Array.isArray(j)||j.length===0)continue;
     const cloud=j[0].value;
+    const cloudTs=j[0].updated_at?Date.parse(j[0].updated_at):0;
+    // Para caja comparamos sin el contenido de los tickets (local los guarda recortados)
+    const cloudLite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;
     const local=JSON.parse(localStorage.getItem('ev_'+k)||'[]');
-    const cH=_hash(cloud),lH=_hash(local);
-    if(cH===lH)continue; // Idénticos: nada que hacer
-    // Distintos: si fue cambio LOCAL reciente (lastWrite<60s pero >=60s ya skipped arriba), no llegamos aquí
-    // Si llegamos aquí, NO hubo cambio local reciente → la nube tiene una versión más fresca (otro usuario)
-    // O nuestra escritura falló: comparar tamaño JSON para preferir el más rico
-    const cStr=JSON.stringify(cloud),lStr=JSON.stringify(local);
-    if(cStr.length>=lStr.length){
-      // Nube tiene igual o más datos: actualizar local
-      const lite=k==='caja'&&Array.isArray(cloud)?cloud.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):cloud;
+    if(_hash(cloudLite)===_hash(local))continue; // Iguales: nada que hacer
+    // Solo BAJAR de la nube si es MÁS RECIENTE que nuestro último cambio local (= otro dispositivo lo cambió).
+    // Nunca empujamos desde aquí: wrap() ya sube cada cambio con datos completos, así NUNCA se revive un borrado.
+    if(cloudTs>(_lastWrite.current[k]||0)){
       setter(cloud);
-      try{localStorage.setItem('ev_'+k,JSON.stringify(lite));}catch{}
-      _lastHash.current[k]=cH;
-    }else{
-      // Local tiene más datos pero la nube no los tiene: empujar local a nube
-      DB.push(k,local);
+      try{localStorage.setItem('ev_'+k,JSON.stringify(cloudLite));}catch{}
+      _lastHash.current[k]=_hash(cloudLite);
     }
   }}catch(e){console.warn('Auto-sync error:',e);}},30000);return()=>clearInterval(iv);},[]);
   // Wrap mejorado: hace push robusto y reporta éxito/error
