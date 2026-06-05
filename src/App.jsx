@@ -481,7 +481,30 @@ function ImportadorViernesForm({obras,movs,onImport}){
   const [escaneando,setEscaneando]=useState({});
   const [fechaSem,setFechaSem]=useState(td()); // fecha de referencia (viernes)
   // Helpers compartidos
-  const parseDate=(s)=>{if(!s)return td();s=String(s).trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}return s;};
+  const parseDate=(s)=>{
+    if(!s||!String(s).trim())return "";
+    s=String(s).trim();
+    // ISO ya formateado
+    if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);
+    // DD/MM/AAAA o DD/MM/AA
+    let m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}
+    // DD-MM-AAAA o DD-MM-AA
+    m=s.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})$/);
+    if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}
+    // DD.MM.AAAA
+    m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+    if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}
+    // Texto tipo "29 mayo 2026" o "29 de mayo de 2026"
+    const meses={"enero":"01","febrero":"02","marzo":"03","abril":"04","mayo":"05","junio":"06","julio":"07","agosto":"08","septiembre":"09","octubre":"10","noviembre":"11","diciembre":"12"};
+    const ml=s.toLowerCase();
+    for(const[nm,mn]of Object.entries(meses)){
+      const reM=new RegExp("(\\d{1,2})\\s+(?:de\\s+)?"+nm+"(?:\\s+(?:de\\s+)?(\\d{4}))?");
+      const mm=ml.match(reM);
+      if(mm){const d=mm[1].padStart(2,"0");const y=mm[2]||String(new Date().getFullYear());return y+"-"+mn+"-"+d;}
+    }
+    return ""; // No se pudo parsear → vacío (NO td())
+  };
   const parseMonto=(s)=>{if(!s)return 0;return Number(String(s).replace(/[^0-9.-]/g,""))||0;};
   const matchObra=(nombre)=>{if(!nombre)return "";const n=normSearch(nombre);const exact=obras.find(o=>normSearch(o.nombre)===n);if(exact)return exact.nombre;const part=obras.find(o=>normSearch(o.nombre).includes(n)||n.includes(normSearch(o.nombre)));return part?part.nombre:nombre;};
   // Parser ingresos/gastos (formato: fecha mes descripcion obra total)
@@ -506,7 +529,9 @@ function ImportadorViernesForm({obras,movs,onImport}){
       const celdas=lineas[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,""));
       if(celdas.every(c=>!c))continue;
       celdasParsed.push(celdas);
-      const fecha=colFecha>=0?parseDate(celdas[colFecha]):td();
+      // Si hay columna fecha y se puede parsear → usarla. Si no, usar fechaSem (viernes), NO td()
+      const fechaParsed=colFecha>=0?parseDate(celdas[colFecha]):"";
+      const fecha=fechaParsed||fechaSem;
       const desc=colDesc>=0?(celdas[colDesc]||""):"";
       const obraStr=colObra>=0?(celdas[colObra]||""):"";
       const obra=matchObra(obraStr);
@@ -826,7 +851,30 @@ function ImportadorMasivoForm({tipo,obras,onImport}){
     const colObra=findCol(["obra","proyecto"]);
     const colMonto=findCol(["total","monto","ingreso","egreso","gasto"]);
     // Función para parsear fecha "22/5/26" → "2026-05-22"
-    const parseDate=(s)=>{if(!s)return td();s=String(s).trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}return s;};
+    const parseDate=(s)=>{
+    if(!s||!String(s).trim())return "";
+    s=String(s).trim();
+    // ISO ya formateado
+    if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);
+    // DD/MM/AAAA o DD/MM/AA
+    let m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}
+    // DD-MM-AAAA o DD-MM-AA
+    m=s.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})$/);
+    if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}
+    // DD.MM.AAAA
+    m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+    if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}
+    // Texto tipo "29 mayo 2026" o "29 de mayo de 2026"
+    const meses={"enero":"01","febrero":"02","marzo":"03","abril":"04","mayo":"05","junio":"06","julio":"07","agosto":"08","septiembre":"09","octubre":"10","noviembre":"11","diciembre":"12"};
+    const ml=s.toLowerCase();
+    for(const[nm,mn]of Object.entries(meses)){
+      const reM=new RegExp("(\\d{1,2})\\s+(?:de\\s+)?"+nm+"(?:\\s+(?:de\\s+)?(\\d{4}))?");
+      const mm=ml.match(reM);
+      if(mm){const d=mm[1].padStart(2,"0");const y=mm[2]||String(new Date().getFullYear());return y+"-"+mn+"-"+d;}
+    }
+    return ""; // No se pudo parsear → vacío (NO td())
+  };
     // Función para parsear monto "1,381.77" → 1381.77
     const parseMonto=(s)=>{if(!s)return 0;return Number(String(s).replace(/[^0-9.-]/g,""))||0;};
     // Match obra con fuzzy
@@ -836,7 +884,7 @@ function ImportadorMasivoForm({tipo,obras,onImport}){
       const celdas=lineas[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,""));
       if(celdas.every(c=>!c))continue;
       const desc=colDesc>=0?celdas[colDesc]:celdas.find(c=>c.length>5&&isNaN(Number(c)))||"";
-      const fecha=colFecha>=0?parseDate(celdas[colFecha]):td();
+      const fecha=(colFecha>=0?parseDate(celdas[colFecha]):"")||td();
       const obraStr=colObra>=0?celdas[colObra]:"";
       const obra=matchObra(obraStr);
       const monto=colMonto>=0?parseMonto(celdas[colMonto]):parseMonto(celdas[celdas.length-1]);
@@ -2379,6 +2427,37 @@ export default function App(){
 
 
     {sec==="finanzas"&&<div>
+        {/* Banner DESHACER última importación */}
+        {(()=>{
+          try{
+            const ul=JSON.parse(localStorage.getItem("ev_ultimoLote")||"null");
+            if(!ul)return null;
+            const minutos=Math.floor((Date.now()-ul.timestamp)/60000);
+            // Solo mostrar si fue en las últimas 2 horas
+            if(minutos>120)return null;
+            const tiempo=minutos<1?"hace unos segundos":minutos<60?"hace "+minutos+" min":"hace "+Math.floor(minutos/60)+"h";
+            return <div style={{background:"linear-gradient(135deg,rgba(66,165,245,.10),rgba(66,165,245,.04))",border:"1px solid "+T.blue+"55",borderRadius:10,padding:"10px 14px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:800,color:T.blue}}>📥 Importaste {ul.count} movimientos ({ul.tipo}) {tiempo}</div>
+                <div style={{fontSize:10,color:T.muted,marginTop:2}}>Si te equivocaste, puedes deshacer en un solo clic.</div>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>{try{localStorage.removeItem("ev_ultimoLote");}catch{};show("✓ Confirmado");}} style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.green+"44",background:"rgba(76,175,80,.08)",color:T.green,fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Está bien</button>
+                <button onClick={async()=>{
+                  if(!confirm("¿Deshacer la importación de "+ul.count+" movimientos?\n\nIrán a la Papelera, puedes recuperarlos por 30 días."))return;
+                  const aBorrar=movs.filter(m=>m.loteImport===ul.loteId);
+                  if(aBorrar.length===0){show("⚠️ No encontré los movimientos del lote");return;}
+                  aBorrar.forEach(m=>enviarAPapelera("mov",m,m.desc+" (deshacer import)"));
+                  const newMovs=movs.filter(m=>m.loteImport!==ul.loteId);
+                  setMovs(newMovs);
+                  _lastWrite.current["movs"]=Date.now()+15000;
+                  try{localStorage.removeItem("ev_ultimoLote");}catch{}
+                  show("⬅️ "+aBorrar.length+" movs deshechos · en la Papelera");
+                }} style={{padding:"6px 12px",borderRadius:6,border:"none",background:T.red,color:"#fff",fontSize:11,fontWeight:800,cursor:"pointer"}}>⬅️ Deshacer importación</button>
+              </div>
+            </div>;
+          }catch{return null;}
+        })()}
         <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
           <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Ingresos" value={$(finIng)} color={T.green}/></Card>
           <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Egresos" value={$(finEgr)} color={T.red}/></Card>
@@ -3116,6 +3195,7 @@ export default function App(){
     {modal==="importarViernes"&&<ModalW title="📅 Importar Viernes del Taller" onClose={cm}>
       <ImportadorViernesForm obras={obras} movs={movs} onImport={items=>{
         const baseId=movs.length;
+        const loteId="viernes-"+Date.now();
         const nuevos=items.map((it,i)=>({
           fecha:it.fecha||td(),
           desc:it.desc,
@@ -3127,19 +3207,24 @@ export default function App(){
           user:user.nombre,
           id:baseId+i+1,
           importadoEl:td(),
-          importadoViernes:true
+          importadoViernes:true,
+          loteImport:loteId
         }));
         setMovs(prev=>[...prev,...nuevos]);
         nuevos.forEach(n=>highlightNew("m"+n.id));
+        // Guardar info del último lote para poder deshacer
+        try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,timestamp:Date.now(),tipo:"Viernes del Taller",count:nuevos.length,user:user.nombre}));}catch{}
         cm();
         const nIng=items.filter(it=>it.tipo==="ing").length;
         const nEgr=items.filter(it=>it.tipo==="egr").length;
-        show("✓ Viernes importado: "+nIng+" ingresos + "+nEgr+" egresos");
+        show("✓ Viernes importado: "+nIng+" ingresos + "+nEgr+" egresos (puedes deshacer desde Finanzas)");
       }}/>
     </ModalW>}
     {modal==="importarMasivo"&&<ModalW title={"📊 Importar masivo · "+(md?.tipo==="ing"?"Ingresos":"Egresos")} onClose={cm}>
       <ImportadorMasivoForm tipo={md?.tipo||"egr"} obras={obras} onImport={items=>{
         const tipo=md?.tipo||"egr";
+        const loteId=tipo+"-"+Date.now();
+        const baseId=movs.length;
         const nuevos=items.map((it,i)=>({
           fecha:it.fecha||td(),
           desc:it.desc,
@@ -3149,14 +3234,15 @@ export default function App(){
           ing:tipo==="ing"?Number(it.monto):0,
           egr:tipo==="ing"?0:Number(it.monto),
           user:user.nombre,
-          importadoEl:td()
+          id:baseId+i+1,
+          importadoEl:td(),
+          loteImport:loteId
         }));
-        const baseId=movs.length;
-        setMovs(prev=>[...prev,...nuevos.map((m,i)=>({...m,id:baseId+i+1}))]);
-        // Highlight todos los nuevos
-        nuevos.forEach((_,i)=>highlightNew("m"+(baseId+i+1)));
+        setMovs(prev=>[...prev,...nuevos]);
+        nuevos.forEach(n=>highlightNew("m"+n.id));
+        try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,timestamp:Date.now(),tipo:tipo==="ing"?"Ingresos masivos":"Gastos masivos",count:nuevos.length,user:user.nombre}));}catch{}
         cm();
-        show("✓ "+items.length+" "+(tipo==="ing"?"ingresos":"egresos")+" importados");
+        show("✓ "+items.length+" "+(tipo==="ing"?"ingresos":"egresos")+" importados (puedes deshacer)");
       }}/>
     </ModalW>}
     {modal==="obrasSimilares"&&<ModalW title="🔗 Detectar y Fusionar Obras Similares" onClose={cm}>
