@@ -622,7 +622,8 @@ function ImportadorViernesForm({obras,movs,onImport}){
     const colTotal=findCol(["total"]);
     const result=[];
     // Regex: "3 dias tamarindos ($2400)" → grupo 1=3, grupo 2=tamarindos, grupo 3=2400
-    const reDiasObra=/(\d+)\s*d[ií]as?\s+([a-zA-ZáéíóúñÑ\s]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
+    // Regex acepta: letras, números, #, espacios en el nombre de la obra (ej "TAMARINDOS #1", "CORAL #39", "Casa 25", etc)
+    const reDiasObra=/(\d+)\s*d[ií]as?\s+([^()$]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
     for(let i=startIdx;i<lineas.length;i++){
       const celdas=lineas[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,""));
       if(celdas.every(c=>!c))continue;
