@@ -485,29 +485,44 @@ function ImportadorViernesForm({obras,movs,onImport}){
   const parseMonto=(s)=>{if(!s)return 0;return Number(String(s).replace(/[^0-9.-]/g,""))||0;};
   const matchObra=(nombre)=>{if(!nombre)return "";const n=normSearch(nombre);const exact=obras.find(o=>normSearch(o.nombre)===n);if(exact)return exact.nombre;const part=obras.find(o=>normSearch(o.nombre).includes(n)||n.includes(normSearch(o.nombre)));return part?part.nombre:nombre;};
   // Parser ingresos/gastos (formato: fecha mes descripcion obra total)
+  // Devuelve {items: [...], celdasParsed: [[]], headers: [], colDesc: idx, colObra: idx, colMonto: idx, omitidas: [...]}
   const parsearMovs=(txt,tipo)=>{
-    if(!txt.trim())return [];
+    if(!txt.trim())return {items:[],celdasParsed:[],headers:[],colDesc:-1,colObra:-1,colMonto:-1,omitidas:[]};
     const lineas=txt.split("\n").filter(l=>l.trim());
     const sep=lineas[0].includes("\t")?"\t":",";
     const primera=lineas[0].split(sep).map(c=>c.trim().toLowerCase());
     const haySSHeader=primera.some(c=>["fecha","mes","descripcion","descripción","obra","total","monto"].includes(c));
     const startIdx=haySSHeader?1:0;
-    const headers=haySSHeader?primera:["fecha","mes","desc","obra","total"];
-    const findCol=(opts)=>{for(const o of opts){const i=headers.findIndex(h=>h.includes(o));if(i>=0)return i;}return -1;};
+    const headers=haySSHeader?lineas[0].split(sep).map(c=>c.trim().replace(/^"|"$/g,"")):["fecha","mes","descripción","obra","total"];
+    const findCol=(opts)=>{for(const o of opts){const i=headers.findIndex(h=>h.toLowerCase().includes(o));if(i>=0)return i;}return -1;};
     const colFecha=findCol(["fecha"]);
     const colDesc=findCol(["descripcion","descripción","desc"]);
     const colObra=findCol(["obra","proyecto"]);
     const colMonto=findCol(["total","monto","ingreso","egreso"]);
     const result=[];
+    const celdasParsed=[];
+    const omitidas=[];
     for(let i=startIdx;i<lineas.length;i++){
       const celdas=lineas[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,""));
       if(celdas.every(c=>!c))continue;
+      celdasParsed.push(celdas);
       const fecha=colFecha>=0?parseDate(celdas[colFecha]):td();
-      const desc=colDesc>=0?celdas[colDesc]:"";
-      const obraStr=colObra>=0?celdas[colObra]:"";
+      const desc=colDesc>=0?(celdas[colDesc]||""):"";
+      const obraStr=colObra>=0?(celdas[colObra]||""):"";
       const obra=matchObra(obraStr);
       const monto=colMonto>=0?parseMonto(celdas[colMonto]):parseMonto(celdas[celdas.length-1]);
-      if(monto>0&&desc){
+      // FIX: Si hay monto pero NO descripción NI obra → es la celda de TOTAL de la tabla, no un movimiento
+      const descLow=desc.toLowerCase().trim();
+      const esTotal=descLow.includes("total")||descLow.includes("suma")||descLow.includes("subtotal");
+      if(monto>0&&(!desc||!desc.trim())&&(!obraStr||!obraStr.trim())){
+        omitidas.push({linea:i+1,razon:"Total de tabla (sin descripción ni obra)",celdas});
+        continue;
+      }
+      if(monto>0&&esTotal){
+        omitidas.push({linea:i+1,razon:"Fila de total (descripción dice 'total')",celdas});
+        continue;
+      }
+      if(monto>0&&desc&&desc.trim()){
         result.push({
           tipo,fecha,desc,obra,monto,
           obraOrig:obraStr,
@@ -516,7 +531,7 @@ function ImportadorViernesForm({obras,movs,onImport}){
         });
       }
     }
-    return result;
+    return {items:result,celdasParsed,headers,colDesc,colObra,colMonto,omitidas,sep};
   };
   // Parser NÓMINA: parsea "X dias OBRA ($Y)" en columna "dias y obra"
   const parsearNomina=(txt)=>{
@@ -568,10 +583,15 @@ function ImportadorViernesForm({obras,movs,onImport}){
     }
     return result;
   };
+  const [parseInfoIng,setParseInfoIng]=useState(null);
+  const [parseInfoEgr,setParseInfoEgr]=useState(null);
   // Re-parsea todo al pegar
   const recalcular=(ing,egr,nom)=>{
-    const arr=[...parsearMovs(ing||pegIng,"ing"),...parsearMovs(egr||pegEgr,"egr"),...parsearNomina(nom||pegNom)];
-    // Detectar duplicados con movs existentes (misma fecha + desc + monto)
+    const resIng=parsearMovs(ing!==null&&ing!==undefined?ing:pegIng,"ing");
+    const resEgr=parsearMovs(egr!==null&&egr!==undefined?egr:pegEgr,"egr");
+    setParseInfoIng(resIng);
+    setParseInfoEgr(resEgr);
+    const arr=[...resIng.items,...resEgr.items,...parsearNomina(nom!==null&&nom!==undefined?nom:pegNom)];
     arr.forEach(it=>{
       const norm=normSearch(it.desc);
       const dup=movs.find(m=>(m.fecha||"")===it.fecha&&normSearch(m.desc||"")===norm&&Math.abs((m.ing||m.egr||0)-it.monto)<0.5);
@@ -601,14 +621,33 @@ function ImportadorViernesForm({obras,movs,onImport}){
   const totIng=itemsValid.filter(it=>it.tipo==="ing").reduce((s,it)=>s+Number(it.monto),0);
   const totEgr=itemsValid.filter(it=>it.tipo==="egr").reduce((s,it)=>s+Number(it.monto),0);
   const nDup=items.filter(it=>it.duplicado).length;
-  const Caja=({titulo,color,icono,texto,setter,tipo})=>{
+  const Caja=({titulo,color,icono,texto,setter,tipo,parseInfo})=>{
     return <div style={{padding:10,border:"1px solid "+T.border,borderRadius:8,background:"rgba(255,255,255,.015)"}}>
       <div style={{fontSize:11,color,fontWeight:800,marginBottom:6}}>{icono} {titulo}</div>
-      <textarea value={texto} onChange={e=>{setter(e.target.value);if(tipo==="ing")recalcular(e.target.value,null,null);else if(tipo==="egr")recalcular(null,e.target.value,null);else recalcular(null,null,e.target.value);}} placeholder="Pega aquí desde Excel/Sheets..." style={{...sI,minHeight:70,fontSize:10,fontFamily:"monospace"}}/>
+      <textarea value={texto} onChange={e=>{setter(e.target.value);if(tipo==="ing")recalcular(e.target.value,null,null);else if(tipo==="egr")recalcular(null,e.target.value,null);else recalcular(null,null,e.target.value);}} placeholder="Pega aquí desde Excel/Sheets..." style={{...sI,minHeight:60,fontSize:10,fontFamily:"monospace"}}/>
       <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"6px 10px",border:"1px dashed "+T.border,borderRadius:6,marginTop:6,cursor:"pointer",fontSize:10,color:T.muted,background:escaneando[tipo]?"rgba(66,165,245,.08)":"transparent"}}>
         <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{const raw=e.target.files[0];if(!raw)return;try{const f=await compressImage(raw);escanearConIA(f,tipo);}catch(err){alert(err.message);}}}/>
         {escaneando[tipo]?<span style={{color:T.blue,fontWeight:700}}>🤖 Procesando...</span>:<span>📷 o sube foto (IA lee)</span>}
       </label>
+      {/* === VISTA TABLA EXCEL EN VIVO === */}
+      {parseInfo&&parseInfo.celdasParsed.length>0&&<div style={{marginTop:8,borderRadius:6,border:"1px solid #333",overflow:"hidden"}}>
+        <div style={{fontSize:9,color:T.gold,fontWeight:700,padding:"4px 8px",background:"#1a1a1a",textTransform:"uppercase",letterSpacing:.5}}>📊 Vista tabla ({parseInfo.celdasParsed.length} filas detectadas{parseInfo.omitidas.length>0?" · "+parseInfo.omitidas.length+" omitidas":""})</div>
+        <div style={{overflowX:"auto",maxHeight:180,overflowY:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+            <thead style={{position:"sticky",top:0,background:"#1a1a1a"}}>
+              <tr>
+                {parseInfo.headers.map((h,i)=>{const isKey=i===parseInfo.colDesc||i===parseInfo.colObra||i===parseInfo.colMonto;return <th key={i} style={{padding:"5px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:isKey?color:T.muted,borderRight:"1px solid #2a2a2a",borderBottom:"2px solid #444",background:isKey?color+"15":"transparent",whiteSpace:"nowrap"}}>{h}{i===parseInfo.colDesc&&" 📝"}{i===parseInfo.colObra&&" 🏗"}{i===parseInfo.colMonto&&" 💰"}</th>;})}
+              </tr>
+            </thead>
+            <tbody>
+              {parseInfo.celdasParsed.map((celdas,idx)=>{const isOmit=parseInfo.omitidas.some(o=>o.celdas===celdas||JSON.stringify(o.celdas)===JSON.stringify(celdas));return <tr key={idx} style={{borderBottom:"1px solid #2a2a2a",background:isOmit?"rgba(255,213,79,.08)":idx%2===0?"rgba(255,255,255,.01)":"transparent",opacity:isOmit?.5:1}} title={isOmit?"⚠️ Esta fila se omite (es un total de la tabla)":""}>
+                {celdas.map((c,i)=><td key={i} style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",color:c?T.text:T.dim,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c||"—"}{isOmit&&i===celdas.length-1&&<span style={{color:T.yellow,marginLeft:6,fontSize:9}}>⚠️ omitida</span>}</td>)}
+              </tr>;})}
+            </tbody>
+          </table>
+        </div>
+        {parseInfo.omitidas.length>0&&<div style={{padding:"5px 8px",background:"rgba(255,213,79,.06)",fontSize:9,color:T.yellow,borderTop:"1px solid #2a2a2a"}}>⚠️ {parseInfo.omitidas.length} fila(s) omitidas porque son totales de la tabla (sin descripción ni obra).</div>}
+      </div>}
     </div>;
   };
   return <div>
@@ -620,9 +659,9 @@ function ImportadorViernesForm({obras,movs,onImport}){
       <Fl l="Fecha de la semana (viernes)"><input type="date" style={sI} value={fechaSem} onChange={e=>setFechaSem(e.target.value)}/></Fl>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr",gap:8,marginBottom:12}}>
-      <Caja titulo="📈 INGRESOS" color={T.green} icono="📈" texto={pegIng} setter={setPegIng} tipo="ing"/>
-      <Caja titulo="📉 GASTOS" color={T.red} icono="📉" texto={pegEgr} setter={setPegEgr} tipo="egr"/>
-      <Caja titulo="💼 NÓMINA (se separa automáticamente por persona/obra)" color={T.purple} icono="💼" texto={pegNom} setter={setPegNom} tipo="nom"/>
+      <Caja titulo="📈 INGRESOS" color={T.green} icono="📈" texto={pegIng} setter={setPegIng} tipo="ing" parseInfo={parseInfoIng}/>
+      <Caja titulo="📉 GASTOS" color={T.red} icono="📉" texto={pegEgr} setter={setPegEgr} tipo="egr" parseInfo={parseInfoEgr}/>
+      <Caja titulo="💼 NÓMINA (se separa automáticamente por persona/obra)" color={T.purple} icono="💼" texto={pegNom} setter={setPegNom} tipo="nom" parseInfo={null}/>
     </div>
     {items.length>0&&<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
