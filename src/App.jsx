@@ -472,6 +472,52 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
+function HistorialImportacionesView({movs,onDeshacer}){
+  // Agrupar movimientos por lote (si tienen loteImport) o por importadoEl+user (si no)
+  const importados=movs.filter(m=>m.importadoEl||m.loteImport||m.importadoViernes);
+  const grupos={};
+  importados.forEach(m=>{
+    const key=m.loteImport||("legacy-"+(m.importadoEl||"sin-fecha")+"-"+(m.user||"sin-user"));
+    if(!grupos[key])grupos[key]={key,fechaImport:m.importadoEl||"(antiguo)",user:m.user||"?",tipo:m.importadoViernes?"📅 Viernes Taller":m.ing>0?"📈 Ingresos":"📉 Gastos",movs:[],totIng:0,totEgr:0,loteId:m.loteImport};
+    grupos[key].movs.push(m);
+    grupos[key].totIng+=Number(m.ing)||0;
+    grupos[key].totEgr+=Number(m.egr)||0;
+  });
+  const lista=Object.values(grupos).sort((a,b)=>(b.fechaImport||"").localeCompare(a.fechaImport||""));
+  if(lista.length===0)return <div style={{textAlign:"center",padding:40,color:T.muted}}>
+    <div style={{fontSize:40,marginBottom:8}}>📦</div>
+    <div>Sin importaciones registradas</div>
+  </div>;
+  return <div>
+    <div style={{background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"33",borderRadius:8,padding:10,marginBottom:12,fontSize:11,color:T.muted}}>
+      <div style={{color:T.yellow,fontWeight:700,marginBottom:3}}>⚠️ Lista de movimientos importados (no creados manualmente)</div>
+      <div>Cada grupo es una sesión de importación. Si te equivocaste, dale "⬅️ Deshacer este lote" y los movs van a la Papelera (recuperables 30 días).</div>
+    </div>
+    <div style={{display:"grid",gap:8}}>
+      {lista.map(g=>{const balance=g.totIng-g.totEgr;return <div key={g.key} style={{padding:12,background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderRadius:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,flexWrap:"wrap",gap:6}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:T.gold}}>{g.tipo} · {g.movs.length} movimientos</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>📅 Importado el {g.fechaImport!=="(antiguo)"?fd(g.fechaImport):"(fecha desconocida)"} por <b>{g.user}</b></div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            {g.totIng>0&&<div style={{fontSize:12,color:T.green,fontWeight:700}}>+{$(g.totIng)}</div>}
+            {g.totEgr>0&&<div style={{fontSize:12,color:T.red,fontWeight:700}}>-{$(g.totEgr)}</div>}
+          </div>
+        </div>
+        {/* Vista mini de hasta 3 movs */}
+        <div style={{display:"grid",gap:3,marginBottom:8}}>
+          {g.movs.slice(0,3).map((m,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:10,color:T.muted,padding:"3px 6px",background:"rgba(255,255,255,.02)",borderRadius:4}}>
+            <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.desc} · {m.obra||"sin obra"}</span>
+            <span style={{color:m.ing>0?T.green:T.red,fontWeight:700,marginLeft:8}}>{m.ing>0?"+"+$(m.ing):"-"+$(m.egr)}</span>
+          </div>)}
+          {g.movs.length>3&&<div style={{fontSize:9,color:T.dim,textAlign:"center",padding:2}}>... y {g.movs.length-3} más</div>}
+        </div>
+        <button onClick={()=>{if(!confirm("¿Deshacer este lote de "+g.movs.length+" movimientos?\n\nIrán a la Papelera, puedes recuperarlos por 30 días."))return;onDeshacer(g.movs);}} style={{padding:"7px 14px",borderRadius:6,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.08)",color:T.red,fontSize:11,fontWeight:700,cursor:"pointer",width:"100%"}}>⬅️ Deshacer este lote ({g.movs.length} movs)</button>
+      </div>;})}
+    </div>
+  </div>;
+}
 function ImportadorViernesForm({obras,movs,onImport}){
   // 3 entradas: ingresos, gastos, nómina
   const [pegIng,setPegIng]=useState("");
@@ -2483,6 +2529,7 @@ export default function App(){
           <button style={{padding:"10px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:"0 2px 8px rgba(201,149,107,.3)"}} onClick={()=>om("importarViernes")} title="Sube las 3 tablas del viernes (ingresos + gastos + nómina) en un solo flujo">📅 Importar Viernes del Taller</button>
           <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.green+"44",background:"rgba(76,175,80,.08)",color:T.green,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"ing"})} title="Importar lista de ingresos desde Excel/foto/CSV">📊 Solo Ingresos</button>
           <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.red+"44",background:"rgba(231,76,60,.08)",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"egr"})} title="Importar lista de gastos desde Excel/foto/CSV">📊 Solo Gastos</button>
+          {movs.some(m=>m.importadoEl||m.loteImport||m.importadoViernes)&&<button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.blue+"44",background:"rgba(66,165,245,.08)",color:T.blue,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("historialImports")} title="Ver y deshacer importaciones anteriores">📥 Historial / Deshacer</button>}
           <button style={{padding:"10px 12px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:13,cursor:"pointer"}} onClick={()=>setMostrarHerramientas(!mostrarHerramientas)} title="Herramientas avanzadas">⋯</button>
         </div>
         {/* === TOOLBAR SECUNDARIO (oculto): Herramientas avanzadas === */}
@@ -3192,6 +3239,17 @@ export default function App(){
       <button style={{...sB,marginTop:8}} onClick={()=>{const cat=document.getElementById("epCat").value;const desc=document.getElementById("epDesc").value;const prec=Number(document.getElementById("epPrec").value);const uni=document.getElementById("epUni").value;const not=document.getElementById("epNot").value;setPreciosUnit(prev=>prev.map(x=>x.id===md.id?{...x,cat,desc,precio:prec,unidad:uni,notas:not}:x));cm();show("Actualizado ✓");}}>💾 Guardar</button>
     </div></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+_rid()}]);cm();show("✓");}}/></ModalW>}
+    {modal==="historialImports"&&<ModalW title="📥 Historial de Importaciones" onClose={cm}>
+      <HistorialImportacionesView movs={movs} onDeshacer={(movsDelLote)=>{
+        movsDelLote.forEach(m=>enviarAPapelera("mov",m,m.desc+" (deshacer import)"));
+        const idsBorrar=new Set(movsDelLote.map(m=>m.id));
+        const newMovs=movs.filter(m=>!idsBorrar.has(m.id));
+        setMovs(newMovs);
+        _lastWrite.current["movs"]=Date.now()+15000;
+        try{localStorage.removeItem("ev_ultimoLote");}catch{}
+        show("⬅️ "+movsDelLote.length+" movs en la Papelera");
+      }}/>
+    </ModalW>}
     {modal==="importarViernes"&&<ModalW title="📅 Importar Viernes del Taller" onClose={cm}>
       <ImportadorViernesForm obras={obras} movs={movs} onImport={items=>{
         const baseId=movs.length;
