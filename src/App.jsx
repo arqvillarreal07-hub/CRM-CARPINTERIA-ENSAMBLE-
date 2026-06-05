@@ -472,7 +472,8 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
-function HistorialImportacionesView({movs,onDeshacer}){
+function HistorialImportacionesView({movs,onDeshacer,onBorrarDuplicados}){
+  const [mostrandoDuplicadosKey,setMostrandoDuplicadosKey]=useState(null);
   // Agrupar movimientos por lote (si tienen loteImport) o por importadoEl+user (si no)
   const importados=movs.filter(m=>m.importadoEl||m.loteImport||m.importadoViernes);
   const grupos={};
@@ -513,7 +514,42 @@ function HistorialImportacionesView({movs,onDeshacer}){
           </div>)}
           {g.movs.length>3&&<div style={{fontSize:9,color:T.dim,textAlign:"center",padding:2}}>... y {g.movs.length-3} más</div>}
         </div>
-        <button onClick={()=>{if(!confirm("¿Deshacer este lote de "+g.movs.length+" movimientos?\n\nIrán a la Papelera, puedes recuperarlos por 30 días."))return;onDeshacer(g.movs);}} style={{padding:"7px 14px",borderRadius:6,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.08)",color:T.red,fontSize:11,fontWeight:700,cursor:"pointer",width:"100%"}}>⬅️ Deshacer este lote ({g.movs.length} movs)</button>
+        {/* Detectar duplicados: comparar este lote contra TODOS los demás movs del sistema */}
+        {(()=>{const idsLote=new Set(g.movs.map(m=>m.id));
+          const otros=movs.filter(m=>!idsLote.has(m.id));
+          const duplicados=[];
+          g.movs.forEach(m=>{
+            const f=(m.fecha||"").trim();
+            const d=normSearch(m.desc||"");
+            const monto=(m.ing>0?m.ing:m.egr)||0;
+            const match=otros.find(o=>(o.fecha||"")===f&&normSearch(o.desc||"")===d&&Math.abs(((o.ing>0?o.ing:o.egr)||0)-monto)<0.5);
+            if(match)duplicados.push({importado:m,original:match});
+          });
+          const mostrar=mostrandoDuplicadosKey===g.key;
+          return <>
+            {duplicados.length>0&&<div style={{padding:"8px 10px",background:"rgba(255,213,79,.08)",border:"1px solid "+T.yellow+"55",borderRadius:6,marginBottom:8,fontSize:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                <span style={{color:T.yellow,fontWeight:700}}>⚠️ Detecté {duplicados.length} movs de este lote que YA EXISTÍAN en el sistema antes</span>
+                <button onClick={()=>setMostrandoDuplicadosKey(mostrar?null:g.key)} style={{padding:"3px 10px",borderRadius:5,border:"1px solid "+T.yellow+"55",background:"rgba(255,213,79,.1)",color:T.yellow,fontSize:10,fontWeight:700,cursor:"pointer"}}>{mostrar?"Ocultar":"Ver duplicados"}</button>
+              </div>
+              {mostrar&&<div style={{marginTop:8}}>
+                <div style={{fontSize:10,color:T.muted,marginBottom:6}}>Para cada duplicado: el original ya estaba antes · el importado se agregó hoy. Borra los importados (los nuevos):</div>
+                <div style={{display:"grid",gap:4,maxHeight:240,overflowY:"auto"}}>
+                  {duplicados.map((d,i)=><div key={i} style={{padding:"5px 8px",background:"rgba(255,255,255,.02)",borderRadius:4,fontSize:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between"}}>
+                      <span style={{flex:1}}>📌 {d.importado.desc} · {d.importado.fecha} · {d.importado.obra||"sin obra"}</span>
+                      <span style={{color:d.importado.ing>0?T.green:T.red,fontWeight:700}}>{d.importado.ing>0?"+"+$(d.importado.ing):"-"+$(d.importado.egr)}</span>
+                    </div>
+                    <div style={{fontSize:9,color:T.muted,marginTop:1}}>Original ya estaba con id "{d.original.id}" desde antes</div>
+                  </div>)}
+                </div>
+                <button onClick={()=>{if(!confirm("¿Borrar los "+duplicados.length+" movimientos IMPORTADOS que son duplicados?\n\nSe conservan los originales que ya estaban en el sistema. Los importados van a la Papelera.")) return;onBorrarDuplicados(duplicados.map(d=>d.importado));setMostrandoDuplicadosKey(null);}} style={{marginTop:8,padding:"6px 12px",borderRadius:5,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.1)",color:T.red,fontSize:11,fontWeight:700,cursor:"pointer",width:"100%"}}>🗑 Borrar los {duplicados.length} duplicados importados</button>
+              </div>}
+            </div>}
+            {duplicados.length===0&&<div style={{padding:"6px 10px",background:"rgba(76,175,80,.06)",border:"1px solid "+T.green+"33",borderRadius:5,marginBottom:8,fontSize:11,color:T.green,fontWeight:600}}>✓ Sin duplicados — todos los movs de este lote son únicos</div>}
+          </>;
+        })()}
+        <button onClick={()=>{if(!confirm("¿Deshacer este lote de "+g.movs.length+" movimientos?\n\nIrán a la Papelera, puedes recuperarlos por 30 días."))return;onDeshacer(g.movs);}} style={{padding:"7px 14px",borderRadius:6,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.08)",color:T.red,fontSize:11,fontWeight:700,cursor:"pointer",width:"100%"}}>⬅️ Deshacer este lote completo ({g.movs.length} movs)</button>
       </div>;})}
     </div>
   </div>;
@@ -3358,15 +3394,25 @@ export default function App(){
       </div>
     </ModalW>}
     {modal==="historialImports"&&<ModalW title="📥 Historial de Importaciones" onClose={cm}>
-      <HistorialImportacionesView movs={movs} onDeshacer={(movsDelLote)=>{
-        movsDelLote.forEach(m=>enviarAPapelera("mov",m,m.desc+" (deshacer import)"));
-        const idsBorrar=new Set(movsDelLote.map(m=>m.id));
-        const newMovs=movs.filter(m=>!idsBorrar.has(m.id));
-        setMovs(newMovs);
-        _lastWrite.current["movs"]=Date.now()+15000;
-        try{localStorage.removeItem("ev_ultimoLote");}catch{}
-        show("⬅️ "+movsDelLote.length+" movs en la Papelera");
-      }}/>
+      <HistorialImportacionesView movs={movs}
+        onDeshacer={(movsDelLote)=>{
+          movsDelLote.forEach(m=>enviarAPapelera("mov",m,m.desc+" (deshacer import)"));
+          const idsBorrar=new Set(movsDelLote.map(m=>m.id));
+          const newMovs=movs.filter(m=>!idsBorrar.has(m.id));
+          setMovs(newMovs);
+          _lastWrite.current["movs"]=Date.now()+15000;
+          try{localStorage.removeItem("ev_ultimoLote");}catch{}
+          show("⬅️ "+movsDelLote.length+" movs en la Papelera");
+        }}
+        onBorrarDuplicados={(movsDup)=>{
+          movsDup.forEach(m=>enviarAPapelera("mov",m,m.desc+" (duplicado importado)"));
+          const idsBorrar=new Set(movsDup.map(m=>m.id));
+          const newMovs=movs.filter(m=>!idsBorrar.has(m.id));
+          setMovs(newMovs);
+          _lastWrite.current["movs"]=Date.now()+15000;
+          show("🗑 "+movsDup.length+" duplicados en la Papelera");
+        }}
+      />
     </ModalW>}
     {modal==="importarViernes"&&<ModalW title="📅 Importar Viernes del Taller" onClose={cm}>
       <ImportadorViernesForm obras={obras} movs={movs} onImport={items=>{
