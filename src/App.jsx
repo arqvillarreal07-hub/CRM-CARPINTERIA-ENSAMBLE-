@@ -744,7 +744,81 @@ function ImportadorViernesForm({obras,movs,onImport}){
       <Caja titulo="📉 GASTOS" color={T.red} icono="📉" texto={pegEgr} setter={setPegEgr} tipo="egr" parseInfo={parseInfoEgr}/>
       <Caja titulo="💼 NÓMINA (se separa automáticamente por persona/obra)" color={T.purple} icono="💼" texto={pegNom} setter={setPegNom} tipo="nom" parseInfo={null}/>
     </div>
-    {items.length>0&&<div>
+    {items.length>0&&(()=>{
+      // ===== VALIDACIONES =====
+      const validaciones={errores:[],warnings:[],ok:[]};
+      // 1. Filas sin descripción
+      const sinDesc=items.filter(it=>!it.duplicado&&(!it.desc||!it.desc.trim()));
+      if(sinDesc.length>0)validaciones.errores.push({msg:sinDesc.length+" mov(s) sin descripción",detalle:"Estos NO se importarán. Edita la descripción o elimínalos.",tipo:"error"});
+      else validaciones.ok.push("Todas las filas tienen descripción");
+      // 2. Filas sin obra (warning, no error)
+      const sinObra=items.filter(it=>!it.duplicado&&(!it.obra||!it.obra.trim()));
+      if(sinObra.length>0)validaciones.warnings.push({msg:sinObra.length+" mov(s) sin obra asignada",detalle:"Quedarán como 'General'. Si deberían tener obra, asígnala antes de importar."});
+      // 3. Obras desconocidas (no existen en sistema)
+      const obrasUnknown=items.filter(it=>!it.duplicado&&it.obraMatch==="sin-match");
+      if(obrasUnknown.length>0)validaciones.errores.push({msg:obrasUnknown.length+" mov(s) con obra que NO existe",detalle:"Obras: "+[...new Set(obrasUnknown.map(it=>it.obraOrig))].slice(0,3).join(", ")+(obrasUnknown.length>3?"...":"")+". Crea la obra primero o cambia el destino.",tipo:"error"});
+      // 4. Obras fuzzy match (warning)
+      const obrasFuzzy=items.filter(it=>!it.duplicado&&it.obraMatch==="fuzzy");
+      if(obrasFuzzy.length>0)validaciones.warnings.push({msg:obrasFuzzy.length+" mov(s) con obra MATCH APROXIMADO",detalle:"El sistema mapeó nombres parecidos a obras reales. Verifica las marcadas en amarillo."});
+      // 5. Duplicados detectados
+      if(nDup>0)validaciones.warnings.push({msg:nDup+" mov(s) duplicados detectados",detalle:"Ya existen en el sistema con misma fecha+descripción+monto. Se omitirán."});
+      // 6. Fechas vacías o iguales a hoy (sospechoso si la tabla es de otra semana)
+      const sinFecha=items.filter(it=>!it.duplicado&&(!it.fecha||it.fecha===td()));
+      if(sinFecha.length>0&&fechaSem!==td())validaciones.warnings.push({msg:sinFecha.length+" mov(s) con fecha = hoy",detalle:"Sospechoso si el documento es de otro día. Verifica."});
+      else if(sinFecha.length===0)validaciones.ok.push("Todas las fechas vienen del documento");
+      // 7. Montos sospechosos (muy altos o muy bajos)
+      const promedio=items.reduce((s,it)=>s+Number(it.monto||0),0)/items.length;
+      const sospechosos=items.filter(it=>!it.duplicado&&(Number(it.monto)>promedio*20||(Number(it.monto)>0&&Number(it.monto)<10)));
+      if(sospechosos.length>0)validaciones.warnings.push({msg:sospechosos.length+" mov(s) con monto sospechoso",detalle:"Montos muy altos o muy bajos comparados con el promedio ($"+Math.round(promedio).toLocaleString()+"). Revísalos."});
+      // 8. Totales de la tabla
+      if(parseInfoIng&&parseInfoIng.omitidas.length>0||parseInfoEgr&&parseInfoEgr.omitidas.length>0){
+        const total=(parseInfoIng?.omitidas.length||0)+(parseInfoEgr?.omitidas.length||0);
+        validaciones.ok.push(total+" fila(s) de totales omitidas automáticamente");
+      }
+      // Score de confianza
+      const total=items.length||1;
+      const erroresCount=sinDesc.length+obrasUnknown.length;
+      const warningsCount=sinObra.length+obrasFuzzy.length+nDup+sospechosos.length;
+      const score=Math.max(0,Math.round(100-(erroresCount/total)*100-(warningsCount/total)*30));
+      const colorScore=score>=90?T.green:score>=70?T.yellow:T.red;
+      const labelScore=score>=90?"✅ Excelente":score>=70?"⚠️ Revisar":score>=40?"⚠️ Problemas detectados":"🔴 NO importar sin revisar";
+      const bloquearImport=validaciones.errores.length>0;
+      return <div>
+      {/* === PANEL DE VALIDACIÓN === */}
+      <div style={{background:"linear-gradient(135deg,"+colorScore+"15,"+colorScore+"05)",border:"1px solid "+colorScore+"55",borderRadius:10,padding:14,marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+          <div>
+            <div style={{fontSize:11,color:T.muted,textTransform:"uppercase",letterSpacing:1,fontWeight:700}}>Score de Confianza</div>
+            <div style={{fontSize:24,fontWeight:800,color:colorScore,marginTop:2}}>{score}% · <span style={{fontSize:13}}>{labelScore}</span></div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:11,color:T.muted}}>Resumen detectado:</div>
+            <div style={{fontSize:11,fontWeight:700}}>
+              <span style={{color:T.green}}>✓ {validaciones.ok.length}</span> ·
+              <span style={{color:T.yellow,marginLeft:6}}>⚠ {validaciones.warnings.length}</span> ·
+              <span style={{color:T.red,marginLeft:6}}>🔴 {validaciones.errores.length}</span>
+            </div>
+          </div>
+        </div>
+        {validaciones.errores.length>0&&<div style={{marginTop:8}}>
+          <div style={{fontSize:10,color:T.red,fontWeight:800,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>🔴 ERRORES — corrige antes de importar</div>
+          {validaciones.errores.map((v,i)=><div key={i} style={{padding:"6px 10px",background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"22",borderRadius:6,marginBottom:4,fontSize:11}}>
+            <div style={{color:T.red,fontWeight:700}}>{v.msg}</div>
+            <div style={{color:T.muted,marginTop:1,fontSize:10}}>{v.detalle}</div>
+          </div>)}
+        </div>}
+        {validaciones.warnings.length>0&&<div style={{marginTop:8}}>
+          <div style={{fontSize:10,color:T.yellow,fontWeight:800,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>⚠️ ADVERTENCIAS — revísalas pero se pueden importar</div>
+          {validaciones.warnings.map((v,i)=><div key={i} style={{padding:"6px 10px",background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"22",borderRadius:6,marginBottom:4,fontSize:11}}>
+            <div style={{color:T.yellow,fontWeight:700}}>{v.msg}</div>
+            <div style={{color:T.muted,marginTop:1,fontSize:10}}>{v.detalle}</div>
+          </div>)}
+        </div>}
+        {validaciones.ok.length>0&&validaciones.errores.length===0&&validaciones.warnings.length===0&&<div style={{marginTop:8}}>
+          <div style={{fontSize:10,color:T.green,fontWeight:800,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>✅ TODO BIEN</div>
+          {validaciones.ok.map((m,i)=><div key={i} style={{padding:"4px 10px",fontSize:11,color:T.green}}>✓ {m}</div>)}
+        </div>}
+      </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
         <div style={{fontSize:12,fontWeight:700}}>📋 Preview: <span style={{color:T.green}}>+{$(totIng)}</span> · <span style={{color:T.red}}>-{$(totEgr)}</span> · <span style={{color:itemsValid.length>0?T.gold:T.muted}}>{itemsValid.length} movs a importar</span> {nDup>0&&<span style={{color:T.yellow,marginLeft:6}}>⚠️ {nDup} duplicados (omitidos)</span>}</div>
         <button onClick={()=>{if(confirm("¿Descartar TODOS los "+items.length+" movimientos del preview?\n\nNo afecta nada en el sistema, solo limpia esta pantalla."))setItems([]);}} style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.08)",color:T.red,fontSize:11,fontWeight:700,cursor:"pointer"}}>✕ Descartar preview</button>
@@ -782,8 +856,15 @@ function ImportadorViernesForm({obras,movs,onImport}){
           </tbody>
         </table>
       </div>
-      <button onClick={()=>{const valid=items.filter(it=>!it.duplicado&&Number(it.monto)>0&&it.desc);if(valid.length===0){alert("No hay items válidos para importar");return;}if(!confirm("¿Importar "+valid.length+" movimientos del viernes "+fechaSem+"?\n\nIngresos: "+$(totIng)+"\nEgresos: "+$(totEgr)+(nDup>0?"\n\n("+nDup+" duplicados omitidos)":"")))return;onImport(valid);}} style={{...sB,background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",marginTop:12,fontSize:14}}>💾 Importar {itemsValid.length} movs del viernes</button>
-    </div>}
+      <button onClick={()=>{
+        const valid=items.filter(it=>!it.duplicado&&Number(it.monto)>0&&it.desc);
+        if(valid.length===0){alert("No hay items válidos para importar");return;}
+        if(bloquearImport){if(!confirm("⚠️ HAY ERRORES en la validación (score "+score+"%).\n\nSe recomienda corregir antes de importar.\n\n¿Importar de todas formas? (No recomendado)"))return;}
+        if(!confirm("¿Importar "+valid.length+" movimientos del viernes "+fechaSem+"?\n\nScore: "+score+"%\nIngresos: "+$(totIng)+"\nEgresos: "+$(totEgr)+(nDup>0?"\n\n("+nDup+" duplicados omitidos)":"")))return;
+        onImport(valid);
+      }} style={{...sB,background:bloquearImport?"linear-gradient(135deg,"+T.red+","+T.orange+")":"linear-gradient(135deg,"+colorScore+","+T.orange+")",marginTop:12,fontSize:14}}>{bloquearImport?"⚠️":"💾"} Importar {itemsValid.length} movs del viernes {bloquearImport&&"(con errores)"}</button>
+    </div>;
+    })()}
   </div>;
 }
 function AuditoriaSistemaView({obras,movs,caja,onNormalizar,onEliminarObrasDup,onFusionarVariantes}){
@@ -2526,10 +2607,7 @@ export default function App(){
           <button style={{padding:"10px 20px",borderRadius:8,border:"none",background:T.red,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={()=>om("addEgr")}>＋ Egreso</button>
           <div style={{flex:1}}/>
           <button style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:12,cursor:"pointer"}} onClick={()=>{const rows=[["Fecha","Tipo","Concepto","Proveedor/Cliente","Obra","Categoría","Ingreso","Egreso","Usuario","Status"]];finFilt.forEach(m=>{rows.push([m.fecha,m.t==="ing"?"Ingreso":m.t==="egr"?"Egreso":m.t==="caja"?"Caja Chica":"Otro",'"'+(m.desc||"").replace(/"/g,"'")+'"','"'+(m.prov||"").replace(/"/g,"'")+'"','"'+(m.obra||"").replace(/"/g,"'")+'"','"'+(m.cat||"").replace(/"/g,"'")+'"',m.t==="ing"?m.monto:"",m.t!=="ing"?m.monto:"",'"'+(m.user||"").replace(/"/g,"'")+'"',m.status||"aprobado"]);});const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Finanzas_Ensamble_"+td()+".csv";a.click();URL.revokeObjectURL(url);show("📥 Exportado "+finFilt.length+" movimientos");}}>📥 Exportar</button>
-          <button style={{padding:"10px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:"0 2px 8px rgba(201,149,107,.3)"}} onClick={()=>om("importarViernes")} title="Sube las 3 tablas del viernes (ingresos + gastos + nómina) en un solo flujo">📅 Importar Viernes del Taller</button>
-          <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.green+"44",background:"rgba(76,175,80,.08)",color:T.green,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"ing"})} title="Importar lista de ingresos desde Excel/foto/CSV">📊 Solo Ingresos</button>
-          <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.red+"44",background:"rgba(231,76,60,.08)",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"egr"})} title="Importar lista de gastos desde Excel/foto/CSV">📊 Solo Gastos</button>
-          {movs.some(m=>m.importadoEl||m.loteImport||m.importadoViernes)&&<button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.blue+"44",background:"rgba(66,165,245,.08)",color:T.blue,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("historialImports")} title="Ver y deshacer importaciones anteriores">📥 Historial / Deshacer</button>}
+          <button style={{padding:"10px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:"0 2px 8px rgba(201,149,107,.3)"}} onClick={()=>om("menuImportar")} title="Opciones de importación masiva">📥 Importar ▾</button>
           <button style={{padding:"10px 12px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:13,cursor:"pointer"}} onClick={()=>setMostrarHerramientas(!mostrarHerramientas)} title="Herramientas avanzadas">⋯</button>
         </div>
         {/* === TOOLBAR SECUNDARIO (oculto): Herramientas avanzadas === */}
@@ -3239,6 +3317,45 @@ export default function App(){
       <button style={{...sB,marginTop:8}} onClick={()=>{const cat=document.getElementById("epCat").value;const desc=document.getElementById("epDesc").value;const prec=Number(document.getElementById("epPrec").value);const uni=document.getElementById("epUni").value;const not=document.getElementById("epNot").value;setPreciosUnit(prev=>prev.map(x=>x.id===md.id?{...x,cat,desc,precio:prec,unidad:uni,notas:not}:x));cm();show("Actualizado ✓");}}>💾 Guardar</button>
     </div></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+_rid()}]);cm();show("✓");}}/></ModalW>}
+    {modal==="menuImportar"&&<ModalW title="📥 Opciones de Importación" onClose={cm}>
+      <div style={{display:"grid",gap:8}}>
+        <button onClick={()=>{cm();setTimeout(()=>om("importarViernes"),50);}} style={{padding:"14px 16px",borderRadius:10,border:"1px solid "+T.gold+"44",background:"linear-gradient(135deg,rgba(201,149,107,.10),rgba(201,149,107,.04))",color:T.text,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:22}}>📅</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,color:T.gold}}>Viernes del Taller</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>Sube las 3 tablas que te manda el taller (Ingresos + Gastos + Nómina)</div>
+          </div>
+          <span style={{color:T.muted}}>›</span>
+        </button>
+        <button onClick={()=>{cm();setTimeout(()=>om("importarMasivo",{tipo:"ing"}),50);}} style={{padding:"14px 16px",borderRadius:10,border:"1px solid "+T.green+"33",background:"rgba(76,175,80,.05)",color:T.text,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:22}}>📈</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,color:T.green}}>Solo Ingresos</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>Importa una lista solo de ingresos desde Excel, foto o CSV</div>
+          </div>
+          <span style={{color:T.muted}}>›</span>
+        </button>
+        <button onClick={()=>{cm();setTimeout(()=>om("importarMasivo",{tipo:"egr"}),50);}} style={{padding:"14px 16px",borderRadius:10,border:"1px solid "+T.red+"33",background:"rgba(231,76,60,.05)",color:T.text,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:22}}>📉</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,color:T.red}}>Solo Gastos</div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>Importa una lista solo de gastos desde Excel, foto o CSV</div>
+          </div>
+          <span style={{color:T.muted}}>›</span>
+        </button>
+        {movs.some(m=>m.importadoEl||m.loteImport||m.importadoViernes)&&<>
+          <div style={{height:1,background:T.border,margin:"4px 0"}}/>
+          <button onClick={()=>{cm();setTimeout(()=>om("historialImports"),50);}} style={{padding:"14px 16px",borderRadius:10,border:"1px solid "+T.blue+"33",background:"rgba(66,165,245,.05)",color:T.text,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontSize:22}}>🕐</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,color:T.blue}}>Historial / Deshacer</div>
+              <div style={{fontSize:11,color:T.muted,marginTop:2}}>Ver importaciones anteriores y deshacer si te equivocaste</div>
+            </div>
+            <span style={{color:T.muted}}>›</span>
+          </button>
+        </>}
+      </div>
+    </ModalW>}
     {modal==="historialImports"&&<ModalW title="📥 Historial de Importaciones" onClose={cm}>
       <HistorialImportacionesView movs={movs} onDeshacer={(movsDelLote)=>{
         movsDelLote.forEach(m=>enviarAPapelera("mov",m,m.desc+" (deshacer import)"));
