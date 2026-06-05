@@ -472,6 +472,199 @@ function InvForm({onSave}){const[f,sf]=useState({nombre:"",cat:"Madera",unidad:"
 function ProvForm({onSave}){const[f,sf]=useState({nombre:"",contacto:"",tel:"",material:"",credito:"",calif:3});return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Fl l="Contacto"><input style={sI} value={f.contacto} onChange={e=>sf({...f,contacto:e.target.value})}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl></div><Fl l="Material"><input style={sI} value={f.material} onChange={e=>sf({...f,material:e.target.value})}/></Fl><button style={sB} onClick={()=>f.nombre&&onSave({...f,credito:Number(f.credito)||0,total:0})}>Guardar</button></div>;}
 function UserForm({onSave,obras}){const[f,sf]=useState({nombre:"",rol:"taller",tel:"",proyectoId:"",pin:""});const av=f.nombre?f.nombre.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2):"??";return <div><Fl l="Nombre"><input style={sI} value={f.nombre} onChange={e=>sf({...f,nombre:e.target.value})}/></Fl><Fl l="Rol"><select style={sI} value={f.rol} onChange={e=>sf({...f,rol:e.target.value})}>{Object.entries(ROLES).map(([k,r])=> <option key={k} value={k}>{r.icon} {r.nombre}</option>)}</select></Fl>{f.rol==="cliente"&&<Fl l="Proyecto"><select style={sI} value={f.proyectoId} onChange={e=>sf({...f,proyectoId:e.target.value})}><option value="">Seleccionar</option>{obras.map(o=> <option key={o.id} value={o.id}>{o.nombre}</option>)}</select></Fl>}<Fl l="PIN (4 dígitos)"><input type="number" style={{...sI,letterSpacing:8,textAlign:"center",fontSize:20,fontWeight:800}} value={f.pin} onChange={e=>{const v=e.target.value.slice(0,4);sf({...f,pin:v});}} placeholder="••••" maxLength={4}/></Fl><Fl l="Tel"><input style={sI} value={f.tel} onChange={e=>sf({...f,tel:e.target.value})}/></Fl><div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}><div style={{width:44,height:44,borderRadius:22,background:ROLES[f.rol].color+"22",color:ROLES[f.rol].color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:15}}>{av}</div><div><div style={{fontWeight:700}}>{f.nombre||"Nombre"}</div><div style={{fontSize:10,color:ROLES[f.rol].color}}>{ROLES[f.rol].icon} {ROLES[f.rol].nombre}</div></div></div><button style={sB} onClick={()=>{if(f.nombre&&f.pin.length===4)onSave({...f,avatar:av,user:f.nombre.toLowerCase().split(" ")[0]});else if(!f.nombre)alert("Pon un nombre");else alert("El PIN debe ser de 4 dígitos");}}> + Agregar</button></div>;}
 function CustomItemForm({onAdd,existingCats}){const[d,sD]=useState("");const[p,sP]=useState("");const[cat,sCat]=useState("Muebles");return <div><div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:6}}>MUEBLE PERSONALIZADO</div><Fl l="Categoría"><select style={sI} value={cat} onChange={e=>sCat(e.target.value)}>{(existingCats||ALL_CATS).map(c=><option key={c} value={c}>{c}</option>)}</select></Fl><Fl l="Descripción"><input style={sI} value={d} onChange={e=>sD(e.target.value)} placeholder="Ej: Mueble TV 2.4m"/></Fl><Fl l="Precio"><input type="number" style={sI} value={p} onChange={e=>sP(e.target.value)}/></Fl><button style={{...sB,background:"#1a2a1a",color:T.green,border:"1px solid #2a4a2a33"}} onClick={()=>{const pr=Number(p);if(d&&pr>0){onAdd({id:"C-"+Date.now(),cat,desc:d,precio:pr,cant:1});sD("");sP("");}}}> + Agregar al catálogo y cotización</button></div>;}
+function ImportadorViernesForm({obras,movs,onImport}){
+  // 3 entradas: ingresos, gastos, nómina
+  const [pegIng,setPegIng]=useState("");
+  const [pegEgr,setPegEgr]=useState("");
+  const [pegNom,setPegNom]=useState("");
+  const [items,setItems]=useState([]); // array unificado de movs a importar
+  const [escaneando,setEscaneando]=useState({});
+  const [fechaSem,setFechaSem]=useState(td()); // fecha de referencia (viernes)
+  // Helpers compartidos
+  const parseDate=(s)=>{if(!s)return td();s=String(s).trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);if(m){const d=m[1].padStart(2,"0");const mo=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mo+"-"+d;}return s;};
+  const parseMonto=(s)=>{if(!s)return 0;return Number(String(s).replace(/[^0-9.-]/g,""))||0;};
+  const matchObra=(nombre)=>{if(!nombre)return "";const n=normSearch(nombre);const exact=obras.find(o=>normSearch(o.nombre)===n);if(exact)return exact.nombre;const part=obras.find(o=>normSearch(o.nombre).includes(n)||n.includes(normSearch(o.nombre)));return part?part.nombre:nombre;};
+  // Parser ingresos/gastos (formato: fecha mes descripcion obra total)
+  const parsearMovs=(txt,tipo)=>{
+    if(!txt.trim())return [];
+    const lineas=txt.split("\n").filter(l=>l.trim());
+    const sep=lineas[0].includes("\t")?"\t":",";
+    const primera=lineas[0].split(sep).map(c=>c.trim().toLowerCase());
+    const haySSHeader=primera.some(c=>["fecha","mes","descripcion","descripción","obra","total","monto"].includes(c));
+    const startIdx=haySSHeader?1:0;
+    const headers=haySSHeader?primera:["fecha","mes","desc","obra","total"];
+    const findCol=(opts)=>{for(const o of opts){const i=headers.findIndex(h=>h.includes(o));if(i>=0)return i;}return -1;};
+    const colFecha=findCol(["fecha"]);
+    const colDesc=findCol(["descripcion","descripción","desc"]);
+    const colObra=findCol(["obra","proyecto"]);
+    const colMonto=findCol(["total","monto","ingreso","egreso"]);
+    const result=[];
+    for(let i=startIdx;i<lineas.length;i++){
+      const celdas=lineas[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,""));
+      if(celdas.every(c=>!c))continue;
+      const fecha=colFecha>=0?parseDate(celdas[colFecha]):td();
+      const desc=colDesc>=0?celdas[colDesc]:"";
+      const obraStr=colObra>=0?celdas[colObra]:"";
+      const obra=matchObra(obraStr);
+      const monto=colMonto>=0?parseMonto(celdas[colMonto]):parseMonto(celdas[celdas.length-1]);
+      if(monto>0&&desc){
+        result.push({
+          tipo,fecha,desc,obra,monto,
+          obraOrig:obraStr,
+          obraMatch:obraStr&&obra===obraStr?"exacto":obraStr&&obras.find(o=>normSearch(o.nombre).includes(normSearch(obraStr))||normSearch(obraStr).includes(normSearch(o.nombre)))?"fuzzy":obraStr?"sin-match":"",
+          fuente:tipo==="ing"?"📈 Ingresos":"📉 Gastos"
+        });
+      }
+    }
+    return result;
+  };
+  // Parser NÓMINA: parsea "X dias OBRA ($Y)" en columna "dias y obra"
+  const parsearNomina=(txt)=>{
+    if(!txt.trim())return [];
+    const lineas=txt.split("\n").filter(l=>l.trim());
+    const sep=lineas[0].includes("\t")?"\t":",";
+    const primera=lineas[0].split(sep).map(c=>c.trim().toLowerCase());
+    const haySSHeader=primera.some(c=>["nombre","cargo","puesto","sueldo","dias y obra","extras","total"].includes(c)||primera.some(p=>p.includes("dias")));
+    const startIdx=haySSHeader?1:0;
+    const headers=haySSHeader?primera:["nombre","cargo","sueldo","extras","dias","total"];
+    const findCol=(opts)=>{for(const o of opts){const i=headers.findIndex(h=>h.includes(o));if(i>=0)return i;}return -1;};
+    const colNombre=findCol(["nombre"]);
+    const colCargo=findCol(["cargo","puesto"]);
+    const colSueldo=findCol(["sueldo"]);
+    const colExtras=findCol(["extras"]);
+    const colDiasObra=findCol(["dias y obra","obra dias","dias obra","obra"]);
+    const colTotal=findCol(["total"]);
+    const result=[];
+    // Regex: "3 dias tamarindos ($2400)" → grupo 1=3, grupo 2=tamarindos, grupo 3=2400
+    const reDiasObra=/(\d+)\s*d[ií]as?\s+([a-zA-ZáéíóúñÑ\s]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
+    for(let i=startIdx;i<lineas.length;i++){
+      const celdas=lineas[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,""));
+      if(celdas.every(c=>!c))continue;
+      const nombre=colNombre>=0?celdas[colNombre]:celdas[0];
+      const cargo=colCargo>=0?celdas[colCargo]:"";
+      const total=colTotal>=0?parseMonto(celdas[colTotal]):0;
+      const extras=colExtras>=0?parseMonto(celdas[colExtras]):0;
+      const diasObraStr=colDiasObra>=0?celdas[colDiasObra]:"";
+      if(!nombre||total===0)continue;
+      // Parsear cada "X dias OBRA ($Y)" del campo diasObraStr
+      const partes=[];let m;reDiasObra.lastIndex=0;
+      while((m=reDiasObra.exec(diasObraStr))!==null){
+        partes.push({dias:Number(m[1]),obra:m[2].trim(),monto:parseMonto(m[3])});
+      }
+      if(partes.length===0){
+        // No pudo parsear partes → crear un egreso "general" con el total
+        result.push({tipo:"egr",fecha:fechaSem,desc:"Nómina "+nombre+(cargo?" ("+cargo+")":""),obra:"",monto:total,obraOrig:"",obraMatch:"",cat:"Nómina",fuente:"💼 Nómina"});
+      }else{
+        // Crear UN egreso por cada parte (obra + dias)
+        partes.forEach(p=>{
+          const obraMatcheada=matchObra(p.obra);
+          result.push({tipo:"egr",fecha:fechaSem,desc:"Nómina "+nombre+" — "+p.dias+" día"+(p.dias!==1?"s":""),obra:obraMatcheada,monto:p.monto,obraOrig:p.obra,obraMatch:p.obra&&obraMatcheada===p.obra?"exacto":p.obra&&obras.find(o=>normSearch(o.nombre).includes(normSearch(p.obra))||normSearch(p.obra).includes(normSearch(o.nombre)))?"fuzzy":p.obra?"sin-match":"",cat:"Nómina",fuente:"💼 Nómina "+nombre});
+        });
+        // Si hay extras, agregar como egreso aparte
+        if(extras>0){
+          result.push({tipo:"egr",fecha:fechaSem,desc:"Extras nómina "+nombre,obra:"",monto:extras,obraOrig:"",obraMatch:"",cat:"Nómina",fuente:"💼 Extras "+nombre});
+        }
+      }
+    }
+    return result;
+  };
+  // Re-parsea todo al pegar
+  const recalcular=(ing,egr,nom)=>{
+    const arr=[...parsearMovs(ing||pegIng,"ing"),...parsearMovs(egr||pegEgr,"egr"),...parsearNomina(nom||pegNom)];
+    // Detectar duplicados con movs existentes (misma fecha + desc + monto)
+    arr.forEach(it=>{
+      const norm=normSearch(it.desc);
+      const dup=movs.find(m=>(m.fecha||"")===it.fecha&&normSearch(m.desc||"")===norm&&Math.abs((m.ing||m.egr||0)-it.monto)<0.5);
+      it.duplicado=!!dup;
+    });
+    setItems(arr);
+  };
+  // Escaneo con IA por tipo
+  const escanearConIA=async(file,tipo)=>{
+    setEscaneando(prev=>({...prev,[tipo]:true}));
+    try{
+      const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=()=>rej("err");r.readAsDataURL(file);});
+      const tipoTexto={ing:"tabla de INGRESOS (cliente paga)",egr:"tabla de GASTOS/EGRESOS",nom:"tabla de NÓMINA con columnas nombre, cargo, sueldo base, extras, dias y obra (formato 'X dias OBRA ($Y), N dias OBRA2 ($Z)'), total"}[tipo];
+      const prompt='Esta es una '+tipoTexto+'. Extrae TODOS los renglones y devuélvelos como TSV (tab-separated values) con encabezados en la primera línea. Para fechas como "29/5/26" déjalas tal cual. Responde SOLO el TSV sin markdown ni explicaciones.';
+      const data=await callAI([{role:"user",content:[{type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},{type:"text",text:prompt}]}],4000);
+      const text=data.content?.map(i=>i.text||"").join("")||"";
+      const cleaned=text.replace(/```[a-z]*|```/g,"").trim();
+      if(tipo==="ing"){setPegIng(cleaned);recalcular(cleaned,null,null);}
+      else if(tipo==="egr"){setPegEgr(cleaned);recalcular(null,cleaned,null);}
+      else{setPegNom(cleaned);recalcular(null,null,cleaned);}
+    }catch(e){if(e.message==="NO_KEY")alert("⚠️ Configura tu API Key en Más → 🔑 API Key IA");else alert("Error: "+e.message.slice(0,100));}
+    setEscaneando(prev=>({...prev,[tipo]:false}));
+  };
+  const updateItem=(idx,key,val)=>setItems(prev=>prev.map((it,i)=>i===idx?{...it,[key]:val}:it));
+  const removeItem=(idx)=>setItems(prev=>prev.filter((_,i)=>i!==idx));
+  const itemsValid=items.filter(it=>!it.duplicado);
+  const totIng=itemsValid.filter(it=>it.tipo==="ing").reduce((s,it)=>s+Number(it.monto),0);
+  const totEgr=itemsValid.filter(it=>it.tipo==="egr").reduce((s,it)=>s+Number(it.monto),0);
+  const nDup=items.filter(it=>it.duplicado).length;
+  const Caja=({titulo,color,icono,texto,setter,tipo})=>{
+    return <div style={{padding:10,border:"1px solid "+T.border,borderRadius:8,background:"rgba(255,255,255,.015)"}}>
+      <div style={{fontSize:11,color,fontWeight:800,marginBottom:6}}>{icono} {titulo}</div>
+      <textarea value={texto} onChange={e=>{setter(e.target.value);if(tipo==="ing")recalcular(e.target.value,null,null);else if(tipo==="egr")recalcular(null,e.target.value,null);else recalcular(null,null,e.target.value);}} placeholder="Pega aquí desde Excel/Sheets..." style={{...sI,minHeight:70,fontSize:10,fontFamily:"monospace"}}/>
+      <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"6px 10px",border:"1px dashed "+T.border,borderRadius:6,marginTop:6,cursor:"pointer",fontSize:10,color:T.muted,background:escaneando[tipo]?"rgba(66,165,245,.08)":"transparent"}}>
+        <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{const raw=e.target.files[0];if(!raw)return;try{const f=await compressImage(raw);escanearConIA(f,tipo);}catch(err){alert(err.message);}}}/>
+        {escaneando[tipo]?<span style={{color:T.blue,fontWeight:700}}>🤖 Procesando...</span>:<span>📷 o sube foto (IA lee)</span>}
+      </label>
+    </div>;
+  };
+  return <div>
+    <div style={{background:"rgba(201,149,107,.06)",border:"1px solid "+T.gold+"33",borderRadius:8,padding:10,marginBottom:12,fontSize:11,color:T.muted}}>
+      <div style={{color:T.gold,fontWeight:700,marginBottom:3}}>📅 Sube las 3 tablas que te manda el taller cada viernes</div>
+      <div>Pega o sube foto de Ingresos · Gastos · Nómina. El sistema parsea, detecta obras, separa la nómina por persona/obra, y revisa duplicados con lo que ya tienes.</div>
+    </div>
+    <div style={{marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
+      <Fl l="Fecha de la semana (viernes)"><input type="date" style={sI} value={fechaSem} onChange={e=>setFechaSem(e.target.value)}/></Fl>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr",gap:8,marginBottom:12}}>
+      <Caja titulo="📈 INGRESOS" color={T.green} icono="📈" texto={pegIng} setter={setPegIng} tipo="ing"/>
+      <Caja titulo="📉 GASTOS" color={T.red} icono="📉" texto={pegEgr} setter={setPegEgr} tipo="egr"/>
+      <Caja titulo="💼 NÓMINA (se separa automáticamente por persona/obra)" color={T.purple} icono="💼" texto={pegNom} setter={setPegNom} tipo="nom"/>
+    </div>
+    {items.length>0&&<div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+        <div style={{fontSize:12,fontWeight:700}}>📋 Preview: <span style={{color:T.green}}>+{$(totIng)}</span> · <span style={{color:T.red}}>-{$(totEgr)}</span> · <span style={{color:itemsValid.length>0?T.gold:T.muted}}>{itemsValid.length} movs a importar</span> {nDup>0&&<span style={{color:T.yellow,marginLeft:6}}>⚠️ {nDup} duplicados (omitidos)</span>}</div>
+      </div>
+      <div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:11,maxHeight:380,overflowY:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead style={{position:"sticky",top:0,background:"#1a1a1a"}}>
+            <tr>
+              <th style={{padding:"6px 6px",textAlign:"left",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Fuente</th>
+              <th style={{padding:"6px 6px",textAlign:"left",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Fecha</th>
+              <th style={{padding:"6px 6px",textAlign:"left",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Descripción</th>
+              <th style={{padding:"6px 6px",textAlign:"left",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Obra</th>
+              <th style={{padding:"6px 6px",textAlign:"right",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Ingreso</th>
+              <th style={{padding:"6px 6px",textAlign:"right",fontSize:9,color:T.gold,borderRight:"1px solid #333"}}>Egreso</th>
+              <th style={{padding:"6px",width:30}}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it,idx)=><tr key={idx} style={{borderBottom:"1px solid #2a2a2a",background:it.duplicado?"rgba(255,213,79,.06)":idx%2===0?"rgba(255,255,255,.01)":"transparent",opacity:it.duplicado?.5:1}} title={it.duplicado?"⚠️ Duplicado: ya existe en movs":""}>
+              <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a",fontSize:9,color:T.muted}}>{it.fuente}{it.duplicado&&<span style={{color:T.yellow,fontSize:9,marginLeft:4}}>⚠️</span>}</td>
+              <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a"}}><input value={it.fecha} onChange={e=>updateItem(idx,"fecha",e.target.value)} type="date" style={{background:"transparent",border:"none",color:T.text,fontSize:10,width:110,outline:"none"}}/></td>
+              <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a"}}><input value={it.desc} onChange={e=>updateItem(idx,"desc",e.target.value)} style={{background:"transparent",border:"none",color:T.text,fontSize:11,width:"100%",outline:"none"}}/></td>
+              <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a"}}>
+                <select value={it.obra} onChange={e=>updateItem(idx,"obra",e.target.value)} style={{background:it.obraMatch==="sin-match"?"rgba(231,76,60,.1)":it.obraMatch==="fuzzy"?"rgba(255,213,79,.06)":"transparent",border:"none",color:it.obraMatch==="sin-match"?T.red:T.text,fontSize:10,width:"100%",outline:"none"}}>
+                  <option value="">— sin obra —</option>
+                  {obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                </select>
+                {it.obraMatch==="fuzzy"&&<div style={{fontSize:8,color:T.yellow}}>≈ "{it.obraOrig}"</div>}
+                {it.obraMatch==="sin-match"&&<div style={{fontSize:8,color:T.red}}>⚠️ "{it.obraOrig}" no existe</div>}
+              </td>
+              <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a",textAlign:"right"}}>{it.tipo==="ing"?<input value={it.monto} onChange={e=>updateItem(idx,"monto",e.target.value)} type="number" style={{background:"transparent",border:"none",color:T.green,fontWeight:800,fontSize:11,width:80,textAlign:"right",outline:"none"}}/>:"-"}</td>
+              <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a",textAlign:"right"}}>{it.tipo==="egr"?<input value={it.monto} onChange={e=>updateItem(idx,"monto",e.target.value)} type="number" style={{background:"transparent",border:"none",color:T.red,fontWeight:800,fontSize:11,width:80,textAlign:"right",outline:"none"}}/>:"-"}</td>
+              <td style={{padding:"4px",textAlign:"center"}}><button onClick={()=>removeItem(idx)} style={{background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:12}}>✕</button></td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+      <button onClick={()=>{const valid=items.filter(it=>!it.duplicado&&Number(it.monto)>0&&it.desc);if(valid.length===0){alert("No hay items válidos para importar");return;}if(!confirm("¿Importar "+valid.length+" movimientos del viernes "+fechaSem+"?\n\nIngresos: "+$(totIng)+"\nEgresos: "+$(totEgr)+(nDup>0?"\n\n("+nDup+" duplicados omitidos)":"")))return;onImport(valid);}} style={{...sB,background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",marginTop:12,fontSize:14}}>💾 Importar {itemsValid.length} movs del viernes</button>
+    </div>}
+  </div>;
+}
 function AuditoriaSistemaView({obras,movs,caja,onNormalizar,onEliminarObrasDup,onFusionarVariantes}){
   // 1. Detectar obras DUPLICADAS en obras[] (mismo nombre normalizado, distinto id)
   const dupGroups={};
@@ -2158,8 +2351,9 @@ export default function App(){
           <button style={{padding:"10px 20px",borderRadius:8,border:"none",background:T.red,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}} onClick={()=>om("addEgr")}>＋ Egreso</button>
           <div style={{flex:1}}/>
           <button style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:12,cursor:"pointer"}} onClick={()=>{const rows=[["Fecha","Tipo","Concepto","Proveedor/Cliente","Obra","Categoría","Ingreso","Egreso","Usuario","Status"]];finFilt.forEach(m=>{rows.push([m.fecha,m.t==="ing"?"Ingreso":m.t==="egr"?"Egreso":m.t==="caja"?"Caja Chica":"Otro",'"'+(m.desc||"").replace(/"/g,"'")+'"','"'+(m.prov||"").replace(/"/g,"'")+'"','"'+(m.obra||"").replace(/"/g,"'")+'"','"'+(m.cat||"").replace(/"/g,"'")+'"',m.t==="ing"?m.monto:"",m.t!=="ing"?m.monto:"",'"'+(m.user||"").replace(/"/g,"'")+'"',m.status||"aprobado"]);});const csv="\uFEFF"+rows.map(r=>r.join(",")).join("\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="Finanzas_Ensamble_"+td()+".csv";a.click();URL.revokeObjectURL(url);show("📥 Exportado "+finFilt.length+" movimientos");}}>📥 Exportar</button>
-          <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.green+"44",background:"rgba(76,175,80,.08)",color:T.green,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"ing"})} title="Importar lista de ingresos desde Excel/foto/CSV">📊 Importar Ingresos</button>
-          <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.red+"44",background:"rgba(231,76,60,.08)",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"egr"})} title="Importar lista de gastos desde Excel/foto/CSV">📊 Importar Gastos</button>
+          <button style={{padding:"10px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,"+T.gold+","+T.orange+")",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:"0 2px 8px rgba(201,149,107,.3)"}} onClick={()=>om("importarViernes")} title="Sube las 3 tablas del viernes (ingresos + gastos + nómina) en un solo flujo">📅 Importar Viernes del Taller</button>
+          <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.green+"44",background:"rgba(76,175,80,.08)",color:T.green,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"ing"})} title="Importar lista de ingresos desde Excel/foto/CSV">📊 Solo Ingresos</button>
+          <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid "+T.red+"44",background:"rgba(231,76,60,.08)",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer"}} onClick={()=>om("importarMasivo",{tipo:"egr"})} title="Importar lista de gastos desde Excel/foto/CSV">📊 Solo Gastos</button>
           <button style={{padding:"10px 12px",borderRadius:8,border:"1px solid "+T.border,background:"transparent",color:T.muted,fontWeight:600,fontSize:13,cursor:"pointer"}} onClick={()=>setMostrarHerramientas(!mostrarHerramientas)} title="Herramientas avanzadas">⋯</button>
         </div>
         {/* === TOOLBAR SECUNDARIO (oculto): Herramientas avanzadas === */}
@@ -2869,6 +3063,30 @@ export default function App(){
       <button style={{...sB,marginTop:8}} onClick={()=>{const cat=document.getElementById("epCat").value;const desc=document.getElementById("epDesc").value;const prec=Number(document.getElementById("epPrec").value);const uni=document.getElementById("epUni").value;const not=document.getElementById("epNot").value;setPreciosUnit(prev=>prev.map(x=>x.id===md.id?{...x,cat,desc,precio:prec,unidad:uni,notas:not}:x));cm();show("Actualizado ✓");}}>💾 Guardar</button>
     </div></ModalW>}
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+_rid()}]);cm();show("✓");}}/></ModalW>}
+    {modal==="importarViernes"&&<ModalW title="📅 Importar Viernes del Taller" onClose={cm}>
+      <ImportadorViernesForm obras={obras} movs={movs} onImport={items=>{
+        const baseId=movs.length;
+        const nuevos=items.map((it,i)=>({
+          fecha:it.fecha||td(),
+          desc:it.desc,
+          prov:it.prov||"",
+          obra:it.obra||"",
+          cat:it.cat||(it.tipo==="ing"?"":"Material"),
+          ing:it.tipo==="ing"?Number(it.monto):0,
+          egr:it.tipo==="egr"?Number(it.monto):0,
+          user:user.nombre,
+          id:baseId+i+1,
+          importadoEl:td(),
+          importadoViernes:true
+        }));
+        setMovs(prev=>[...prev,...nuevos]);
+        nuevos.forEach(n=>highlightNew("m"+n.id));
+        cm();
+        const nIng=items.filter(it=>it.tipo==="ing").length;
+        const nEgr=items.filter(it=>it.tipo==="egr").length;
+        show("✓ Viernes importado: "+nIng+" ingresos + "+nEgr+" egresos");
+      }}/>
+    </ModalW>}
     {modal==="importarMasivo"&&<ModalW title={"📊 Importar masivo · "+(md?.tipo==="ing"?"Ingresos":"Egresos")} onClose={cm}>
       <ImportadorMasivoForm tipo={md?.tipo||"egr"} obras={obras} onImport={items=>{
         const tipo=md?.tipo||"egr";
