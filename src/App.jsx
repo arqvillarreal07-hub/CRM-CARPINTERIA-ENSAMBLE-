@@ -621,9 +621,17 @@ function ImportadorViernesForm({obras,movs,onImport}){
   const totIng=itemsValid.filter(it=>it.tipo==="ing").reduce((s,it)=>s+Number(it.monto),0);
   const totEgr=itemsValid.filter(it=>it.tipo==="egr").reduce((s,it)=>s+Number(it.monto),0);
   const nDup=items.filter(it=>it.duplicado).length;
+  const limpiarCaja=(tipo)=>{
+    if(tipo==="ing"){setPegIng("");recalcular("",null,null);}
+    else if(tipo==="egr"){setPegEgr("");recalcular(null,"",null);}
+    else if(tipo==="nom"){setPegNom("");recalcular(null,null,"");}
+  };
   const Caja=({titulo,color,icono,texto,setter,tipo,parseInfo})=>{
     return <div style={{padding:10,border:"1px solid "+T.border,borderRadius:8,background:"rgba(255,255,255,.015)"}}>
-      <div style={{fontSize:11,color,fontWeight:800,marginBottom:6}}>{icono} {titulo}</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <div style={{fontSize:11,color,fontWeight:800}}>{icono} {titulo}</div>
+        {texto&&texto.trim()&&<button onClick={()=>{if(confirm("¿Limpiar el contenido de '"+titulo.split("(")[0].trim()+"'?"))limpiarCaja(tipo);}} style={{padding:"3px 10px",borderRadius:5,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.08)",color:T.red,fontSize:10,fontWeight:700,cursor:"pointer"}} title="Borrar lo pegado">🗑 Limpiar</button>}
+      </div>
       <textarea value={texto} onChange={e=>{setter(e.target.value);if(tipo==="ing")recalcular(e.target.value,null,null);else if(tipo==="egr")recalcular(null,e.target.value,null);else recalcular(null,null,e.target.value);}} placeholder="Pega aquí desde Excel/Sheets..." style={{...sI,minHeight:60,fontSize:10,fontFamily:"monospace"}}/>
       <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"6px 10px",border:"1px dashed "+T.border,borderRadius:6,marginTop:6,cursor:"pointer",fontSize:10,color:T.muted,background:escaneando[tipo]?"rgba(66,165,245,.08)":"transparent"}}>
         <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{const raw=e.target.files[0];if(!raw)return;try{const f=await compressImage(raw);escanearConIA(f,tipo);}catch(err){alert(err.message);}}}/>
@@ -655,8 +663,10 @@ function ImportadorViernesForm({obras,movs,onImport}){
       <div style={{color:T.gold,fontWeight:700,marginBottom:3}}>📅 Sube las 3 tablas que te manda el taller cada viernes</div>
       <div>Pega o sube foto de Ingresos · Gastos · Nómina. El sistema parsea, detecta obras, separa la nómina por persona/obra, y revisa duplicados con lo que ya tienes.</div>
     </div>
-    <div style={{marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
+    <div style={{marginBottom:10,display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
       <Fl l="Fecha de la semana (viernes)"><input type="date" style={sI} value={fechaSem} onChange={e=>setFechaSem(e.target.value)}/></Fl>
+      {(pegIng||pegEgr||pegNom)&&<button onClick={()=>{if(confirm("⚠️ ¿Limpiar TODO el contenido pegado?\n\nSe borra Ingresos + Gastos + Nómina + Preview para empezar de cero. No afecta nada en el sistema."))
+{setPegIng("");setPegEgr("");setPegNom("");setItems([]);setParseInfoIng(null);setParseInfoEgr(null);}}} style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.1)",color:T.red,fontWeight:700,fontSize:12,cursor:"pointer",whiteSpace:"nowrap",height:42}}>🗑 Limpiar TODO y empezar de nuevo</button>}
     </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr",gap:8,marginBottom:12}}>
       <Caja titulo="📈 INGRESOS" color={T.green} icono="📈" texto={pegIng} setter={setPegIng} tipo="ing" parseInfo={parseInfoIng}/>
@@ -666,6 +676,7 @@ function ImportadorViernesForm({obras,movs,onImport}){
     {items.length>0&&<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
         <div style={{fontSize:12,fontWeight:700}}>📋 Preview: <span style={{color:T.green}}>+{$(totIng)}</span> · <span style={{color:T.red}}>-{$(totEgr)}</span> · <span style={{color:itemsValid.length>0?T.gold:T.muted}}>{itemsValid.length} movs a importar</span> {nDup>0&&<span style={{color:T.yellow,marginLeft:6}}>⚠️ {nDup} duplicados (omitidos)</span>}</div>
+        <button onClick={()=>{if(confirm("¿Descartar TODOS los "+items.length+" movimientos del preview?\n\nNo afecta nada en el sistema, solo limpia esta pantalla."))setItems([]);}} style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.08)",color:T.red,fontSize:11,fontWeight:700,cursor:"pointer"}}>✕ Descartar preview</button>
       </div>
       <div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:11,maxHeight:380,overflowY:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
