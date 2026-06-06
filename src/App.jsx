@@ -1855,6 +1855,11 @@ export default function App(){
     const data=await callAI([{role:"user",content}],4000);const text=data.content?.map(i=>i.text||"").join("")||"[]";const clean=text.replace(/```json|```/g,"").trim();const items=JSON.parse(clean);if(Array.isArray(items)&&items.length>0){setCotP(prev=>[...prev,...items.map((it,i)=>({id:"IA-"+Date.now()+"-"+i,cat:"IA Experta",desc:it.desc||"Concepto",precio:Number(it.precio)||0,cant:Number(it.cant)||1,unidad:it.unidad||"",precioUnit:Number(it.precioUnit)||0}))]);show("🤖 "+items.length+" partidas generadas por IA");}else show("No se detectaron elementos de carpintería");}catch(e){if(e.message==="NO_KEY"){show("⚠️ Configura API Key");om("apikey");}else{show("Error: "+e.message.slice(0,80));console.error("scanPlano:",e);}}setScanning(false);};
   const[subTab,setSubTab]=useState("");
   const[ff,setFf]=useState("todo");const[fObra,setFObra]=useState("");const[fBusq,setFBusq]=useState("");const[fDesde,setFDesde]=useState("");const[fHasta,setFHasta]=useState("");const[selMovs,setSelMovs]=useState([]);const[delConfText,setDelConfText]=useState("");const[mostrarHerramientas,setMostrarHerramientas]=useState(false);
+  // Filtros por columna estilo Excel (Finanzas)
+  const [fcConcepto,setFcConcepto]=useState("");
+  const [fcProv,setFcProv]=useState("");
+  const [fcObraCol,setFcObraCol]=useState("");
+  const [fcUser,setFcUser]=useState("");
   // Estados de ordenamiento Excel-like para cada tabla {col,dir} — dir = 1 asc, -1 desc
   const [sortFin,setSortFin]=useState({col:"fecha",dir:-1});
   const [sortCaja,setSortCaja]=useState({col:"fecha",dir:-1});
@@ -1896,6 +1901,11 @@ export default function App(){
     if(ff==="nom"&&!["Nómina","Renta","IMSS","Destajo"].includes(m.cat))return false;
     if(ff==="rec"&&!m.rec)return false;
     if(fObra){if(normSearch(m.obra)!==normSearch(fObra))return false;} // FIX: ignora acentos/mayúsculas
+    // Filtros por columna (estilo Excel)
+    if(fcConcepto&&!normSearch(m.desc).includes(normSearch(fcConcepto)))return false;
+    if(fcProv&&!normSearch(m.prov).includes(normSearch(fcProv)))return false;
+    if(fcObraCol&&!normSearch(m.obra).includes(normSearch(fcObraCol)))return false;
+    if(fcUser&&!normSearch(m.user).includes(normSearch(fcUser)))return false;
     if(fBusq){
       const q=normSearch(fBusq);
       if(!normSearch(m.desc).includes(q)
@@ -2622,13 +2632,24 @@ export default function App(){
             </div>;
           }catch{return null;}
         })()}
-        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:10}}>
-          <Card style={{background:"rgba(76,175,80,.06)",borderColor:"rgba(76,175,80,.15)"}}><Stat label="Ingresos" value={$(finIng)} color={T.green}/></Card>
-          <Card style={{background:"rgba(231,76,60,.06)",borderColor:"rgba(231,76,60,.15)"}}><Stat label="Egresos" value={$(finEgr)} color={T.red}/></Card>
-          <Card onClick={()=>finIng-finEgr<0?om("analisisDesfase"):null} style={{cursor:finIng-finEgr<0?"pointer":"default",background:finIng-finEgr<0?"rgba(231,76,60,.08)":undefined,borderColor:finIng-finEgr<0?T.red+"33":undefined}}>
-            <Stat label={finIng-finEgr<0?"🔍 Balance (click para analizar)":"Balance"} value={$(finIng-finEgr)} color={finIng-finEgr>=0?T.green:T.red}/>
-          </Card>
-          <Card><Stat label="Movimientos" value={finFilt.length}/></Card>
+        {/* === STATS HORIZONTALES estilo VAARQ (1 línea) === */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderRadius:8,marginBottom:10,flexWrap:"wrap",gap:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+              <span style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:.8}}>Entradas</span>
+              <span style={{fontSize:18,fontWeight:800,color:T.green}}>{$(finIng)}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+              <span style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:.8}}>Salidas</span>
+              <span style={{fontSize:18,fontWeight:800,color:T.red}}>{$(finEgr)}</span>
+            </div>
+            <div onClick={()=>finIng-finEgr<0?om("analisisDesfase"):null} style={{display:"flex",alignItems:"baseline",gap:6,cursor:finIng-finEgr<0?"pointer":"default"}} title={finIng-finEgr<0?"Click para analizar desfase":""}>
+              <span style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:.8}}>Neto</span>
+              <span style={{fontSize:18,fontWeight:800,color:finIng-finEgr>=0?T.green:T.red}}>{$(finIng-finEgr)}</span>
+              {finIng-finEgr<0&&<span style={{fontSize:10,color:T.red,marginLeft:2}}>🔍</span>}
+            </div>
+          </div>
+          <span style={{fontSize:11,color:T.muted}}>{finFilt.length} movimientos</span>
         </div>
         {/* Banner de alerta cuando hay desfase */}
         {finIng-finEgr<0&&<div onClick={()=>om("analisisDesfase")} style={{background:"linear-gradient(135deg,rgba(231,76,60,.12),rgba(231,76,60,.04))",border:"1px solid "+T.red+"44",borderRadius:10,padding:"10px 14px",marginBottom:10,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
@@ -2698,10 +2719,49 @@ export default function App(){
           <span style={{color:T.muted,fontSize:11}}>→</span>
           <input type="date" style={{...sI,width:140,padding:"6px 10px",fontSize:11}} value={fHasta} onChange={e=>setFHasta(e.target.value)}/>
           {(fDesde||fHasta)&&<button onClick={()=>{setFDesde("");setFHasta("");}} style={{background:"rgba(255,255,255,.06)",border:"1px solid "+T.border,color:T.muted,borderRadius:8,padding:"6px 10px",fontSize:10,cursor:"pointer"}}>✗</button>}
-          <button onClick={()=>{const y=new Date().getFullYear();setFDesde(y+"-01-01");setFHasta(y+"-12-31");}} style={{background:"rgba(201,149,107,.08)",border:"1px solid "+T.gold+"33",color:T.gold,borderRadius:8,padding:"6px 12px",fontSize:10,cursor:"pointer",fontWeight:700}}>Este año</button>
-          <button onClick={()=>{const y=new Date().getFullYear()-1;setFDesde(y+"-01-01");setFHasta(y+"-12-31");}} style={{background:"rgba(255,255,255,.04)",border:"1px solid "+T.border,color:T.muted,borderRadius:8,padding:"6px 12px",fontSize:10,cursor:"pointer"}}>Año pasado</button>
+          <button onClick={()=>{const d=new Date();const day=d.getDay()||7;const mon=new Date(d);mon.setDate(d.getDate()-(day-1));const sun=new Date(mon);sun.setDate(mon.getDate()+6);setFDesde(mon.toISOString().slice(0,10));setFHasta(sun.toISOString().slice(0,10));}} style={{background:"rgba(76,175,80,.08)",border:"1px solid "+T.green+"55",color:T.green,borderRadius:8,padding:"6px 12px",fontSize:10,cursor:"pointer",fontWeight:700}}>📅 Esta semana</button>
+          <button onClick={()=>{const d=new Date();const day=d.getDay()||7;const mon=new Date(d);mon.setDate(d.getDate()-(day-1)-7);const sun=new Date(mon);sun.setDate(mon.getDate()+6);setFDesde(mon.toISOString().slice(0,10));setFHasta(sun.toISOString().slice(0,10));}} style={{background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"33",color:T.yellow,borderRadius:8,padding:"6px 12px",fontSize:10,cursor:"pointer",fontWeight:700}}>Sem pasada</button>
+          <button onClick={()=>{const d=new Date();const start=new Date(d);start.setDate(d.getDate()-27);setFDesde(start.toISOString().slice(0,10));setFHasta(d.toISOString().slice(0,10));}} style={{background:"rgba(66,165,245,.06)",border:"1px solid "+T.blue+"33",color:T.blue,borderRadius:8,padding:"6px 12px",fontSize:10,cursor:"pointer",fontWeight:700}}>Últ 4 sem</button>
           <button onClick={()=>{const d=new Date();const m=String(d.getMonth()+1).padStart(2,"0");const y=d.getFullYear();const last=new Date(y,d.getMonth()+1,0).getDate();setFDesde(y+"-"+m+"-01");setFHasta(y+"-"+m+"-"+String(last).padStart(2,"0"));}} style={{background:"rgba(255,255,255,.04)",border:"1px solid "+T.border,color:T.muted,borderRadius:8,padding:"6px 12px",fontSize:10,cursor:"pointer"}}>Este mes</button>
+          <button onClick={()=>{const y=new Date().getFullYear();setFDesde(y+"-01-01");setFHasta(y+"-12-31");}} style={{background:"rgba(201,149,107,.08)",border:"1px solid "+T.gold+"33",color:T.gold,borderRadius:8,padding:"6px 12px",fontSize:10,cursor:"pointer",fontWeight:700}}>Este año</button>
         </div>
+        {/* === RESUMEN POR SEMANA (cards click para filtrar) === */}
+        {(()=>{
+          // Agrupar finFilt por semana (lunes-domingo)
+          const porSemana={};
+          finFilt.forEach(m=>{
+            const f=fixDateGlobal(m.fecha||"");
+            if(!f)return;
+            const d=new Date(f+"T12:00:00");
+            if(isNaN(d))return;
+            const day=d.getDay()||7;
+            const mon=new Date(d);mon.setDate(d.getDate()-(day-1));
+            const wk=mon.toISOString().slice(0,10);
+            if(!porSemana[wk])porSemana[wk]={inicio:wk,ing:0,egr:0,nMovs:0};
+            porSemana[wk].nMovs++;
+            if(m.t==="ing")porSemana[wk].ing+=m.monto;
+            else porSemana[wk].egr+=m.monto;
+          });
+          const semanas=Object.values(porSemana).sort((a,b)=>b.inicio.localeCompare(a.inicio)).slice(0,8);
+          if(semanas.length<=1)return null; // Si solo hay una semana, no vale la pena mostrar el desglose
+          return <div style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>📊 Desglose por semana ({semanas.length})</div>
+              <div style={{fontSize:10,color:T.muted}}>Click una semana para filtrar</div>
+            </div>
+            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+              {semanas.map(s=>{const bal=s.ing-s.egr;const fin=new Date(s.inicio+"T12:00:00");fin.setDate(fin.getDate()+6);const finStr=fin.toISOString().slice(0,10);return <div key={s.inicio} onClick={()=>{setFDesde(s.inicio);setFHasta(finStr);}} style={{flex:"0 0 auto",minWidth:160,padding:10,background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderRadius:8,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.06)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,.02)"}>
+                <div style={{fontSize:10,color:T.muted,fontWeight:700,marginBottom:4}}>📅 {fd(s.inicio)} - {fd(finStr)}</div>
+                <div style={{display:"grid",gap:2}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}><span style={{color:T.muted}}>Ingresos</span><span style={{color:T.green,fontWeight:700}}>+{$(s.ing)}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}><span style={{color:T.muted}}>Egresos</span><span style={{color:T.red,fontWeight:700}}>-{$(s.egr)}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12,paddingTop:3,marginTop:3,borderTop:"1px solid "+T.border}}><span style={{fontWeight:700}}>Balance</span><span style={{color:bal>=0?T.green:T.red,fontWeight:800}}>{$(bal)}</span></div>
+                  <div style={{fontSize:9,color:T.dim,textAlign:"right",marginTop:2}}>{s.nMovs} movs</div>
+                </div>
+              </div>;})}
+            </div>
+          </div>;
+        })()}
         {user.rol==="admin"&&selMovs.length>0&&<div style={{background:"rgba(231,76,60,.12)",border:"1px solid "+T.red+"66",borderRadius:8,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
           <span style={{color:T.red,fontWeight:700,fontSize:12}}>🗑 {selMovs.length} seleccionado(s) de {finFilt.length} filtrados</span>
           <div style={{display:"flex",gap:6}}>
@@ -2728,6 +2788,30 @@ export default function App(){
                 </tr>
               </thead>
               <tbody>
+                {/* Fila de FILTROS POR COLUMNA (estilo Excel) */}
+                <tr style={{background:"rgba(255,255,255,.02)",borderBottom:"1px solid #333"}}>
+                  {user.rol==="admin"&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}></td>}
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}></td>
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}></td>
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}>
+                    <input value={fcConcepto} onChange={e=>setFcConcepto(e.target.value)} placeholder="filtrar..." style={{width:"100%",background:"transparent",border:"1px solid "+T.border,color:T.text,fontSize:10,padding:"2px 6px",borderRadius:3,outline:"none"}}/>
+                  </td>
+                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}>
+                    <input value={fcProv} onChange={e=>setFcProv(e.target.value)} placeholder="filtrar..." style={{width:"100%",background:"transparent",border:"1px solid "+T.border,color:T.text,fontSize:10,padding:"2px 6px",borderRadius:3,outline:"none"}}/>
+                  </td>}
+                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}>
+                    <input value={fcObraCol} onChange={e=>setFcObraCol(e.target.value)} placeholder="filtrar..." style={{width:"100%",background:"transparent",border:"1px solid "+T.border,color:T.text,fontSize:10,padding:"2px 6px",borderRadius:3,outline:"none"}}/>
+                  </td>}
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}></td>
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}></td>
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}></td>
+                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}>
+                    <input value={fcUser} onChange={e=>setFcUser(e.target.value)} placeholder="filtrar..." style={{width:"100%",background:"transparent",border:"1px solid "+T.border,color:T.text,fontSize:10,padding:"2px 6px",borderRadius:3,outline:"none"}}/>
+                  </td>}
+                  {user.rol==="admin"&&<td style={{padding:"3px 6px"}}>
+                    {(fcConcepto||fcProv||fcObraCol||fcUser)&&<button onClick={()=>{setFcConcepto("");setFcProv("");setFcObraCol("");setFcUser("");}} style={{background:"transparent",border:"none",color:T.red,fontSize:11,cursor:"pointer"}} title="Limpiar filtros columnas">✕</button>}
+                  </td>}
+                </tr>
                 {finFilt.length===0&&<tr><td colSpan={D?(user.rol==="admin"?10:9):(user.rol==="admin"?6:5)} style={{padding:30,textAlign:"center",color:T.dim}}>Sin resultados</td></tr>}
                 {[...finFilt].sort((a,b)=>cmpVal(a[sortFin.col],b[sortFin.col],sortFin.dir)).map((m,idx)=>{const isP=m.status==="pendiente"&&m.t==="caja";const isHl=highlightedIds.has(m.id);return <tr key={m.id}
                   onClick={()=>{if(m.ticket)om("verTicket",m);if(m.rec)om("vRec",recibos.find(r=>r.id===m.rec));}}
@@ -2735,25 +2819,26 @@ export default function App(){
                   onMouseEnter={e=>{if(!isHl)e.currentTarget.style.background="rgba(201,149,107,.06)";}}
                   onMouseLeave={e=>{if(!isHl)e.currentTarget.style.background=isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent";}}>
                   {user.rol==="admin"&&<td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"center"}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selMovs.includes(m.id)} onChange={e=>{if(e.target.checked)setSelMovs([...selMovs,m.id]);else setSelMovs(selMovs.filter(x=>x!==m.id));}} style={{cursor:"pointer",width:16,height:16,accentColor:T.gold}}/></td>}
-                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap"}}>{idx+1}</td>
-                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.muted,whiteSpace:"nowrap",fontSize:11}}>{fd(m.fecha)}</td>
-                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{fontSize:9,fontWeight:800,color:m.t==="ing"?T.green:T.red,background:m.t==="ing"?"rgba(76,175,80,.12)":"rgba(231,76,60,.12)",padding:"2px 6px",borderRadius:4,whiteSpace:"nowrap"}}>{m.t==="ing"?"ING":m.t==="caja"?"CAJA":"EGR"}</span>
-                      <div><div style={{fontWeight:600}}>{m.desc}</div>{(m.cat&&m.cat!=="Caja Chica")&&<div style={{fontSize:9,color:T.dim}}>{m.cat}</div>}</div>
+                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap"}}>{idx+1}</td>
+                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",color:T.muted,whiteSpace:"nowrap",fontSize:11}}>{fd(m.fecha)}</td>
+                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{fontSize:9,fontWeight:800,color:m.t==="ing"?T.green:T.red,background:m.t==="ing"?"rgba(76,175,80,.12)":"rgba(231,76,60,.12)",padding:"1px 5px",borderRadius:3,whiteSpace:"nowrap"}}>{m.t==="ing"?"ING":m.t==="caja"?"CAJA":"EGR"}</span>
+                      <span style={{fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.desc}</span>
+                      {(m.cat&&m.cat!=="Caja Chica")&&<span style={{fontSize:9,color:T.dim}}>· {m.cat}</span>}
                       {m.ticket&&<span style={{fontSize:10,color:T.blue}}>📷</span>}
                     </div>
                   </td>
-                  {D&&<td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.prov||"-"}</td>}
-                  {D&&<td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:m.obra?T.gold:T.dim}}>{m.obra||"-"}</span></td>}
-                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
+                  {D&&<td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.prov||"-"}</td>}
+                  {D&&<td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:m.obra?T.gold:T.dim}}>{m.obra||"-"}</span></td>}
+                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
                     {isP&&user.rol==="admin"?<div style={{display:"flex",gap:2,justifyContent:"center"}}>
-                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button>
-                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button>
+                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button>
+                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button>
                     </div>:<Badge s={m.status}/>}
                   </td>
-                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t==="ing"?T.green:T.dim,whiteSpace:"nowrap"}}>{m.t==="ing"?$(m.monto):""}</td>
-                  <td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t!=="ing"?T.red:T.dim,whiteSpace:"nowrap"}}>{m.t!=="ing"?$(m.monto):""}</td>
+                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t==="ing"?T.green:T.dim,whiteSpace:"nowrap",fontSize:12}}>{m.t==="ing"?$(m.monto):""}</td>
+                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t!=="ing"?T.red:T.dim,whiteSpace:"nowrap",fontSize:12}}>{m.t!=="ing"?$(m.monto):""}</td>
                   {D&&<td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.user?<span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:18,height:18,borderRadius:9,background:T.blue+"22",color:T.blue,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800}}>{m.user.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}</span><span>{m.user.split(" ")[0]}</span></span>:<span style={{color:T.dim}}>—</span>}</td>}
                   {user.rol==="admin"&&<td style={{padding:"6px 8px",textAlign:"center"}}>
                     <div style={{display:"flex",gap:2,justifyContent:"center"}}>
