@@ -2770,21 +2770,21 @@ export default function App(){
           </div>
         </div>}
         <div style={{borderRadius:8,border:"1px solid #333",overflow:"hidden",fontSize:12}}>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:D?700:500}}>
+          <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:D?760:480}}>
               <thead>
                 <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
-                  {user.rol==="admin"&&<th style={{padding:"10px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,borderRight:"1px solid #333",width:36}}><input type="checkbox" checked={finFilt.length>0&&selMovs.length===finFilt.length} onChange={e=>setSelMovs(e.target.checked?finFilt.map(m=>m.id):[])} style={{cursor:"pointer",width:16,height:16,accentColor:T.gold}} title="Seleccionar todos los visibles"/></th>}
-                  <th style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:50}}>#</th>
-                  <SortTh col="fecha" label="Fecha" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}/>
-                  <SortTh col="desc" label="Concepto" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,borderRight:"1px solid #333"}}/>
-                  {D&&<SortTh col="prov" label="Proveedor / Cliente" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
-                  {D&&<SortTh col="obra" label="Obra" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
-                  <SortTh col="status" label="Status" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}/>
-                  <SortTh col="monto" label="Ingreso" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
-                  <SortTh col="monto" label="Egreso" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
-                  {D&&<SortTh col="user" label="Usuario" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>}
-                  {user.rol==="admin"&&<th style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,width:70}}></th>}
+                  {user.rol==="admin"&&<th style={{padding:"6px 4px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,borderRight:"1px solid #333",width:28}}><input type="checkbox" checked={finFilt.length>0&&selMovs.length===finFilt.length} onChange={e=>setSelMovs(e.target.checked?finFilt.map(m=>m.id):[])} style={{cursor:"pointer",width:14,height:14,accentColor:T.gold}} title="Seleccionar todos los visibles"/></th>}
+                  <th style={{padding:"6px 6px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:32}}>#</th>
+                  <SortTh col="fecha" label="Fecha" sort={sortFin} setSort={setSortFin} style={{padding:"6px 6px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:72}}/>
+                  <SortTh col="desc" label="Concepto" sort={sortFin} setSort={setSortFin} style={{padding:"6px 6px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,borderRight:"1px solid #333"}}/>
+                  {D&&<SortTh col="prov" label="Prov / Cliente" sort={sortFin} setSort={setSortFin} style={{padding:"6px 6px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>}
+                  {D&&<SortTh col="obra" label="Obra" sort={sortFin} setSort={setSortFin} style={{padding:"6px 6px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>}
+                  <SortTh col="status" label="Status" sort={sortFin} setSort={setSortFin} style={{padding:"6px 6px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:70}}/>
+                  <SortTh col="monto" label="Ingreso" sort={sortFin} setSort={setSortFin} style={{padding:"6px 6px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:88}}/>
+                  <SortTh col="monto" label="Egreso" sort={sortFin} setSort={setSortFin} style={{padding:"6px 6px",textAlign:"right",fontSize:9,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:88}}/>
+                  {D&&<SortTh col="user" label="Usuario" sort={sortFin} setSort={setSortFin} style={{padding:"6px 6px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}/>}
+                  {user.rol==="admin"&&<th style={{padding:"6px 6px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,width:52}}></th>}
                 </tr>
               </thead>
               <tbody>
