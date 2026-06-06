@@ -2775,15 +2775,15 @@ export default function App(){
               <thead>
                 <tr style={{background:"#1a1a1a",borderBottom:"2px solid #444"}}>
                   {user.rol==="admin"&&<th style={{padding:"10px 8px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,borderRight:"1px solid #333",width:36}}><input type="checkbox" checked={finFilt.length>0&&selMovs.length===finFilt.length} onChange={e=>setSelMovs(e.target.checked?finFilt.map(m=>m.id):[])} style={{cursor:"pointer",width:16,height:16,accentColor:T.gold}} title="Seleccionar todos los visibles"/></th>}
-                  <th style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:50}}>#</th>
-                  <SortTh col="fecha" label="Fecha" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}/>
-                  <SortTh col="desc" label="Concepto" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,borderRight:"1px solid #333"}}/>
-                  {D&&<SortTh col="prov" label="Proveedor / Cliente" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
-                  {D&&<SortTh col="obra" label="Obra" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
-                  <SortTh col="status" label="Status" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}/>
-                  <SortTh col="monto" label="Ingreso" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
-                  <SortTh col="monto" label="Egreso" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
-                  {D&&<SortTh col="user" label="Usuario" sort={sortFin} setSort={setSortFin} style={{padding:"10px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>}
+                  <th style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:50}}>#</th>
+                  <SortTh col="fecha" label="Fecha" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:90}}/>
+                  <SortTh col="desc" label="Concepto" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,borderRight:"1px solid #333"}}/>
+                  {D&&<SortTh col="prov" label="Proveedor / Cliente" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
+                  {D&&<SortTh col="obra" label="Obra" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:130}}/>}
+                  <SortTh col="status" label="Status" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"center",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:80}}/>
+                  <SortTh col="monto" label="Ingreso" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.green,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
+                  <SortTh col="monto" label="Egreso" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"right",fontSize:9,fontWeight:700,color:T.red,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:110}}/>
+                  {D&&<SortTh col="user" label="Usuario" sort={sortFin} setSort={setSortFin} style={{padding:"6px 8px",textAlign:"left",fontSize:9,fontWeight:700,color:T.gold,textTransform:"uppercase",letterSpacing:.5,whiteSpace:"nowrap",borderRight:"1px solid #333",width:100}}/>}
                   {user.rol==="admin"&&<th style={{padding:"10px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,width:70}}></th>}
                 </tr>
               </thead>
@@ -2819,26 +2819,25 @@ export default function App(){
                   onMouseEnter={e=>{if(!isHl)e.currentTarget.style.background="rgba(201,149,107,.06)";}}
                   onMouseLeave={e=>{if(!isHl)e.currentTarget.style.background=isP?"rgba(241,196,15,.05)":idx%2===0?"rgba(255,255,255,.01)":"transparent";}}>
                   {user.rol==="admin"&&<td style={{padding:"6px 8px",borderRight:"1px solid #2a2a2a",textAlign:"center"}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selMovs.includes(m.id)} onChange={e=>{if(e.target.checked)setSelMovs([...selMovs,m.id]);else setSelMovs(selMovs.filter(x=>x!==m.id));}} style={{cursor:"pointer",width:16,height:16,accentColor:T.gold}}/></td>}
-                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap"}}>{idx+1}</td>
-                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",color:T.muted,whiteSpace:"nowrap",fontSize:11}}>{fd(m.fecha)}</td>
-                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <span style={{fontSize:9,fontWeight:800,color:m.t==="ing"?T.green:T.red,background:m.t==="ing"?"rgba(76,175,80,.12)":"rgba(231,76,60,.12)",padding:"1px 5px",borderRadius:3,whiteSpace:"nowrap"}}>{m.t==="ing"?"ING":m.t==="caja"?"CAJA":"EGR"}</span>
-                      <span style={{fontWeight:600,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{m.desc}</span>
-                      {(m.cat&&m.cat!=="Caja Chica")&&<span style={{fontSize:9,color:T.dim}}>· {m.cat}</span>}
-                      {m.ticket&&<span style={{fontSize:10,color:T.blue}}>📷</span>}
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",color:T.dim,fontSize:10,whiteSpace:"nowrap"}}>{idx+1}</td>
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",color:T.muted,whiteSpace:"nowrap",fontSize:11}}>{fd(m.fecha)}</td>
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap",overflow:"hidden"}}>
+                      <span style={{fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis"}}>{m.desc}</span>
+                      {(m.cat&&m.cat!=="Caja Chica")&&<span style={{fontSize:10,color:T.dim,flexShrink:0}}>· {m.cat}</span>}
+                      {m.ticket&&<span style={{fontSize:10,color:T.blue,flexShrink:0}}>📷</span>}
                     </div>
                   </td>
-                  {D&&<td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.prov||"-"}</td>}
-                  {D&&<td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:m.obra?T.gold:T.dim}}>{m.obra||"-"}</span></td>}
-                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
+                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.prov||"-"}</td>}
+                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:m.obra?T.gold:T.dim}}>{m.obra||"-"}</span></td>}
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
                     {isP&&user.rol==="admin"?<div style={{display:"flex",gap:2,justifyContent:"center"}}>
-                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button>
-                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button>
+                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:3,padding:"1px 5px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button>
+                      <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"rechazado"}:x));show("✗");}} style={{background:"#2a0a0a",color:T.red,border:"none",borderRadius:3,padding:"1px 5px",fontSize:10,cursor:"pointer",fontWeight:700}}>✗</button>
                     </div>:<Badge s={m.status}/>}
                   </td>
-                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t==="ing"?T.green:T.dim,whiteSpace:"nowrap",fontSize:12}}>{m.t==="ing"?$(m.monto):""}</td>
-                  <td style={{padding:"4px 8px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t!=="ing"?T.red:T.dim,whiteSpace:"nowrap",fontSize:12}}>{m.t!=="ing"?$(m.monto):""}</td>
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t==="ing"?T.green:T.dim,whiteSpace:"nowrap",fontSize:12}}>{m.t==="ing"?$(m.monto):""}</td>
+                  <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",textAlign:"right",fontWeight:700,color:m.t!=="ing"?T.red:T.dim,whiteSpace:"nowrap",fontSize:12}}>{m.t!=="ing"?$(m.monto):""}</td>
                   {D&&<td style={{padding:"8px 12px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.user?<span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:18,height:18,borderRadius:9,background:T.blue+"22",color:T.blue,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800}}>{m.user.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}</span><span>{m.user.split(" ")[0]}</span></span>:<span style={{color:T.dim}}>—</span>}</td>}
                   {user.rol==="admin"&&<td style={{padding:"6px 8px",textAlign:"center"}}>
                     <div style={{display:"flex",gap:2,justifyContent:"center"}}>
