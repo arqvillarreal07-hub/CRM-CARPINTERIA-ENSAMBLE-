@@ -1273,7 +1273,26 @@ function ObrasSimilaresView({obras,movs,caja,onFusionar}){
     });
   };
   const setDestino=(gIdx,id)=>setSeleccionPorGrupo(prev=>({...prev,[gIdx]:{...(prev[gIdx]||{fusionar:new Set()}),destinoId:id}}));
-  if(grupos.length===0)return <div style={{textAlign:"center",padding:30,color:T.muted}}>✅ No se detectaron obras similares — todo limpio!</div>;
+  if(grupos.length===0){
+    const exclusiones=obtenerExclusionesObras();
+    return <div>
+      <div style={{textAlign:"center",padding:30,color:T.green}}>
+        <div style={{fontSize:42,marginBottom:8}}>✅</div>
+        <div style={{fontWeight:700,fontSize:14,color:T.green}}>No se detectaron obras duplicadas</div>
+        <div style={{fontSize:11,color:T.muted,marginTop:6}}>Todas tus obras tienen nombres únicos o números distintos.</div>
+      </div>
+      {exclusiones.length>0&&<div style={{marginTop:14,padding:12,background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderRadius:8}}>
+        <div style={{fontSize:11,color:T.gold,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>📋 Exclusiones manuales ({exclusiones.length})</div>
+        <div style={{fontSize:10,color:T.muted,marginBottom:8}}>Pares que marcaste como "NO duplicadas". El sistema no las volverá a sugerir.</div>
+        <div style={{display:"grid",gap:4,maxHeight:200,overflowY:"auto",marginBottom:10}}>
+          {exclusiones.map((par,i)=><div key={i} style={{padding:"4px 8px",background:"rgba(255,255,255,.02)",borderRadius:4,fontSize:11,display:"flex",justifyContent:"space-between"}}>
+            <span style={{color:T.text}}>"{par[0]}" ↔ "{par[1]}"</span>
+          </div>)}
+        </div>
+        <button onClick={()=>{if(!confirm("¿Limpiar TODAS las "+exclusiones.length+" exclusiones?\n\nEl sistema volverá a sugerir TODOS los pares que habías marcado como 'no duplicados'."))return;guardarExclusionesObras([]);alert("✓ Limpiado. Refresca la página.");}} style={{padding:"6px 12px",borderRadius:5,border:"1px solid "+T.red+"55",background:"rgba(231,76,60,.08)",color:T.red,fontSize:11,fontWeight:700,cursor:"pointer",width:"100%"}}>⟲ Limpiar todas las exclusiones</button>
+      </div>}
+    </div>;
+  }
   return <div>
     <div style={{background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"33",borderRadius:8,padding:12,marginBottom:14,fontSize:11,color:T.muted,lineHeight:1.5}}>
       <div style={{color:T.yellow,fontWeight:700,marginBottom:4}}>🔍 Detecté {grupos.length} grupo{grupos.length!==1?"s":""} de obras parecidas</div>
@@ -2536,17 +2555,22 @@ export default function App(){
     {sec==="obras"&&!sub&&<div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:18,fontWeight:800}}>Obras <span style={{color:T.muted,fontWeight:500,fontSize:13}}>· {obras.filter(o=>o.fase&&o.fase!=="cotizacion").length}</span></div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {(()=>{const todasObras=[...obras,...[...new Set([...movs.map(m=>m.obra),...caja.map(c=>c.obra)])].filter(n=>n&&!obras.some(o=>normSearch(o.nombre)===normSearch(n))).map((n,i)=>({id:"F-"+i,nombre:n,cotizado:0,isFantasma:true}))];const grupos=agruparObrasSimilares(todasObras);if(grupos.length===0)return null;return <div style={{display:"flex",gap:4}}>
-            <button onClick={()=>om("obrasSimilares")} style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+T.purple+"55",background:"rgba(171,71,188,.08)",color:T.purple,fontWeight:700,fontSize:12,cursor:"pointer"}}>🔗 Detectar duplicadas <span style={{background:T.yellow+"33",color:T.yellow,padding:"1px 6px",borderRadius:6,fontSize:10,marginLeft:4}}>{grupos.length}</span></button>
-            <button onClick={()=>{
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          {(()=>{const todasObras=[...obras,...[...new Set([...movs.map(m=>m.obra),...caja.map(c=>c.obra)])].filter(n=>n&&!obras.some(o=>normSearch(o.nombre)===normSearch(n))).map((n,i)=>({id:"F-"+i,nombre:n,cotizado:0,isFantasma:true}))];const grupos=agruparObrasSimilares(todasObras);const exclusionesCount=obtenerExclusionesObras().length;return <div style={{display:"flex",gap:4,alignItems:"center"}}>
+            <button onClick={()=>om("obrasSimilares")} style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+(grupos.length>0?T.purple:T.green)+"55",background:grupos.length>0?"rgba(171,71,188,.08)":"rgba(76,175,80,.05)",color:grupos.length>0?T.purple:T.green,fontWeight:700,fontSize:12,cursor:"pointer"}} title={grupos.length>0?"Hay obras posiblemente duplicadas":"Revisar duplicadas / Ver exclusiones manuales"}>{grupos.length>0?"🔗 Detectar duplicadas":"✓ Sin duplicadas"} {grupos.length>0&&<span style={{background:T.yellow+"33",color:T.yellow,padding:"1px 6px",borderRadius:6,fontSize:10,marginLeft:4}}>{grupos.length}</span>}</button>
+            {grupos.length>0&&<button onClick={()=>{
               if(!confirm("🚫 ¿Marcar TODOS los "+grupos.length+" grupo(s) detectados como obras DISTINTAS?\n\nEjemplo: 'CORAL #39' y 'CORAL #40' son obras distintas — no son duplicadas.\n\nDespués de esto, el sistema no las volverá a sugerir."))return;
               const exclusiones=obtenerExclusionesObras();
               let agregadas=0;
               grupos.forEach(g=>{for(let i=0;i<g.length;i++){for(let j=i+1;j<g.length;j++){const par=[normSearch(g[i].nombre),normSearch(g[j].nombre)];if(!exclusiones.some(ex=>(ex[0]===par[0]&&ex[1]===par[1])||(ex[0]===par[1]&&ex[1]===par[0]))){exclusiones.push(par);agregadas++;}}}});
               guardarExclusionesObras(exclusiones);
               show("✓ "+agregadas+" par(es) marcados como NO duplicados. Refresca la página.");
-            }} style={{padding:"8px 10px",borderRadius:8,border:"1px solid "+T.green+"55",background:"rgba(76,175,80,.08)",color:T.green,fontWeight:700,fontSize:12,cursor:"pointer"}} title="Marcar todos como NO duplicados (son obras distintas)">🚫 No son</button>
+            }} style={{padding:"8px 12px",borderRadius:8,border:"2px solid "+T.green,background:"linear-gradient(135deg,rgba(76,175,80,.15),rgba(76,175,80,.05))",color:T.green,fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:"0 2px 6px rgba(76,175,80,.2)"}} title="Marcar todos como NO duplicados (son obras distintas)">🚫 NO son duplicadas</button>}
+            {exclusionesCount>0&&<button onClick={()=>{
+              if(!confirm("¿Limpiar las "+exclusionesCount+" exclusiones manuales?\n\nVas a permitir que el sistema vuelva a sugerir todas las obras que habías marcado como 'no duplicadas'."))return;
+              guardarExclusionesObras([]);
+              show("✓ Exclusiones limpiadas. Refresca la página.");
+            }} style={{padding:"6px 10px",borderRadius:6,border:"1px solid "+T.muted+"33",background:"transparent",color:T.muted,fontSize:10,cursor:"pointer"}} title={exclusionesCount+" pares marcados como NO duplicados — click para resetear"}>⟲ {exclusionesCount}</button>}
           </div>;})()}
           {can("obras")&&<button onClick={()=>om("addOb")} style={{padding:"8px 16px",borderRadius:8,border:"none",background:T.gold,color:"#000",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Nueva Obra</button>}
         </div>
