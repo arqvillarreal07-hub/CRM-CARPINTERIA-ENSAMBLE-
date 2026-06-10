@@ -1015,7 +1015,7 @@ function ResincronizarView({obras,movs,caja,onAplicarNube}){
     <button onClick={()=>{if(!confirm("¿REEMPLAZAR datos locales con los de la nube?\n\nObras nube: "+cObras.nube+" (local: "+cObras.local+")\nMovs nube: "+cMovs.nube+" (local: "+cMovs.local+")\nCaja nube: "+cCaja.nube+" (local: "+cCaja.local+")\n\nLos datos locales sin sincronizar SE PIERDEN."))return;onAplicarNube(datosNube);}} style={{...sB,background:"linear-gradient(135deg,"+T.blue+","+T.purple+")"}}>📥 Aplicar versión de la nube (reemplaza local)</button>
   </div>;
 }
-function AuditoriaSistemaView({obras,movs,caja,onNormalizar,onEliminarObrasDup,onFusionarVariantes}){
+function AuditoriaSistemaView({obras,movs,caja,onNormalizar,onEliminarObrasDup,onFusionarVariantes,onCrearObraFantasma}){
   // 1. Detectar obras DUPLICADAS en obras[] (mismo nombre normalizado, distinto id)
   const dupGroups={};
   obras.forEach(o=>{const k=normSearch(o.nombre);if(!dupGroups[k])dupGroups[k]=[];dupGroups[k].push(o);});
@@ -1085,11 +1085,14 @@ function AuditoriaSistemaView({obras,movs,caja,onNormalizar,onEliminarObrasDup,o
     {/* Sección 3: Fantasmas */}
     {fantasmas.length>0&&<div style={{marginBottom:14}}>
       <div style={{fontSize:11,color:T.purple,fontWeight:800,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>👻 3. Obras fantasma ({fantasmas.length})</div>
-      <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Movimientos asociados a obras que ya no existen. Ve a Finanzas → "🔍 Analizar desfase" para reasignarlas.</div>
+      <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Movimientos con obra que no existe en el sistema. Puedes <b style={{color:T.green}}>crearla como obra real</b> de un click (✨) o <b style={{color:T.blue}}>reasignar sus movs</b> a otra obra (🔀).</div>
       <div style={{display:"grid",gap:4}}>
-        {fantasmas.map(f=><div key={f.key} style={{display:"flex",justifyContent:"space-between",padding:"6px 10px",background:"rgba(171,71,188,.04)",border:"1px solid "+T.purple+"22",borderRadius:5,fontSize:11}}>
-          <span style={{color:T.purple,fontWeight:600}}>👻 "{f.canonico}"</span>
-          <span style={{color:T.muted}}>{f.nMovs} mov{f.nMovs!==1?"s":""}</span>
+        {fantasmas.map(f=><div key={f.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"rgba(171,71,188,.04)",border:"1px solid "+T.purple+"22",borderRadius:5,fontSize:11,gap:8}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{color:T.purple,fontWeight:600}}>👻 "{f.canonico}"</div>
+            <div style={{color:T.muted,fontSize:10}}>{f.nMovs} mov{f.nMovs!==1?"s":""} sin obra registrada</div>
+          </div>
+          <button onClick={()=>{if(onCrearObraFantasma)onCrearObraFantasma(f.canonico);}} style={{padding:"6px 10px",borderRadius:5,border:"1px solid "+T.green+"55",background:"rgba(76,175,80,.1)",color:T.green,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}} title="Crear esta obra en el sistema (los movs se le asocian automáticamente)">✨ Crear como obra</button>
         </div>)}
       </div>
     </div>}
@@ -3318,6 +3321,40 @@ export default function App(){
         <span style={{color:T.blue,fontSize:20,fontWeight:800}}>→</span>
       </div>
       <AuditoriaSistemaView obras={obras} movs={movs} caja={caja}
+        onCrearObraFantasma={(nombreFantasma)=>{
+          // Calcular ingresos cobrados (suma) y egresos gastados (suma) de ese nombre
+          const k=normSearch(nombreFantasma);
+          const cob=movs.filter(m=>m.ing>0&&normSearch(m.obra||"")===k).reduce((s,m)=>s+m.ing,0);
+          const gas=movs.filter(m=>m.egr>0&&normSearch(m.obra||"")===k).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>normSearch(c.obra||"")===k&&c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
+          // Prompt para cliente y cotizado
+          const cliente=prompt("👷 Cliente para '"+nombreFantasma+"' (opcional, puedes dejar vacío):","")||"";
+          const cotizadoStr=prompt("💰 Monto cotizado para '"+nombreFantasma+"' (opcional, puedes dejar 0 si no sabes):",String(Math.max(cob,gas)));
+          const cotizado=Number(String(cotizadoStr).replace(/[^0-9.]/g,""))||0;
+          // Crear la obra con fase "produccion" para que aparezca en Obras inmediatamente
+          const nuevaObra={
+            id:"OB"+Date.now()+Math.random().toString(36).slice(2,5),
+            nombre:nombreFantasma,
+            cliente:cliente,
+            status:"en_proceso",
+            fase:"produccion",
+            cotizado:cotizado,
+            subtotal:cotizado,
+            conIva:false,
+            egreso:0,
+            avance:cotizado>0?Math.min(100,Math.round((cob/cotizado)*100)):0,
+            partidas:[],
+            extras:[],
+            pagos:[],
+            docs:[],
+            bitacora:[],
+            creadoPor:user.nombre,
+            creadoFecha:td(),
+            creadoDesdeFantasma:true
+          };
+          setObras(prev=>[...prev,nuevaObra]);
+          _lastWrite.current["obras"]=Date.now()+15000;
+          show("✨ Obra '"+nombreFantasma+"' creada con sus "+(cob>0||gas>0?"$"+Math.round(cob).toLocaleString()+" cobrado / $"+Math.round(gas).toLocaleString()+" gastado":"movs")+". Aparece en Obras.");
+        }}
         onNormalizar={()=>{
           // 1. Normalizar TODOS los nombres de obra en movs/caja al nombre canónico (de obras[] si existe)
           let nMovs=0,nCaja=0;
