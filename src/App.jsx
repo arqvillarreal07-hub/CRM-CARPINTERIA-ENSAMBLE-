@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 const GFONT_LINK = document.createElement('link');
 GFONT_LINK.rel = 'stylesheet';
@@ -1713,6 +1713,255 @@ function FusionarObrasForm({finObras,obras,countMovs,onFuse}){
   </div>;
 }
 
+// ═══ PRORRATEAR GASTO FIJO ENTRE OBRAS ACTIVAS ═══
+// Resuelve dos problemas:
+//   A) Gasto fijo nuevo (renta, luz, IMSS) — capturar 1 monto y repartirlo entre N obras
+//   B) Gastos sueltos existentes (categoría CARPINTERIA / sin obra) — distribuirlos en bulk
+function ProrratearGastoForm({obras,movs,setMovs,enviarAPapelera,user,td,show,cm,_lastWrite}){
+  const[tab,setTab]=useState("nuevo");
+  // Obras activas: status en proceso, no terminadas ni canceladas
+  const obrasActivas=useMemo(()=>obras.filter(o=>{
+    const st=(o.status||"").toLowerCase();const fs=(o.fase||"").toLowerCase();
+    if(st==="terminada"||st==="cancelada"||st==="pausada")return false;
+    if(fs==="terminada"||fs==="entregada"||fs==="cancelada")return false;
+    return true;
+  }).sort((a,b)=>(b.cotizado||0)-(a.cotizado||0)),[obras]);
+  // ── Estado pestaña A: Nuevo gasto ──
+  const[nConcepto,setNConcepto]=useState("");
+  const[nMonto,setNMonto]=useState("");
+  const[nFecha,setNFecha]=useState(td());
+  const[nCategoria,setNCategoria]=useState("Renta");
+  const[nProv,setNProv]=useState("");
+  // ── Selección de obras destino (default: todas las activas) ──
+  const[obrasSel,setObrasSel]=useState(()=>new Set(obrasActivas.map(o=>o.id)));
+  const toggleObra=id=>{const s=new Set(obrasSel);s.has(id)?s.delete(id):s.add(id);setObrasSel(s);};
+  const allOn=obrasActivas.length>0&&obrasActivas.every(o=>obrasSel.has(o.id));
+  // ── Método de reparto ──
+  const[metodo,setMetodo]=useState("cotizado");
+  const[pesoManual,setPesoManual]=useState({});
+  // ── Estado pestaña B: Gastos sueltos existentes ──
+  const obrasNorm=useMemo(()=>new Set(obras.map(o=>normSearch(o.nombre))),[obras]);
+  // Detectar gastos sueltos: egresos sin obra, o con obra fantasma (CARPINTERIA, TALLER, etc.)
+  const gastosSueltos=useMemo(()=>{
+    return movs.filter(m=>{
+      if(m.t==="ing")return false;
+      if(m.status==="rechazado")return false;
+      const ob=normSearch(m.obra||"");
+      if(!ob)return true; // sin obra
+      if(!obrasNorm.has(ob))return true; // obra fantasma
+      // Si la obra es CARPINTERIA, TALLER, GENERAL, etc → suelto aunque exista
+      if(/^(carpinteria|taller|general|gastos? generales?|fijos?)$/i.test(m.obra||""))return true;
+      return false;
+    });
+  },[movs,obrasNorm]);
+  const[selMovsSueltos,setSelMovsSueltos]=useState(()=>new Set());
+  const totalSueltos=[...selMovsSueltos].reduce((s,id)=>{const m=movs.find(x=>x.id===id);return s+(m?m.monto:0);},0);
+  // Obras incluidas en el reparto
+  const obrasIncluidas=obrasActivas.filter(o=>obrasSel.has(o.id));
+  // Calcular reparto según método
+  const calcReparto=(monto)=>{
+    if(obrasIncluidas.length===0||monto<=0)return [];
+    const pesos=obrasIncluidas.map(o=>{
+      if(metodo==="igual")return 1;
+      if(metodo==="cotizado")return Math.max(o.cotizado||0,1);
+      if(metodo==="avance")return Math.max((o.cotizado||0)*((o.avance||0)/100),1);
+      if(metodo==="manual")return Math.max(Number(pesoManual[o.id]||0),0.0001);
+      return 1;
+    });
+    const suma=pesos.reduce((a,b)=>a+b,0);
+    if(suma<=0)return [];
+    // Reparto con redondeo a 2 decimales, ajustando el último para cuadrar exacto
+    const partes=obrasIncluidas.map((o,i)=>({obra:o,parte:Math.round((monto*pesos[i]/suma)*100)/100,pct:Math.round(pesos[i]/suma*1000)/10}));
+    const sumaPartes=partes.reduce((s,p)=>s+p.parte,0);
+    const dif=Math.round((monto-sumaPartes)*100)/100;
+    if(dif!==0&&partes.length>0)partes[partes.length-1].parte=Math.round((partes[partes.length-1].parte+dif)*100)/100;
+    return partes;
+  };
+  const monto=Number(String(nMonto).replace(/[^0-9.-]/g,""))||0;
+  const reparto=calcReparto(monto);
+  const repartoSueltos=calcReparto(totalSueltos);
+  // Categorías comunes de gastos fijos
+  const CATS=["Renta","Luz","Agua","Gas","Internet","Teléfono","IMSS / Cuotas","Sueldos generales","Materiales en bulk","Herramientas","Mantenimiento","Otro"];
+  // ── Acción: crear N egresos del nuevo gasto ──
+  const crearNuevoProrrateo=()=>{
+    if(!nConcepto.trim()){show("⚠️ Falta concepto");return;}
+    if(monto<=0){show("⚠️ Monto inválido");return;}
+    if(reparto.length===0){show("⚠️ Selecciona al menos una obra");return;}
+    if(!confirm("¿Crear "+reparto.length+" egresos por un total de $"+monto.toLocaleString("es-MX")+"?\n\nSe distribuirá entre las obras seleccionadas.")) return;
+    const loteId="PRO"+Date.now();
+    const nuevosMovs=reparto.map((r,i)=>({
+      id:"M"+Date.now()+"_"+i+Math.random().toString(36).slice(2,5),
+      t:"egr",
+      fecha:nFecha||td(),
+      desc:"["+nCategoria+"] "+nConcepto+" — "+r.pct+"%",
+      prov:nProv||nCategoria,
+      obra:r.obra.nombre,
+      cat:nCategoria,
+      monto:r.parte,
+      user:user.nombre,
+      status:"aprobado",
+      prorrateoLote:loteId,
+      prorrateoOrigen:nConcepto,
+      creadoFecha:td()
+    }));
+    setMovs(prev=>[...prev,...nuevosMovs]);
+    _lastWrite.current["movs"]=Date.now()+15000;
+    show("🧮 "+reparto.length+" egresos creados · $"+monto.toLocaleString("es-MX")+" distribuido");
+    cm();
+  };
+  // ── Acción: redistribuir gastos sueltos existentes ──
+  const redistribuirSueltos=()=>{
+    if(selMovsSueltos.size===0){show("⚠️ Selecciona gastos a redistribuir");return;}
+    if(reparto.length===0){show("⚠️ Selecciona al menos una obra destino");return;}
+    if(!confirm("¿Redistribuir "+selMovsSueltos.size+" gasto(s) por $"+totalSueltos.toLocaleString("es-MX")+" entre "+reparto.length+" obras?\n\nLos originales irán a la Papelera, se crearán nuevos por obra.")) return;
+    // 1) Mandar a papelera los originales seleccionados
+    const aBorrar=movs.filter(m=>selMovsSueltos.has(m.id));
+    aBorrar.forEach(m=>enviarAPapelera("mov",m,"Redistribuido por prorrateo"));
+    // 2) Crear nuevos egresos por cada obra destino, agrupando todos los gastos sueltos
+    const loteId="PRR"+Date.now();
+    const nuevos=reparto.map((r,i)=>({
+      id:"M"+Date.now()+"_"+i+Math.random().toString(36).slice(2,5),
+      t:"egr",
+      fecha:td(),
+      desc:"Gastos generales prorrateados ("+aBorrar.length+" movs) — "+r.pct+"%",
+      prov:"Prorrateo Taller",
+      obra:r.obra.nombre,
+      cat:"Gastos generales",
+      monto:r.parte,
+      user:user.nombre,
+      status:"aprobado",
+      prorrateoLote:loteId,
+      creadoFecha:td()
+    }));
+    const movsRestantes=movs.filter(m=>!selMovsSueltos.has(m.id));
+    setMovs([...movsRestantes,...nuevos]);
+    _lastWrite.current["movs"]=Date.now()+15000;
+    show("🧮 "+aBorrar.length+" gastos redistribuidos → "+nuevos.length+" obras");
+    cm();
+  };
+  return <div>
+    {/* Tabs */}
+    <div style={{display:"flex",gap:6,marginBottom:14,borderBottom:"1px solid "+T.border,paddingBottom:8}}>
+      <button onClick={()=>setTab("nuevo")} style={{padding:"7px 14px",borderRadius:6,border:"none",background:tab==="nuevo"?T.gold:"transparent",color:tab==="nuevo"?"#000":T.muted,fontWeight:700,fontSize:12,cursor:"pointer"}}>＋ Nuevo gasto fijo</button>
+      <button onClick={()=>setTab("existentes")} style={{padding:"7px 14px",borderRadius:6,border:"none",background:tab==="existentes"?T.gold:"transparent",color:tab==="existentes"?"#000":T.muted,fontWeight:700,fontSize:12,cursor:"pointer"}}>♻️ Gastos sueltos {gastosSueltos.length>0&&<span style={{background:T.yellow+"33",color:T.yellow,padding:"1px 6px",borderRadius:8,fontSize:10,marginLeft:4}}>{gastosSueltos.length}</span>}</button>
+    </div>
+    {/* Info */}
+    <div style={{background:"rgba(201,149,107,.08)",border:"1px solid "+T.gold+"44",borderRadius:8,padding:10,marginBottom:14,fontSize:11,color:T.muted,lineHeight:1.5}}>
+      <div style={{color:T.gold,fontWeight:700,marginBottom:3}}>🧮 ¿Qué es prorratear?</div>
+      Es repartir un gasto que no es de una sola obra (renta del taller, luz, IMSS, materiales en bulk) <b>entre las obras activas</b>. Así sabes el costo REAL de cada obra y dejas de tener egresos "sueltos".
+    </div>
+    {tab==="nuevo"&&<div>
+      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8,marginBottom:10}}>
+        <Fl l="Concepto del gasto"><input style={sI} value={nConcepto} onChange={e=>setNConcepto(e.target.value)} placeholder="Ej: Renta del taller — Mayo 2026"/></Fl>
+        <Fl l="Monto total"><input type="number" style={sI} value={nMonto} onChange={e=>setNMonto(e.target.value)} placeholder="10000"/></Fl>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+        <Fl l="Fecha"><input type="date" style={sI} value={nFecha} onChange={e=>setNFecha(e.target.value)}/></Fl>
+        <Fl l="Categoría">
+          <select style={sI} value={nCategoria} onChange={e=>setNCategoria(e.target.value)}>
+            {CATS.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+        </Fl>
+        <Fl l="Proveedor (opc)"><input style={sI} value={nProv} onChange={e=>setNProv(e.target.value)} placeholder="CFE / Arrendador / etc"/></Fl>
+      </div>
+    </div>}
+    {tab==="existentes"&&<div>
+      <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Detecté <b style={{color:T.yellow}}>{gastosSueltos.length}</b> gasto(s) sueltos (sin obra o asignados a "CARPINTERIA"/"TALLER"). Selecciona los que quieras repartir entre obras activas:</div>
+      <div style={{maxHeight:240,overflowY:"auto",border:"1px solid "+T.border,borderRadius:8,marginBottom:10}}>
+        {gastosSueltos.length===0?<div style={{padding:20,textAlign:"center",color:T.muted,fontSize:12}}>✅ No hay gastos sueltos por redistribuir</div>:
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+            <thead style={{position:"sticky",top:0,background:"#1a1a1a"}}>
+              <tr>
+                <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>
+                  <input type="checkbox" checked={selMovsSueltos.size===gastosSueltos.length&&gastosSueltos.length>0} onChange={e=>{if(e.target.checked)setSelMovsSueltos(new Set(gastosSueltos.map(m=>m.id)));else setSelMovsSueltos(new Set());}}/>
+                </th>
+                <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>FECHA</th>
+                <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>CONCEPTO</th>
+                <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>OBRA ACTUAL</th>
+                <th style={{padding:6,textAlign:"right",color:T.gold,fontSize:10}}>MONTO</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gastosSueltos.map((m,i)=><tr key={m.id} style={{background:i%2?"rgba(255,255,255,.02)":"transparent",cursor:"pointer"}} onClick={()=>{const s=new Set(selMovsSueltos);s.has(m.id)?s.delete(m.id):s.add(m.id);setSelMovsSueltos(s);}}>
+                <td style={{padding:6}}><input type="checkbox" checked={selMovsSueltos.has(m.id)} onChange={()=>{}}/></td>
+                <td style={{padding:6,color:T.muted}}>{m.fecha}</td>
+                <td style={{padding:6}}>{m.desc}</td>
+                <td style={{padding:6,color:T.yellow}}>{m.obra||"(sin obra)"}</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:T.red}}>${m.monto.toLocaleString("es-MX")}</td>
+              </tr>)}
+            </tbody>
+          </table>}
+      </div>
+      {selMovsSueltos.size>0&&<div style={{padding:"8px 12px",background:"rgba(255,213,79,.08)",border:"1px solid "+T.yellow+"44",borderRadius:6,marginBottom:10,fontSize:12,color:T.yellow,fontWeight:700}}>📊 {selMovsSueltos.size} seleccionado(s) · Total a repartir: ${totalSueltos.toLocaleString("es-MX")}</div>}
+    </div>}
+    {/* === MÉTODO DE REPARTO === */}
+    <div style={{marginBottom:10}}>
+      <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:6,letterSpacing:1}}>Método de reparto</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
+        {[
+          {k:"igual",l:"⚖️ Por igual",d:"Mismo monto a cada obra"},
+          {k:"cotizado",l:"💰 Por cotizado",d:"Obra más grande paga más"},
+          {k:"avance",l:"📊 Por avance",d:"Obra más avanzada paga más"},
+          {k:"manual",l:"✋ Manual",d:"Tú decides cada %"}
+        ].map(m=><button key={m.k} onClick={()=>setMetodo(m.k)} style={{padding:"10px 8px",borderRadius:7,border:metodo===m.k?"2px solid "+T.gold:"1px solid "+T.border,background:metodo===m.k?"rgba(201,149,107,.08)":"transparent",color:metodo===m.k?T.gold:T.muted,cursor:"pointer",textAlign:"left"}}>
+          <div style={{fontSize:11,fontWeight:700}}>{m.l}</div>
+          <div style={{fontSize:9,marginTop:2,opacity:.7}}>{m.d}</div>
+        </button>)}
+      </div>
+    </div>
+    {/* === SELECCIÓN DE OBRAS === */}
+    <div style={{marginBottom:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <div style={{fontSize:10,color:T.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Obras destino ({obrasIncluidas.length})</div>
+        <button onClick={()=>{if(allOn)setObrasSel(new Set());else setObrasSel(new Set(obrasActivas.map(o=>o.id)));}} style={{background:"none",border:"none",color:T.blue,fontSize:10,cursor:"pointer",textDecoration:"underline"}}>{allOn?"Ninguna":"Todas"}</button>
+      </div>
+      <div style={{maxHeight:180,overflowY:"auto",border:"1px solid "+T.border,borderRadius:8}}>
+        {obrasActivas.length===0?<div style={{padding:14,textAlign:"center",color:T.muted,fontSize:11}}>No hay obras activas — crea o reactiva alguna</div>:
+          obrasActivas.map(o=><div key={o.id} onClick={()=>toggleObra(o.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderBottom:"1px solid "+T.border,cursor:"pointer",background:obrasSel.has(o.id)?"rgba(76,175,80,.06)":"transparent"}}>
+            <input type="checkbox" checked={obrasSel.has(o.id)} onChange={()=>{}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.nombre}</div>
+              <div style={{fontSize:9,color:T.muted}}>{o.cliente||"sin cliente"} · Cotizado ${(o.cotizado||0).toLocaleString("es-MX")} · Avance {o.avance||0}%</div>
+            </div>
+            {metodo==="manual"&&obrasSel.has(o.id)&&<input type="number" placeholder="peso" value={pesoManual[o.id]||""} onClick={e=>e.stopPropagation()} onChange={e=>setPesoManual({...pesoManual,[o.id]:e.target.value})} style={{width:60,padding:"4px 6px",borderRadius:5,border:"1px solid "+T.border,background:"#1a1a1a",color:T.text,fontSize:11}}/>}
+          </div>)}
+      </div>
+    </div>
+    {/* === PREVIEW DEL REPARTO === */}
+    {(tab==="nuevo"?monto>0:totalSueltos>0)&&reparto.length>0&&<div style={{marginBottom:14}}>
+      <div style={{fontSize:10,color:T.green,fontWeight:700,textTransform:"uppercase",marginBottom:6,letterSpacing:1}}>👁 Previa del reparto</div>
+      <div style={{border:"1px solid "+T.green+"33",borderRadius:8,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+          <thead><tr style={{background:"rgba(76,175,80,.08)"}}>
+            <th style={{padding:6,textAlign:"left",color:T.green,fontSize:10}}>OBRA</th>
+            <th style={{padding:6,textAlign:"right",color:T.green,fontSize:10}}>%</th>
+            <th style={{padding:6,textAlign:"right",color:T.green,fontSize:10}}>PARTE</th>
+          </tr></thead>
+          <tbody>
+            {(tab==="nuevo"?reparto:repartoSueltos).map((r,i)=><tr key={i} style={{background:i%2?"rgba(255,255,255,.02)":"transparent"}}>
+              <td style={{padding:6}}>{r.obra.nombre}</td>
+              <td style={{padding:6,textAlign:"right",color:T.muted}}>{r.pct}%</td>
+              <td style={{padding:6,textAlign:"right",fontWeight:700,color:T.red}}>${r.parte.toLocaleString("es-MX")}</td>
+            </tr>)}
+            <tr style={{borderTop:"2px solid "+T.green,background:"rgba(76,175,80,.06)"}}>
+              <td style={{padding:8,fontWeight:800}}>TOTAL</td>
+              <td style={{padding:8,textAlign:"right",fontWeight:800}}>100%</td>
+              <td style={{padding:8,textAlign:"right",fontWeight:800,color:T.red,fontSize:13}}>${(tab==="nuevo"?monto:totalSueltos).toLocaleString("es-MX")}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>}
+    {/* === BOTÓN ACCIÓN === */}
+    {tab==="nuevo"?
+      <button onClick={crearNuevoProrrateo} style={{...sB,background:T.gold,opacity:(monto>0&&reparto.length>0&&nConcepto)?1:.4,cursor:(monto>0&&reparto.length>0&&nConcepto)?"pointer":"not-allowed"}} disabled={!(monto>0&&reparto.length>0&&nConcepto)}>🧮 Crear {reparto.length} egresos ({reparto.length>0?"$"+monto.toLocaleString("es-MX"):"$0"})</button>
+      :
+      <button onClick={redistribuirSueltos} style={{...sB,background:T.gold,opacity:(selMovsSueltos.size>0&&repartoSueltos.length>0)?1:.4,cursor:(selMovsSueltos.size>0&&repartoSueltos.length>0)?"pointer":"not-allowed"}} disabled={!(selMovsSueltos.size>0&&repartoSueltos.length>0)}>♻️ Redistribuir {selMovsSueltos.size} gastos → {repartoSueltos.length} obras</button>
+    }
+    <div style={{fontSize:9,color:T.dim,textAlign:"center",marginTop:10,lineHeight:1.5}}>💡 Tip: si usas "Por cotizado", la obra más grande absorbe proporcionalmente más gastos fijos.<br/>Cada parte se registra como un egreso independiente que puedes ver y editar en Finanzas.</div>
+  </div>;
+}
+
 // ═══ PUERTA DE ACCESO (Supabase Auth) — cuenta compartida del taller ═══
 // Correo fijo (no es secreto). Lo único que se teclea es la contraseña, UNA vez por dispositivo.
 const TEAM_EMAIL="arq.villarreal07@gmail.com";
@@ -2849,6 +3098,7 @@ export default function App(){
             setMovs(newMovs);setCaja(newCaja);show("🛠 "+(nMovs+nCaja)+" fechas reparadas");
           }}>🛠 Reparar fechas</button>
           <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.purple+"55",background:finFantasmas.length>0?"rgba(171,71,188,.08)":"transparent",color:T.purple,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>om("fusionarObras")}>🔀 Fusionar obras {finFantasmas.length>0&&<span style={{background:T.yellow+"33",color:T.yellow,padding:"1px 5px",borderRadius:6,fontSize:9,marginLeft:3}}>{finFantasmas.length} fantasma{finFantasmas.length!==1?"s":""}</span>}</button>
+          <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.gold+"66",background:"linear-gradient(135deg,rgba(201,149,107,.12),rgba(201,149,107,.04))",color:T.gold,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>om("prorratear")} title="Repartir un gasto fijo (renta, luz, IMSS) entre las obras activas">🧮 Prorratear gasto</button>
           <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.blue+"55",background:finIng-finEgr<0?"rgba(231,76,60,.08)":"rgba(66,165,245,.08)",color:finIng-finEgr<0?T.red:T.blue,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>om("analisisDesfase")}>🔍 Analizar desfase {finIng-finEgr<0&&<span style={{background:T.red+"33",color:T.red,padding:"1px 5px",borderRadius:6,fontSize:9,marginLeft:3}}>{$(finIng-finEgr)}</span>}</button>
           <button style={{padding:"6px 12px",borderRadius:6,border:"1px solid "+T.red,background:"transparent",color:T.red,fontSize:11,cursor:"pointer",fontWeight:700}} onClick={()=>{
             const total=movs.length+caja.length;if(total===0){show("✅ Sistema ya está vacío");return;}
@@ -3819,6 +4069,19 @@ export default function App(){
           cm();
           show("🔀 "+nMovs+" mov + "+nCaja+" caja reasignados a "+(destino||"General"));
         }}
+      />
+    </ModalW>}
+    {modal==="prorratear"&&<ModalW title="🧮 Prorratear gasto fijo" onClose={cm}>
+      <ProrratearGastoForm
+        obras={obras}
+        movs={movs}
+        setMovs={setMovs}
+        enviarAPapelera={enviarAPapelera}
+        user={user}
+        td={td}
+        show={show}
+        cm={cm}
+        _lastWrite={_lastWrite}
       />
     </ModalW>}
     {modal==="addUser"&&<ModalW title="Usuario" onClose={cm}><UserForm obras={obras} onSave={u=>{setUsers(prev=>[...prev,{...u,id:Math.max(...prev.map(x=>x.id))+1}]);cm();show("Usuario ✓");}}/></ModalW>}
