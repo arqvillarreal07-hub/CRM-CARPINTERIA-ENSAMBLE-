@@ -1962,6 +1962,187 @@ function ProrratearGastoForm({obras,movs,setMovs,enviarAPapelera,user,td,show,cm
   </div>;
 }
 
+// ═══ SYNC GOOGLE SHEETS ═══
+// Lee directo del Google Sheet del taller (modo "cualquiera con el link puede ver")
+// El equipo del taller llena INGRESOS, GASTOS, NOMINA en el Sheet; aquí se importan en 1 click
+const SHEET_ID_DEFAULT="1Y93GJJNBVz91P9DxKlKVCgW6AmVuc_GZE7p8kpCOxbo";
+function parseCSVLine(line){
+  const result=[];let current="";let inQ=false;
+  for(let i=0;i<line.length;i++){const c=line[i];
+    if(c==='"'){if(inQ&&line[i+1]==='"'){current+='"';i++;}else inQ=!inQ;}
+    else if(c===","&&!inQ){result.push(current);current="";}
+    else current+=c;
+  }
+  result.push(current);return result;
+}
+function parseCSV(csv){
+  const lines=csv.split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2)return [];
+  const headers=parseCSVLine(lines[0]).map(h=>h.trim());
+  return lines.slice(1).map(line=>{
+    const vals=parseCSVLine(line);const row={};
+    headers.forEach((h,i)=>row[h]=(vals[i]||"").trim());
+    return row;
+  });
+}
+function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
+  const[sheetId,setSheetId]=useState(()=>{try{return localStorage.getItem("ev_sheetId")||SHEET_ID_DEFAULT;}catch{return SHEET_ID_DEFAULT;}});
+  const[loading,setLoading]=useState(false);
+  const[err,setErr]=useState("");
+  const[data,setData]=useState(null); // {ingresos:[], gastos:[], nomina:[]}
+  const[selSheets,setSelSheets]=useState({ingresos:true,gastos:true,nomina:true});
+  const extractId=(input)=>{
+    const m=String(input).match(/\/d\/([a-zA-Z0-9_-]+)/);
+    return m?m[1]:String(input).trim();
+  };
+  // Detección de duplicados: por fecha+monto+desc (similitud)
+  const norm=s=>(s||"").toString().toLowerCase().trim().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");
+  const esDuplicado=(nuevoMov)=>{
+    return movs.some(m=>
+      m.t===nuevoMov.t&&
+      Math.abs(m.monto-nuevoMov.monto)<0.5&&
+      m.fecha===nuevoMov.fecha&&
+      norm(m.desc)===norm(nuevoMov.desc)
+    );
+  };
+  const cargarSheet=async()=>{
+    const id=extractId(sheetId);
+    if(!id||id.length<20){setErr("ID de Sheet inválido");return;}
+    setLoading(true);setErr("");setData(null);
+    try{localStorage.setItem("ev_sheetId",id);}catch{}
+    try{
+      const fetchSheet=async(sheetName)=>{
+        const url="https://docs.google.com/spreadsheets/d/"+id+"/gviz/tq?tqx=out:csv&sheet="+encodeURIComponent(sheetName);
+        const r=await fetch(url);
+        if(!r.ok)throw new Error("HTTP "+r.status+" en hoja '"+sheetName+"'. ¿El Sheet está público ('cualquiera con el link')?");
+        const text=await r.text();
+        return parseCSV(text);
+      };
+      const [ingRows,gasRows,nomRows]=await Promise.all([
+        fetchSheet("INGRESOS").catch(()=>[]),
+        fetchSheet("GASTOS").catch(()=>[]),
+        fetchSheet("NOMINA").catch(()=>[])
+      ]);
+      // Parsear ingresos
+      const ingresos=ingRows.map(r=>{
+        const fecha=(r["Fecha"]||r["FECHA"]||r["fecha"]||"").slice(0,10);
+        const desc=r["Concepto"]||r["CONCEPTO"]||r["Descripción"]||r["Descripcion"]||"";
+        const obra=r["Obra"]||r["OBRA"]||"";
+        const cliente=r["Cliente"]||r["CLIENTE"]||"";
+        const montoStr=r["Monto"]||r["MONTO"]||r["Ingreso"]||"0";
+        const monto=Number(String(montoStr).replace(/[^0-9.-]/g,""))||0;
+        if(!desc||monto<=0)return null;
+        return {id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"ing",fecha,desc,obra,prov:cliente,monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()};
+      }).filter(Boolean);
+      // Parsear gastos
+      const gastos=gasRows.map(r=>{
+        const fecha=(r["Fecha"]||r["FECHA"]||"").slice(0,10);
+        const desc=r["Concepto"]||r["CONCEPTO"]||r["Descripción"]||"";
+        const obra=r["Obra"]||r["OBRA"]||"";
+        const prov=r["Proveedor"]||r["PROVEEDOR"]||"";
+        const cat=r["Categoría"]||r["Categoria"]||r["CATEGORÍA"]||r["CATEGORIA"]||"";
+        const montoStr=r["Monto"]||r["MONTO"]||r["Egreso"]||"0";
+        const monto=Number(String(montoStr).replace(/[^0-9.-]/g,""))||0;
+        if(!desc||monto<=0)return null;
+        return {id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha,desc,obra,prov,cat,monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()};
+      }).filter(Boolean);
+      // Parsear nómina: detectar desglose en "Obras-desglose" o similar
+      // Formato: "3 dias OBRA1 ($800), 2 dias OBRA2 ($500)"
+      const nominaRaw=nomRows.map(r=>{
+        const fecha=(r["Fecha"]||r["FECHA"]||"").slice(0,10);
+        const empleado=r["Empleado"]||r["EMPLEADO"]||r["Nombre"]||"";
+        const desglose=r["Obras-desglose"]||r["Desglose"]||r["Detalle"]||r["DESGLOSE"]||"";
+        const totalStr=r["Total"]||r["TOTAL"]||r["Monto"]||"0";
+        const total=Number(String(totalStr).replace(/[^0-9.-]/g,""))||0;
+        if(!empleado||total<=0)return null;
+        return {fecha,empleado,desglose,total};
+      }).filter(Boolean);
+      // Desglosar nómina por obra
+      const nomina=[];
+      const reN=/(\d+)\s*d[ií]as?\s+([^()\$]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
+      nominaRaw.forEach(n=>{
+        const matches=[...n.desglose.matchAll(reN)];
+        if(matches.length===0){
+          // Sin desglose, todo va sin obra
+          nomina.push({id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha:n.fecha,desc:"Nómina "+n.empleado,obra:"",prov:n.empleado,cat:"Nómina",monto:n.total,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()});
+        }else{
+          matches.forEach(m=>{
+            const dias=Number(m[1]);const obra=m[2].trim();const monto=Number(m[3].replace(/,/g,""));
+            nomina.push({id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha:n.fecha,desc:"Nómina "+n.empleado+" — "+dias+" día"+(dias!==1?"s":""),obra,prov:n.empleado,cat:"Nómina",monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()});
+          });
+        }
+      });
+      // Marcar duplicados
+      const marcar=arr=>arr.map(m=>({...m,_dup:esDuplicado(m)}));
+      setData({ingresos:marcar(ingresos),gastos:marcar(gastos),nomina:marcar(nomina)});
+      setLoading(false);
+    }catch(e){
+      setErr(e.message||"No pude leer el Sheet. Verifica que sea público.");
+      setLoading(false);
+    }
+  };
+  const importar=()=>{
+    if(!data)return;
+    const todos=[];
+    if(selSheets.ingresos)todos.push(...data.ingresos.filter(m=>!m._dup));
+    if(selSheets.gastos)todos.push(...data.gastos.filter(m=>!m._dup));
+    if(selSheets.nomina)todos.push(...data.nomina.filter(m=>!m._dup));
+    if(todos.length===0){show("⚠️ Nada que importar (todos son duplicados o nada seleccionado)");return;}
+    const loteId="GS"+Date.now();
+    const conLote=todos.map(m=>{const c={...m,loteImport:loteId};delete c._dup;return c;});
+    if(!confirm("¿Importar "+todos.length+" movimientos desde el Sheet?\n\n("+conLote.filter(m=>m.t==="ing").length+" ingresos · "+conLote.filter(m=>m.t==="egr").length+" egresos)"))return;
+    setMovs(prev=>[...prev,...conLote]);
+    _lastWrite.current["movs"]=Date.now()+15000;
+    try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,count:todos.length,tipo:"Google Sheets",timestamp:Date.now()}));}catch{}
+    show("📊 "+todos.length+" movimientos importados desde Google Sheets");
+    cm();
+  };
+  // Stats
+  const stats=data?{
+    ingNuevos:data.ingresos.filter(m=>!m._dup).length,ingDup:data.ingresos.filter(m=>m._dup).length,
+    gasNuevos:data.gastos.filter(m=>!m._dup).length,gasDup:data.gastos.filter(m=>m._dup).length,
+    nomNuevos:data.nomina.filter(m=>!m._dup).length,nomDup:data.nomina.filter(m=>m._dup).length
+  }:null;
+  const totalNuevos=stats?(selSheets.ingresos?stats.ingNuevos:0)+(selSheets.gastos?stats.gasNuevos:0)+(selSheets.nomina?stats.nomNuevos:0):0;
+  return <div>
+    <div style={{background:"linear-gradient(135deg,rgba(76,175,80,.10),rgba(66,165,245,.06))",border:"1px solid "+T.green+"55",borderRadius:10,padding:12,marginBottom:14,fontSize:11,color:T.muted,lineHeight:1.5}}>
+      <div style={{color:T.green,fontWeight:700,marginBottom:4,fontSize:12}}>📊 Sincronización con Google Sheets</div>
+      Lee directo el Sheet del taller. <b>El equipo carga ahí cada viernes</b>, y tú importas con 1 clic. Las filas que ya existen en el sistema se ignoran automáticamente (sin duplicados).
+    </div>
+    <Fl l="URL o ID del Google Sheet">
+      <input style={sI} value={sheetId} onChange={e=>setSheetId(e.target.value)} placeholder="Pega aquí la URL del Sheet"/>
+    </Fl>
+    <div style={{padding:"8px 10px",background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"33",borderRadius:7,fontSize:10,color:T.muted,marginBottom:12,lineHeight:1.5}}>
+      <b style={{color:T.yellow}}>⚠️ El Sheet DEBE estar público:</b> En el Sheet → Compartir → "Cualquier persona con el enlace" → <b>Lector</b>. Sin esto, no puedo leerlo (no compartirás datos sensibles, solo los datos del taller). Las hojas que leo son: <b>INGRESOS, GASTOS, NOMINA</b>.
+    </div>
+    <button onClick={cargarSheet} disabled={loading} style={{...sB,background:loading?T.muted:T.blue,opacity:loading?.6:1,cursor:loading?"wait":"pointer"}}>{loading?"⏳ Leyendo Sheet...":"🔄 Conectar y leer Sheet"}</button>
+    {err&&<div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"55",borderRadius:7,fontSize:11,color:T.red,marginTop:10}}>⚠️ {err}<div style={{fontSize:10,color:T.muted,marginTop:4}}>Tip: Abre el Sheet → "Compartir" (arriba derecha) → cambia "Restringido" por "Cualquier persona con el enlace"</div></div>}
+    {data&&<div style={{marginTop:14}}>
+      <div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:8,letterSpacing:1}}>📋 Encontré en el Sheet:</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+        {[
+          {k:"ingresos",l:"📈 Ingresos",c:T.green,n:stats.ingNuevos,d:stats.ingDup},
+          {k:"gastos",l:"📉 Gastos",c:T.red,n:stats.gasNuevos,d:stats.gasDup},
+          {k:"nomina",l:"👷 Nómina",c:T.purple,n:stats.nomNuevos,d:stats.nomDup}
+        ].map(s=><div key={s.k} onClick={()=>setSelSheets({...selSheets,[s.k]:!selSheets[s.k]})} style={{padding:10,border:selSheets[s.k]?"2px solid "+s.c:"1px solid "+T.border,borderRadius:8,cursor:"pointer",background:selSheets[s.k]?s.c+"11":"transparent"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+            <input type="checkbox" checked={selSheets[s.k]} onChange={()=>{}}/>
+            <div style={{fontSize:11,fontWeight:700,color:s.c}}>{s.l}</div>
+          </div>
+          <div style={{fontSize:20,fontWeight:800,color:s.c}}>{s.n}</div>
+          <div style={{fontSize:10,color:T.muted}}>nuevos {s.d>0&&<span style={{color:T.yellow}}>· {s.d} dup</span>}</div>
+        </div>)}
+      </div>
+      {totalNuevos>0?
+        <button onClick={importar} style={{...sB,background:T.green,fontSize:14,fontWeight:800}}>📊 Importar {totalNuevos} movimientos nuevos</button>
+        :
+        <div style={{padding:14,textAlign:"center",background:"rgba(76,175,80,.05)",border:"1px dashed "+T.green+"55",borderRadius:8,fontSize:12,color:T.green}}>✅ Todo está al día — no hay movimientos nuevos</div>
+      }
+    </div>}
+    <div style={{fontSize:9,color:T.dim,textAlign:"center",marginTop:12,lineHeight:1.5}}>💡 Tip: Si quieres que el taller no edite ciertas columnas, en el Sheet → Datos → Proteger rangos.<br/>El sistema lee las hojas con nombre exacto: <b>INGRESOS</b>, <b>GASTOS</b>, <b>NOMINA</b>.</div>
+  </div>;
+}
+
 // ═══ PUERTA DE ACCESO (Supabase Auth) — cuenta compartida del taller ═══
 // Correo fijo (no es secreto). Lo único que se teclea es la contraseña, UNA vez por dispositivo.
 const TEAM_EMAIL="arq.villarreal07@gmail.com";
@@ -3892,6 +4073,14 @@ export default function App(){
     {modal==="addProv"&&<ModalW title="Proveedor" onClose={cm}><ProvForm onSave={p=>{setProvs(prev=>[...prev,{...p,id:"P"+_rid()}]);cm();show("✓");}}/></ModalW>}
     {modal==="menuImportar"&&<ModalW title="📥 Opciones de Importación" onClose={cm}>
       <div style={{display:"grid",gap:8}}>
+        <button onClick={()=>{cm();setTimeout(()=>om("syncGoogleSheets"),50);}} style={{padding:"14px 16px",borderRadius:10,border:"2px solid "+T.green+"77",background:"linear-gradient(135deg,rgba(76,175,80,.15),rgba(66,165,245,.08))",color:T.text,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,boxShadow:"0 0 12px rgba(76,175,80,.15)"}}>
+          <span style={{fontSize:22}}>📊</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,color:T.green}}>Sync Google Sheets <span style={{background:T.green+"22",color:T.green,fontSize:9,padding:"2px 6px",borderRadius:6,marginLeft:4}}>NUEVO</span></div>
+            <div style={{fontSize:11,color:T.muted,marginTop:2}}>Lee directo del Sheet del taller — el equipo carga ahí, tú importas en 1 clic</div>
+          </div>
+          <span style={{color:T.muted}}>›</span>
+        </button>
         <button onClick={()=>{cm();setTimeout(()=>om("importarViernes"),50);}} style={{padding:"14px 16px",borderRadius:10,border:"1px solid "+T.gold+"44",background:"linear-gradient(135deg,rgba(201,149,107,.10),rgba(201,149,107,.04))",color:T.text,fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:22}}>📅</span>
           <div style={{flex:1}}>
@@ -4069,6 +4258,18 @@ export default function App(){
           cm();
           show("🔀 "+nMovs+" mov + "+nCaja+" caja reasignados a "+(destino||"General"));
         }}
+      />
+    </ModalW>}
+    {modal==="syncGoogleSheets"&&<ModalW title="📊 Sync Google Sheets" onClose={cm}>
+      <GoogleSheetsSyncForm
+        obras={obras}
+        movs={movs}
+        setMovs={setMovs}
+        user={user}
+        td={td}
+        show={show}
+        cm={cm}
+        _lastWrite={_lastWrite}
       />
     </ModalW>}
     {modal==="prorratear"&&<ModalW title="🧮 Prorratear gasto fijo" onClose={cm}>
