@@ -1997,20 +1997,32 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
   const[sheetId,setSheetId]=useState(()=>{try{return localStorage.getItem("ev_sheetId")||SHEET_ID_DEFAULT;}catch{return SHEET_ID_DEFAULT;}});
   const[loading,setLoading]=useState(false);
   const[err,setErr]=useState("");
-  const[rows,setRows]=useState([]); // Cada fila del Sheet con su status (nuevo/dup/yaImp/error)
+  const[rows,setRows]=useState([]); // Cada fila del Sheet con su status (nuevo/duplicado/error)
   const[debug,setDebug]=useState(null);
   const[selRows,setSelRows]=useState(()=>new Set());
-  const[filtroStatus,setFiltroStatus]=useState("nuevo"); // todos|nuevo|duplicado|yaImportado|error
-  // Hashes guardados PERMANENTEMENTE en localStorage → cero re-importaciones
-  const yaImportados=useMemo(()=>{try{return new Set(JSON.parse(localStorage.getItem("ev_sheetsHashesImportados")||"[]"));}catch{return new Set();}},[]);
+  const[filtroStatus,setFiltroStatus]=useState("nuevo"); // todos|nuevo|duplicado|error
+  // LIMPIAR el localStorage viejo de hashes (estaba causando que aparecieran como "ya importados" aunque ya hubieran sido borrados)
+  useEffect(()=>{try{localStorage.removeItem("ev_sheetsHashesImportados");}catch{}},[]);
   const extractId=(input)=>{
     const m=String(input).match(/\/d\/([a-zA-Z0-9_-]+)/);
     return m?m[1]:String(input).trim();
   };
   const norm=s=>(s||"").toString().toLowerCase().trim().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");
-  // Hash único = identidad de la fila del Sheet. Si ya importé una con este hash, NUNCA vuelve.
-  const calcHash=mov=>[mov.t,mov.fecha,norm(mov.desc),norm(mov.obra||""),Math.round(mov.monto*100)/100].join("|");
-  const esDuplicadoSistema=mov=>movs.some(m=>m.t===mov.t&&m.fecha===mov.fecha&&Math.abs(m.monto-mov.monto)<0.5&&norm(m.desc)===norm(mov.desc));
+  // Detección de duplicados EN TIEMPO REAL contra movs[] actual. Si borras un mov, vuelve a aparecer como "nuevo".
+  // Buscamos por sheetHash (si fue importado de Sheet) Y por similitud (fecha+monto+desc+obra)
+  const calcHash=mov=>[mov.t,mov.fecha,norm(mov.desc),norm(mov.obra||""),Math.round(Number(mov.monto)*100)/100].join("|");
+  const esDuplicadoSistema=mov=>{
+    // Match 1: por sheetHash exacto (movimientos previamente importados del Sheet)
+    if(movs.some(m=>m.sheetHash===mov._hash))return true;
+    // Match 2: por similitud fecha+monto+desc (movs creados manualmente)
+    return movs.some(m=>
+      m.t===mov.t
+      &&m.fecha===mov.fecha
+      &&Math.abs(Number(m.monto)-Number(mov.monto))<0.5
+      &&norm(m.desc)===norm(mov.desc)
+      &&norm(m.obra||"")===norm(mov.obra||"")
+    );
+  };
   // Parser de monto BLINDADO: maneja "9,300.00", "9.300,00", "$9300", "9300", " 9300 "
   const parseMonto=s=>{
     if(s===null||s===undefined||s==="")return 0;
@@ -2049,7 +2061,7 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
     const e=empleado.trim().toUpperCase();
     return /SEMANA\s*\d|TOTAL:|🟡|🟢|🔵|🟠|🔴/i.test(e);
   };
-  // Construir un movimiento + clasificar su status (nuevo / duplicado / yaImportado / error)
+  // Construir un movimiento + clasificar su status (nuevo / duplicado / error)
   const construirMov=(base)=>{
     const errores=[];
     if(!base.desc||!base.desc.trim())errores.push("sin descripción");
@@ -2062,9 +2074,8 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
       _errores:errores
     };
     mov._hash=calcHash(mov);
-    // Clasificar
+    // Clasificar: error → duplicado-en-sistema → nueva
     if(errores.length>0)mov._status="error";
-    else if(yaImportados.has(mov._hash))mov._status="yaImportado";
     else if(esDuplicadoSistema(mov))mov._status="duplicado";
     else mov._status="nuevo";
     return mov;
@@ -2174,7 +2185,6 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
   const stats=useMemo(()=>({
     nuevo:rows.filter(r=>r._status==="nuevo").length,
     duplicado:rows.filter(r=>r._status==="duplicado").length,
-    yaImportado:rows.filter(r=>r._status==="yaImportado").length,
     error:rows.filter(r=>r._status==="error").length
   }),[rows]);
   // Filas filtradas para mostrar en la tabla
@@ -2251,12 +2261,9 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
       show("❌ Error guardando: "+(e.message||e));
       return;
     }
-    // === PASO 5: Guardar hashes en localStorage para NUNCA re-importar ===
-    try{
-      const previos=new Set(JSON.parse(localStorage.getItem("ev_sheetsHashesImportados")||"[]"));
-      seleccionadasValidas.forEach(r=>previos.add(r._hash));
-      localStorage.setItem("ev_sheetsHashesImportados",JSON.stringify([...previos]));
-    }catch(e){console.warn("No pude guardar hashes",e);}
+    // === PASO 5: Registrar el lote para que puedas deshacer si algo salió mal ===
+    // NOTA: la prevención de re-import es contra movs[] EN VIVO (sheetHash se guarda en cada mov).
+    // Si borras un mov de la papelera, vuelve a aparecer como "nuevo" en el siguiente sync.
     try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,count:limpios.length,tipo:"Google Sheets",timestamp:Date.now()}));}catch{}
     show("✅ "+limpios.length+" importados · $"+sumaFinal.toLocaleString("es-MX"));
     cm();
@@ -2264,7 +2271,6 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
   const STATUS_CFG={
     nuevo:{c:T.green,ic:"🟢",l:"Nueva"},
     duplicado:{c:T.yellow,ic:"🟡",l:"Ya en sistema"},
-    yaImportado:{c:T.blue,ic:"🔵",l:"Ya importada"},
     error:{c:T.red,ic:"🔴",l:"Error"}
   };
   return <div>
@@ -2282,7 +2288,7 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
     {err&&<div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"55",borderRadius:7,fontSize:11,color:T.red,marginTop:10,whiteSpace:"pre-line"}}>⚠️ {err}</div>}
     {rows.length>0&&<div style={{marginTop:14}}>
       {/* Filtros por status — clickeables */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
         <div onClick={()=>setFiltroStatus("todos")} style={{padding:8,border:filtroStatus==="todos"?"2px solid "+T.gold:"1px solid "+T.border,borderRadius:7,cursor:"pointer",textAlign:"center"}}>
           <div style={{fontSize:18,fontWeight:800,color:T.text}}>{rows.length}</div>
           <div style={{fontSize:9,color:T.muted}}>Todas</div>
@@ -2348,7 +2354,6 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
           <div>GASTOS: {debug.rawGas} filas{debug.errorsBySheet.GASTOS?<span style={{color:T.red}}> · {debug.errorsBySheet.GASTOS}</span>:""}</div>
           <div>NOMINA: {debug.rawNom} filas{debug.errorsBySheet.NOMINA?<span style={{color:T.red}}> · {debug.errorsBySheet.NOMINA}</span>:""}</div>
           {debug.headersGas.length>0&&<div style={{marginTop:4}}>Columnas GASTOS: <code style={{color:T.gold}}>{debug.headersGas.join(" | ")}</code></div>}
-          <div style={{marginTop:6,fontSize:9,color:T.dim}}>Hashes ya importados: {yaImportados.size}</div>
         </div>
       </details>}
     </div>}
