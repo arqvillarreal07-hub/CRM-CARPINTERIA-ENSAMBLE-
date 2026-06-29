@@ -1997,21 +1997,31 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
   const[sheetId,setSheetId]=useState(()=>{try{return localStorage.getItem("ev_sheetId")||SHEET_ID_DEFAULT;}catch{return SHEET_ID_DEFAULT;}});
   const[loading,setLoading]=useState(false);
   const[err,setErr]=useState("");
-  const[data,setData]=useState(null); // {ingresos:[], gastos:[], nomina:[]}
-  const[selSheets,setSelSheets]=useState({ingresos:true,gastos:true,nomina:true});
+  const[rows,setRows]=useState([]); // Cada fila del Sheet con su status (nuevo/dup/yaImp/error)
+  const[debug,setDebug]=useState(null);
+  const[selRows,setSelRows]=useState(()=>new Set());
+  const[filtroStatus,setFiltroStatus]=useState("nuevo"); // todos|nuevo|duplicado|yaImportado|error
+  // Hashes guardados PERMANENTEMENTE en localStorage → cero re-importaciones
+  const yaImportados=useMemo(()=>{try{return new Set(JSON.parse(localStorage.getItem("ev_sheetsHashesImportados")||"[]"));}catch{return new Set();}},[]);
   const extractId=(input)=>{
     const m=String(input).match(/\/d\/([a-zA-Z0-9_-]+)/);
     return m?m[1]:String(input).trim();
   };
-  // Detección de duplicados: por fecha+monto+desc (similitud)
   const norm=s=>(s||"").toString().toLowerCase().trim().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");
-  const esDuplicado=(nuevoMov)=>{
-    return movs.some(m=>
-      m.t===nuevoMov.t&&
-      Math.abs(m.monto-nuevoMov.monto)<0.5&&
-      m.fecha===nuevoMov.fecha&&
-      norm(m.desc)===norm(nuevoMov.desc)
-    );
+  // Hash único = identidad de la fila del Sheet. Si ya importé una con este hash, NUNCA vuelve.
+  const calcHash=mov=>[mov.t,mov.fecha,norm(mov.desc),norm(mov.obra||""),Math.round(mov.monto*100)/100].join("|");
+  const esDuplicadoSistema=mov=>movs.some(m=>m.t===mov.t&&m.fecha===mov.fecha&&Math.abs(m.monto-mov.monto)<0.5&&norm(m.desc)===norm(mov.desc));
+  // Parser de monto BLINDADO: maneja "9,300.00", "9.300,00", "$9300", "9300", " 9300 "
+  const parseMonto=s=>{
+    if(s===null||s===undefined||s==="")return 0;
+    let str=String(s).trim().replace(/[$\s]/g,"");
+    if(!str)return 0;
+    // Si tiene formato europeo "9.300,00" (puntos como miles, coma decimal) → convertir
+    if(/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(str)){str=str.replace(/\./g,"").replace(",",".");}
+    else{str=str.replace(/,/g,"");}
+    str=str.replace(/[^0-9.-]/g,"");
+    const n=parseFloat(str);
+    return isNaN(n)?0:n;
   };
   // Helper: lee de un row con cualquier capitalización del nombre de columna
   const getCol=(row,...names)=>{
@@ -2039,13 +2049,32 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
     const e=empleado.trim().toUpperCase();
     return /SEMANA\s*\d|TOTAL:|🟡|🟢|🔵|🟠|🔴/i.test(e);
   };
+  // Construir un movimiento + clasificar su status (nuevo / duplicado / yaImportado / error)
+  const construirMov=(base)=>{
+    const errores=[];
+    if(!base.desc||!base.desc.trim())errores.push("sin descripción");
+    if(base.monto<=0)errores.push("monto $0 o inválido"+(base._montoRaw?" (Sheet: '"+base._montoRaw+"')":""));
+    if(!base.fecha)errores.push("sin fecha");
+    const mov={
+      id:"GS"+Date.now()+"_"+Math.random().toString(36).slice(2,9),
+      ...base,
+      user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td(),
+      _errores:errores
+    };
+    mov._hash=calcHash(mov);
+    // Clasificar
+    if(errores.length>0)mov._status="error";
+    else if(yaImportados.has(mov._hash))mov._status="yaImportado";
+    else if(esDuplicadoSistema(mov))mov._status="duplicado";
+    else mov._status="nuevo";
+    return mov;
+  };
   const cargarSheet=async()=>{
     const id=extractId(sheetId);
     if(!id||id.length<20){setErr("ID de Sheet inválido");return;}
-    setLoading(true);setErr("");setData(null);
+    setLoading(true);setErr("");setRows([]);setDebug(null);
     try{localStorage.setItem("ev_sheetId",id);}catch{}
     try{
-      // Errores por hoja (se exponen al usuario)
       const errorsBySheet={};
       const fetchSheet=async(sheetName)=>{
         const url="https://docs.google.com/spreadsheets/d/"+id+"/gviz/tq?tqx=out:csv&sheet="+encodeURIComponent(sheetName);
@@ -2053,233 +2082,237 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
           const r=await fetch(url);
           if(!r.ok){errorsBySheet[sheetName]="HTTP "+r.status+(r.status===404?" (¿la hoja '"+sheetName+"' existe con ese nombre exacto?)":(r.status===403||r.status===401)?" (Sheet privado — ponlo público)":"");return [];}
           const text=await r.text();
-          // Detectar si Google devolvió HTML en lugar de CSV (Sheet privado redirige)
           if(text.trim().startsWith("<")||text.includes("<html")){errorsBySheet[sheetName]="Google devolvió HTML — el Sheet NO está público todavía";return [];}
           return parseCSV(text);
-        }catch(e){
-          errorsBySheet[sheetName]="Error de red: "+(e.message||e);
-          return [];
-        }
+        }catch(e){errorsBySheet[sheetName]="Error de red: "+(e.message||e);return [];}
       };
-      const [ingRows,gasRows,nomRows]=await Promise.all([
-        fetchSheet("INGRESOS"),
-        fetchSheet("GASTOS"),
-        fetchSheet("NOMINA")
-      ]);
-      // Si TODAS las hojas fallaron, lanzar el error agregado
+      const [ingRows,gasRows,nomRows]=await Promise.all([fetchSheet("INGRESOS"),fetchSheet("GASTOS"),fetchSheet("NOMINA")]);
       if(ingRows.length===0&&gasRows.length===0&&nomRows.length===0&&Object.keys(errorsBySheet).length>0){
-        const msg="No pude leer ninguna hoja:\n"+Object.entries(errorsBySheet).map(([k,v])=>"• "+k+": "+v).join("\n");
-        throw new Error(msg);
+        throw new Error("No pude leer ninguna hoja:\n"+Object.entries(errorsBySheet).map(([k,v])=>"• "+k+": "+v).join("\n"));
       }
-      // Debug: guardar headers para diagnóstico
-      const headersIng=ingRows[0]?Object.keys(ingRows[0]):[];
-      const headersGas=gasRows[0]?Object.keys(gasRows[0]):[];
-      const headersNom=nomRows[0]?Object.keys(nomRows[0]):[];
-      // Parsear ingresos — acepta: fecha/Fecha, descripcion/Descripción/Concepto, obra/Obra, total/Total/Monto/Ingreso
-      const ingresos=ingRows.map(r=>{
+      const todasFilas=[];
+      // INGRESOS — fila por fila (sin agrupar, sin descartar)
+      ingRows.forEach((r,idx)=>{
         const fecha=fixFecha(getCol(r,"fecha","Fecha","FECHA"));
         const desc=getCol(r,"descripcion","descripción","Descripción","Descripcion","Concepto","concepto","CONCEPTO");
         const obra=getCol(r,"obra","Obra","OBRA");
         const cliente=getCol(r,"cliente","Cliente","CLIENTE");
-        const montoStr=getCol(r,"total","Total","TOTAL","monto","Monto","MONTO","ingreso","Ingreso","INGRESO")||"0";
-        const monto=Number(String(montoStr).replace(/[^0-9.-]/g,""))||0;
-        if(!desc||monto<=0)return null;
-        return {id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"ing",fecha:fecha||td(),desc,obra,prov:cliente,monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()};
-      }).filter(Boolean);
-      // Obras activas para el auto-prorrateo (status en proceso)
-      const obrasActivas=obras.filter(o=>{
-        const st=(o.status||"").toLowerCase();const fs=(o.fase||"").toLowerCase();
-        if(st==="terminada"||st==="cancelada"||st==="pausada")return false;
-        if(fs==="terminada"||fs==="entregada"||fs==="cancelada")return false;
-        return true;
+        const montoStr=getCol(r,"total","Total","TOTAL","monto","Monto","MONTO","ingreso","Ingreso","INGRESO");
+        const monto=parseMonto(montoStr);
+        // Saltar filas COMPLETAMENTE vacías
+        if(!desc&&!obra&&monto<=0&&!fecha)return;
+        todasFilas.push(construirMov({
+          t:"ing",fecha:fecha||td(),desc:desc.trim(),obra:obra.trim(),prov:cliente.trim(),monto,
+          _sheetSrc:"INGRESOS",_sheetRow:idx+2,_montoRaw:montoStr
+        }));
       });
-      // Parsear gastos — con detección de palabras mágicas para auto-prorrateo
-      let gastosAutoProrrateados=0;
-      const gastos=[];
-      gasRows.forEach(r=>{
+      // GASTOS — fila por fila, SIN auto-prorrateo (se hace aparte con la herramienta "Prorratear gasto")
+      gasRows.forEach((r,idx)=>{
         const fecha=fixFecha(getCol(r,"fecha","Fecha","FECHA"));
         const desc=getCol(r,"descripcion","descripción","Descripción","Descripcion","Concepto","concepto","CONCEPTO");
         const obra=getCol(r,"obra","Obra","OBRA");
         const prov=getCol(r,"proveedor","Proveedor","PROVEEDOR");
         const cat=getCol(r,"categoría","Categoría","Categoria","categoria","CATEGORÍA","CATEGORIA");
-        const montoStr=getCol(r,"total","Total","TOTAL","monto","Monto","MONTO","egreso","Egreso","EGRESO")||"0";
-        const monto=Number(String(montoStr).replace(/[^0-9.-]/g,""))||0;
-        if(!desc||monto<=0)return;
-        // ¿Es "general", "herramienta" u otro gasto compartido que hay que prorratear?
-        const esCompartido=esPalabraProrrateo(obra)||esPalabraProrrateo(cat);
-        if(esCompartido&&obrasActivas.length>0){
-          // Repartir por igual entre obras activas
-          const N=obrasActivas.length;
-          const parteBase=Math.round((monto/N)*100)/100;
-          let acumulado=0;
-          const loteId="HER"+Date.now()+Math.random().toString(36).slice(2,5);
-          obrasActivas.forEach((ob,i)=>{
-            // El último ajusta para cuadrar exacto
-            const parte=i===N-1?Math.round((monto-acumulado)*100)/100:parteBase;
-            acumulado+=parte;
-            // Detectar etiqueta para el icono y categoría
-          const obraLow=String(obra||"").toLowerCase();
-          const esHerramientaTxt=/herramienta/i.test(obraLow);
-          const icono=esHerramientaTxt?"🔧":"📂";
-          const catFinal=cat||(esHerramientaTxt?"Herramientas":"Gastos generales");
-          gastos.push({
-              id:"GS"+Date.now()+Math.random().toString(36).slice(2,7)+"_"+i,
-              t:"egr",fecha:fecha||td(),
-              desc:icono+" "+desc+" (compartido — "+Math.round(100/N)+"%)",
-              obra:ob.nombre,
-              prov:prov||"Compartido",
-              cat:catFinal,
-              monto:parte,
-              user:user.nombre,status:"aprobado",origen:"GoogleSheets",
-              prorrateoLote:loteId,prorrateoOrigen:desc,
-              creadoFecha:td()
-            });
-          });
-          gastosAutoProrrateados++;
-        }else{
-          gastos.push({id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha:fecha||td(),desc,obra,prov,cat,monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()});
-        }
+        const montoStr=getCol(r,"total","Total","TOTAL","monto","Monto","MONTO","egreso","Egreso","EGRESO");
+        const monto=parseMonto(montoStr);
+        if(!desc&&!obra&&monto<=0&&!fecha)return;
+        todasFilas.push(construirMov({
+          t:"egr",fecha:fecha||td(),desc:desc.trim(),obra:obra.trim(),prov:prov.trim(),cat:cat.trim(),monto,
+          _sheetSrc:"GASTOS",_sheetRow:idx+2,_montoRaw:montoStr
+        }));
       });
-      // Parsear nómina — saltar filas separadoras de semana
-      // Columnas: nombre, puesto/cargo, sueldo base, extras, dias y obra, total
-      // Detectar fecha de semana de la fila separadora más reciente
+      // NOMINA — con desglose
       let fechaSemanaActual=td();
-      const nominaRaw=[];
-      nomRows.forEach(r=>{
+      const MESES={enero:"01",febrero:"02",marzo:"03",abril:"04",mayo:"05",junio:"06",julio:"07",agosto:"08",septiembre:"09",octubre:"10",noviembre:"11",diciembre:"12"};
+      const reN=/(\d+)\s*d[ií]as?\s+([^()\$]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
+      nomRows.forEach((r,idx)=>{
         const empleado=getCol(r,"nombre","Nombre","NOMBRE","empleado","Empleado","EMPLEADO");
-        // Si es separador de semana, intentar extraer fecha de inicio
         if(esSepSemana(empleado)){
-          // Buscar formato "22 al 28 de Mayo 2026" o "15 DE JUNIO AL 19 DE JUNIO 2026"
-          const MESES={enero:"01",febrero:"02",marzo:"03",abril:"04",mayo:"05",junio:"06",julio:"07",agosto:"08",septiembre:"09",octubre:"10",noviembre:"11",diciembre:"12"};
           const txt=empleado.toLowerCase();
-          // Patrón 1: "22 al 28 de mayo 2026"
           let m=txt.match(/(\d{1,2})\s*al\s*\d{1,2}\s*de\s*(\w+)\s*(\d{4})/);
           if(!m)m=txt.match(/(\d{1,2})\s*de\s*(\w+)\s*al\s*\d{1,2}\s*de\s*\w+\s*(\d{4})/);
-          if(m){const d=m[1].padStart(2,"0");const mes=MESES[m[2]]||"01";const y=m[3];fechaSemanaActual=y+"-"+mes+"-"+d;}
+          if(m){const d=m[1].padStart(2,"0");const mes=MESES[m[2]]||"01";fechaSemanaActual=m[3]+"-"+mes+"-"+d;}
           return;
         }
         const desglose=getCol(r,"dias y obra","días y obra","Dias y obra","Días y obra","DIAS Y OBRA","obras-desglose","Obras-desglose","Desglose","desglose","Detalle","DESGLOSE");
-        const totalStr=getCol(r,"total","Total","TOTAL","monto","Monto")||"0";
-        const total=Number(String(totalStr).replace(/[^0-9.-]/g,""))||0;
+        const totalStr=getCol(r,"total","Total","TOTAL","monto","Monto");
+        const total=parseMonto(totalStr);
         if(!empleado.trim()||total<=0)return;
-        nominaRaw.push({fecha:fechaSemanaActual,empleado:empleado.trim(),desglose,total});
-      });
-      // Desglosar nómina por obra (regex tolerante a # y números)
-      const nomina=[];
-      const reN=/(\d+)\s*d[ií]as?\s+([^()\$]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
-      nominaRaw.forEach(n=>{
-        const matches=[...n.desglose.matchAll(reN)];
+        const matches=[...desglose.matchAll(reN)];
         if(matches.length===0){
-          nomina.push({id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha:n.fecha,desc:"Nómina "+n.empleado,obra:"",prov:n.empleado,cat:"Nómina",monto:n.total,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()});
+          todasFilas.push(construirMov({
+            t:"egr",fecha:fechaSemanaActual,desc:"Nómina "+empleado.trim(),obra:"",prov:empleado.trim(),cat:"Nómina",monto:total,
+            _sheetSrc:"NOMINA",_sheetRow:idx+2,_montoRaw:totalStr
+          }));
         }else{
-          matches.forEach(m=>{
-            const dias=Number(m[1]);const obra=m[2].trim();const monto=Number(m[3].replace(/,/g,""));
-            nomina.push({id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha:n.fecha,desc:"Nómina "+n.empleado+" — "+dias+" día"+(dias!==1?"s":""),obra,prov:n.empleado,cat:"Nómina",monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()});
+          matches.forEach((mt,subIdx)=>{
+            const dias=Number(mt[1]);const obraD=mt[2].trim();const montoD=parseMonto(mt[3]);
+            todasFilas.push(construirMov({
+              t:"egr",fecha:fechaSemanaActual,desc:"Nómina "+empleado.trim()+" — "+dias+" día"+(dias!==1?"s":""),obra:obraD,prov:empleado.trim(),cat:"Nómina",monto:montoD,
+              _sheetSrc:"NOMINA",_sheetRow:idx+2+"."+(subIdx+1),_montoRaw:mt[3]
+            }));
           });
         }
       });
-      // Marcar duplicados
-      const marcar=arr=>arr.map(m=>({...m,_dup:esDuplicado(m)}));
-      setData({
-        ingresos:marcar(ingresos),
-        gastos:marcar(gastos),
-        nomina:marcar(nomina),
-        _debug:{
-          rawIng:ingRows.length,rawGas:gasRows.length,rawNom:nomRows.length,
-          headersIng,headersGas,headersNom,
-          gastosAutoProrrateados,obrasActivasCount:obrasActivas.length,
-          errorsBySheet,
-          sampleIng:ingRows.slice(0,2),sampleGas:gasRows.slice(0,2),sampleNom:nomRows.slice(0,2)
-        }
+      setRows(todasFilas);
+      // Pre-seleccionar SOLO los "nuevo"
+      setSelRows(new Set(todasFilas.filter(r=>r._status==="nuevo").map(r=>r.id)));
+      setDebug({
+        rawIng:ingRows.length,rawGas:gasRows.length,rawNom:nomRows.length,
+        headersIng:ingRows[0]?Object.keys(ingRows[0]):[],
+        headersGas:gasRows[0]?Object.keys(gasRows[0]):[],
+        headersNom:nomRows[0]?Object.keys(nomRows[0]):[],
+        errorsBySheet
       });
       setLoading(false);
     }catch(e){
-      setErr(e.message||"No pude leer el Sheet. Verifica que sea público.");
+      setErr(e.message||"No pude leer el Sheet");
       setLoading(false);
     }
   };
+  // Stats por status
+  const stats=useMemo(()=>({
+    nuevo:rows.filter(r=>r._status==="nuevo").length,
+    duplicado:rows.filter(r=>r._status==="duplicado").length,
+    yaImportado:rows.filter(r=>r._status==="yaImportado").length,
+    error:rows.filter(r=>r._status==="error").length
+  }),[rows]);
+  // Filas filtradas para mostrar en la tabla
+  const rowsVisibles=useMemo(()=>filtroStatus==="todos"?rows:rows.filter(r=>r._status===filtroStatus),[rows,filtroStatus]);
+  // Solo las filas seleccionadas que existen + son "nuevo"
+  const seleccionadasValidas=useMemo(()=>rows.filter(r=>selRows.has(r.id)&&r._status==="nuevo"),[rows,selRows]);
+  const totalSeleccionado=seleccionadasValidas.reduce((s,r)=>s+r.monto,0);
+  const toggleRow=id=>{
+    const s=new Set(selRows);s.has(id)?s.delete(id):s.add(id);setSelRows(s);
+  };
+  const toggleAllVisibles=()=>{
+    const seleccionables=rowsVisibles.filter(r=>r._status==="nuevo");
+    if(seleccionables.length===0)return;
+    const todasSel=seleccionables.every(r=>selRows.has(r.id));
+    const s=new Set(selRows);
+    if(todasSel)seleccionables.forEach(r=>s.delete(r.id));
+    else seleccionables.forEach(r=>s.add(r.id));
+    setSelRows(s);
+  };
   const importar=()=>{
-    if(!data)return;
-    const todos=[];
-    if(selSheets.ingresos)todos.push(...data.ingresos.filter(m=>!m._dup));
-    if(selSheets.gastos)todos.push(...data.gastos.filter(m=>!m._dup));
-    if(selSheets.nomina)todos.push(...data.nomina.filter(m=>!m._dup));
-    if(todos.length===0){show("⚠️ Nada que importar (todos son duplicados o nada seleccionado)");return;}
+    if(seleccionadasValidas.length===0){show("⚠️ No hay filas válidas seleccionadas");return;}
+    const totalMonto=seleccionadasValidas.reduce((s,r)=>s+r.monto,0);
+    const msg="VERIFICA antes de confirmar:\n\n"+
+      "• "+seleccionadasValidas.length+" movimientos\n"+
+      "• "+seleccionadasValidas.filter(r=>r.t==="ing").length+" ingresos\n"+
+      "• "+seleccionadasValidas.filter(r=>r.t==="egr").length+" egresos\n"+
+      "• Total: $"+totalMonto.toLocaleString("es-MX",{minimumFractionDigits:2})+"\n\n"+
+      "Estas filas NUNCA se podrán volver a importar (hash guardado).";
+    if(!confirm(msg))return;
     const loteId="GS"+Date.now();
-    const conLote=todos.map(m=>{const c={...m,loteImport:loteId};delete c._dup;return c;});
-    if(!confirm("¿Importar "+todos.length+" movimientos desde el Sheet?\n\n("+conLote.filter(m=>m.t==="ing").length+" ingresos · "+conLote.filter(m=>m.t==="egr").length+" egresos)"))return;
-    setMovs(prev=>[...prev,...conLote]);
+    const limpios=seleccionadasValidas.map(r=>{
+      const {_status,_sheetSrc,_sheetRow,_montoRaw,_errores,_hash,...clean}=r;
+      return {...clean,loteImport:loteId,sheetHash:_hash};
+    });
+    setMovs(prev=>[...prev,...limpios]);
     _lastWrite.current["movs"]=Date.now()+15000;
-    try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,count:todos.length,tipo:"Google Sheets",timestamp:Date.now()}));}catch{}
-    show("📊 "+todos.length+" movimientos importados desde Google Sheets");
+    // GUARDAR hashes — cero re-importaciones de por vida
+    try{
+      const previos=new Set(JSON.parse(localStorage.getItem("ev_sheetsHashesImportados")||"[]"));
+      seleccionadasValidas.forEach(r=>previos.add(r._hash));
+      localStorage.setItem("ev_sheetsHashesImportados",JSON.stringify([...previos]));
+    }catch(e){console.warn("No pude guardar hashes",e);}
+    try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,count:limpios.length,tipo:"Google Sheets",timestamp:Date.now()}));}catch{}
+    show("✅ "+limpios.length+" importados · $"+totalMonto.toLocaleString("es-MX"));
     cm();
   };
-  // Stats
-  const stats=data?{
-    ingNuevos:data.ingresos.filter(m=>!m._dup).length,ingDup:data.ingresos.filter(m=>m._dup).length,
-    gasNuevos:data.gastos.filter(m=>!m._dup).length,gasDup:data.gastos.filter(m=>m._dup).length,
-    nomNuevos:data.nomina.filter(m=>!m._dup).length,nomDup:data.nomina.filter(m=>m._dup).length
-  }:null;
-  const totalNuevos=stats?(selSheets.ingresos?stats.ingNuevos:0)+(selSheets.gastos?stats.gasNuevos:0)+(selSheets.nomina?stats.nomNuevos:0):0;
+  const STATUS_CFG={
+    nuevo:{c:T.green,ic:"🟢",l:"Nueva"},
+    duplicado:{c:T.yellow,ic:"🟡",l:"Ya en sistema"},
+    yaImportado:{c:T.blue,ic:"🔵",l:"Ya importada"},
+    error:{c:T.red,ic:"🔴",l:"Error"}
+  };
   return <div>
     <div style={{background:"linear-gradient(135deg,rgba(76,175,80,.10),rgba(66,165,245,.06))",border:"1px solid "+T.green+"55",borderRadius:10,padding:12,marginBottom:14,fontSize:11,color:T.muted,lineHeight:1.5}}>
-      <div style={{color:T.green,fontWeight:700,marginBottom:4,fontSize:12}}>📊 Sincronización con Google Sheets</div>
-      Lee directo el Sheet del taller. <b>El equipo carga ahí cada viernes</b>, y tú importas con 1 clic. Las filas que ya existen en el sistema se ignoran automáticamente (sin duplicados).
+      <div style={{color:T.green,fontWeight:700,marginBottom:4,fontSize:12}}>📊 Sync seguro de Google Sheets</div>
+      <b>Cero duplicados garantizado.</b> Cada fila tiene una huella única — si ya la importaste, NUNCA se vuelve a importar. Las filas con error (monto $0, sin descripción) NO se pueden importar: las marco en rojo para que las arregles en el Sheet.
     </div>
     <Fl l="URL o ID del Google Sheet">
       <input style={sI} value={sheetId} onChange={e=>setSheetId(e.target.value)} placeholder="Pega aquí la URL del Sheet"/>
     </Fl>
     <div style={{padding:"8px 10px",background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"33",borderRadius:7,fontSize:10,color:T.muted,marginBottom:12,lineHeight:1.5}}>
-      <b style={{color:T.yellow}}>⚠️ El Sheet DEBE estar público:</b> En el Sheet → Compartir → "Cualquier persona con el enlace" → <b>Lector</b>. Sin esto, no puedo leerlo (no compartirás datos sensibles, solo los datos del taller). Las hojas que leo son: <b>INGRESOS, GASTOS, NOMINA</b>.
+      <b style={{color:T.yellow}}>⚠️ El Sheet DEBE estar público:</b> Compartir → "Cualquier persona con el enlace" → <b>Lector</b>. Hojas leídas: <b>INGRESOS, GASTOS, NOMINA</b>.
     </div>
     <button onClick={cargarSheet} disabled={loading} style={{...sB,background:loading?T.muted:T.blue,opacity:loading?.6:1,cursor:loading?"wait":"pointer"}}>{loading?"⏳ Leyendo Sheet...":"🔄 Conectar y leer Sheet"}</button>
-    {err&&<div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"55",borderRadius:7,fontSize:11,color:T.red,marginTop:10}}>⚠️ {err}<div style={{fontSize:10,color:T.muted,marginTop:4}}>Tip: Abre el Sheet → "Compartir" (arriba derecha) → cambia "Restringido" por "Cualquier persona con el enlace"</div></div>}
-    {data&&<div style={{marginTop:14}}>
-      {/* Banner auto-prorrateo */}
-      {data._debug.gastosAutoProrrateados>0&&<div style={{padding:"10px 12px",background:"linear-gradient(135deg,rgba(201,149,107,.12),rgba(76,175,80,.06))",border:"1px solid "+T.gold+"55",borderRadius:8,fontSize:11,color:T.muted,marginBottom:10,lineHeight:1.5}}>
-        <div style={{color:T.gold,fontWeight:700,marginBottom:3,fontSize:12}}>🧮 Auto-prorrateo aplicado</div>
-        Detecté <b style={{color:T.gold}}>{data._debug.gastosAutoProrrateados}</b> gasto(s) con obra "general" o "herramienta" → los repartí automáticamente <b>por igual</b> entre las <b>{data._debug.obrasActivasCount}</b> obras activas.
+    {err&&<div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"55",borderRadius:7,fontSize:11,color:T.red,marginTop:10,whiteSpace:"pre-line"}}>⚠️ {err}</div>}
+    {rows.length>0&&<div style={{marginTop:14}}>
+      {/* Filtros por status — clickeables */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:10}}>
+        <div onClick={()=>setFiltroStatus("todos")} style={{padding:8,border:filtroStatus==="todos"?"2px solid "+T.gold:"1px solid "+T.border,borderRadius:7,cursor:"pointer",textAlign:"center"}}>
+          <div style={{fontSize:18,fontWeight:800,color:T.text}}>{rows.length}</div>
+          <div style={{fontSize:9,color:T.muted}}>Todas</div>
+        </div>
+        {Object.entries(STATUS_CFG).map(([k,c])=><div key={k} onClick={()=>setFiltroStatus(k)} style={{padding:8,border:filtroStatus===k?"2px solid "+c.c:"1px solid "+T.border,borderRadius:7,cursor:"pointer",textAlign:"center",background:filtroStatus===k?c.c+"11":"transparent",opacity:stats[k]>0?1:.5}}>
+          <div style={{fontSize:18,fontWeight:800,color:c.c}}>{stats[k]}</div>
+          <div style={{fontSize:9,color:T.muted}}>{c.ic} {c.l}</div>
+        </div>)}
+      </div>
+      {/* Selección actual + total */}
+      <div style={{padding:"10px 14px",background:seleccionadasValidas.length>0?"rgba(76,175,80,.10)":"rgba(255,255,255,.03)",border:"1px solid "+(seleccionadasValidas.length>0?T.green+"55":T.border),borderRadius:7,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontSize:12,color:seleccionadasValidas.length>0?T.green:T.muted,fontWeight:700}}>{seleccionadasValidas.length>0?"✅ "+seleccionadasValidas.length+" fila(s) seleccionadas":"Nada seleccionado"}</div>
+          {seleccionadasValidas.length>0&&<div style={{fontSize:10,color:T.muted,marginTop:2}}>Total a importar: <b style={{color:T.text,fontSize:13}}>${totalSeleccionado.toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div>}
+        </div>
+        <button onClick={importar} disabled={seleccionadasValidas.length===0} style={{padding:"10px 18px",borderRadius:8,border:"none",background:seleccionadasValidas.length>0?T.green:T.muted,color:"#fff",fontWeight:800,fontSize:13,cursor:seleccionadasValidas.length>0?"pointer":"not-allowed",opacity:seleccionadasValidas.length>0?1:.5}}>📊 IMPORTAR {seleccionadasValidas.length}</button>
+      </div>
+      {/* Tabla DETALLADA — fila por fila */}
+      <div style={{maxHeight:420,overflowY:"auto",border:"1px solid "+T.border,borderRadius:8,marginBottom:10}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+          <thead style={{position:"sticky",top:0,background:"#1a1a1a",zIndex:1}}>
+            <tr>
+              <th style={{padding:6,textAlign:"center",color:T.gold,fontSize:9,width:30}}><input type="checkbox" onChange={toggleAllVisibles} title="Seleccionar todas las visibles"/></th>
+              <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:9,whiteSpace:"nowrap"}}>STATUS</th>
+              <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:9}}>SHEET</th>
+              <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:9}}>FECHA</th>
+              <th style={{padding:6,textAlign:"center",color:T.gold,fontSize:9,width:30}}>TIPO</th>
+              <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:9}}>CONCEPTO</th>
+              <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:9}}>OBRA</th>
+              <th style={{padding:6,textAlign:"right",color:T.gold,fontSize:9}}>MONTO</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rowsVisibles.map((r,i)=>{
+              const cfg=STATUS_CFG[r._status];
+              const seleccionable=r._status==="nuevo";
+              return <tr key={r.id} onClick={()=>seleccionable&&toggleRow(r.id)} style={{background:i%2?"rgba(255,255,255,.02)":"transparent",borderLeft:"3px solid "+cfg.c+"77",cursor:seleccionable?"pointer":"default",opacity:seleccionable?1:.55}}>
+                <td style={{padding:5,textAlign:"center"}}><input type="checkbox" checked={selRows.has(r.id)} disabled={!seleccionable} onChange={()=>{}} onClick={e=>e.stopPropagation()}/></td>
+                <td style={{padding:5,color:cfg.c,fontWeight:700,whiteSpace:"nowrap"}}>{cfg.ic} {cfg.l}</td>
+                <td style={{padding:5,color:T.muted,fontSize:9,whiteSpace:"nowrap"}}>{r._sheetSrc}:{r._sheetRow}</td>
+                <td style={{padding:5,color:T.muted,whiteSpace:"nowrap"}}>{r.fecha}</td>
+                <td style={{padding:5,textAlign:"center"}}>{r.t==="ing"?"📈":"📉"}</td>
+                <td style={{padding:5,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.desc+(r._errores&&r._errores.length>0?"\n⚠ "+r._errores.join("; "):"")}>{r.desc||<i style={{color:T.red}}>(sin desc)</i>}</td>
+                <td style={{padding:5,color:T.gold,fontSize:9,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.obra}>{r.obra||"—"}</td>
+                <td style={{padding:5,textAlign:"right",fontWeight:700,whiteSpace:"nowrap"}}>
+                  {r.monto>0?<span style={{color:r.t==="ing"?T.green:T.red}}>${r.monto.toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>:<span style={{color:T.red}} title={"Sheet decía: '"+r._montoRaw+"'"}>$0 ⚠</span>}
+                </td>
+              </tr>;
+            })}
+            {rowsVisibles.length===0&&<tr><td colSpan={8} style={{padding:20,textAlign:"center",color:T.muted}}>(sin filas en este filtro)</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {/* Mensaje de errores */}
+      {stats.error>0&&<div style={{padding:10,background:"rgba(231,76,60,.06)",border:"1px solid "+T.red+"33",borderRadius:7,fontSize:11,color:T.muted,marginBottom:10}}>
+        <b style={{color:T.red}}>⚠️ {stats.error} fila(s) con error</b> — NO se importan. Click "🔴 Error" arriba para verlas. Arregla el Sheet (monto, descripción) y vuelve a "🔄 Conectar y leer".
       </div>}
-      {/* Panel de diagnóstico DETALLADO */}
-      <div style={{padding:"10px 12px",background:"rgba(66,165,245,.06)",border:"1px solid "+T.blue+"55",borderRadius:8,fontSize:11,color:T.muted,marginBottom:10,lineHeight:1.7}}>
-        <div style={{color:T.blue,fontWeight:800,marginBottom:6,fontSize:12}}>🔍 DIAGNÓSTICO DETALLADO</div>
-        {[
-          {n:"INGRESOS",ic:"📈",raw:data._debug.rawIng,h:data._debug.headersIng,err:data._debug.errorsBySheet?.INGRESOS,sample:data._debug.sampleIng,parsed:data.ingresos.length},
-          {n:"GASTOS",ic:"📉",raw:data._debug.rawGas,h:data._debug.headersGas,err:data._debug.errorsBySheet?.GASTOS,sample:data._debug.sampleGas,parsed:data.gastos.length},
-          {n:"NOMINA",ic:"👷",raw:data._debug.rawNom,h:data._debug.headersNom,err:data._debug.errorsBySheet?.NOMINA,sample:data._debug.sampleNom,parsed:data.nomina.length}
-        ].map(s=><div key={s.n} style={{padding:"6px 8px",background:s.err?"rgba(231,76,60,.10)":(s.raw>0?"rgba(76,175,80,.04)":"rgba(255,213,79,.05)"),borderRadius:6,marginBottom:4,borderLeft:"3px solid "+(s.err?T.red:s.raw>0?T.green:T.yellow)}}>
-          <div style={{fontWeight:700,color:s.err?T.red:T.text}}>{s.ic} Hoja "{s.n}": {s.err?<span style={{color:T.red}}>❌ {s.err}</span>:<span style={{color:T.green}}>✓ leí {s.raw} fila(s) → parseé {s.parsed} válida(s)</span>}</div>
-          {s.h.length>0&&<div style={{fontSize:9,marginTop:2}}>Columnas: <code style={{color:T.gold}}>{s.h.join(" | ")}</code></div>}
-          {s.sample&&s.sample.length>0&&<details style={{marginTop:2,fontSize:9}}><summary style={{cursor:"pointer",color:T.muted}}>Ver primera fila cruda ↓</summary><pre style={{margin:"4px 0 0",padding:6,background:"rgba(0,0,0,.3)",borderRadius:4,fontSize:9,overflowX:"auto",maxHeight:80}}>{JSON.stringify(s.sample[0],null,2)}</pre></details>}
-        </div>)}
-        {data._debug.rawIng===0&&data._debug.rawGas===0&&data._debug.rawNom===0&&<div style={{padding:8,background:"rgba(231,76,60,.15)",borderRadius:6,marginTop:4,color:T.red,fontWeight:700}}>
-          🚨 No leí NADA de las 3 hojas. Causa más probable:<br/>
-          1️⃣ El Sheet NO está en "cualquier persona con el enlace" → Abre tu Sheet → botón "Compartir" → cambia "Restringido" por "Cualquier persona con el enlace"<br/>
-          2️⃣ Los nombres de las hojas son distintos a INGRESOS / GASTOS / NOMINA (revisa las pestañas abajo del Sheet)
-        </div>}
-      </div>
-      <div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:8,letterSpacing:1}}>📋 Encontré en el Sheet:</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
-        {[
-          {k:"ingresos",l:"📈 Ingresos",c:T.green,n:stats.ingNuevos,d:stats.ingDup},
-          {k:"gastos",l:"📉 Gastos",c:T.red,n:stats.gasNuevos,d:stats.gasDup},
-          {k:"nomina",l:"👷 Nómina",c:T.purple,n:stats.nomNuevos,d:stats.nomDup}
-        ].map(s=><div key={s.k} onClick={()=>setSelSheets({...selSheets,[s.k]:!selSheets[s.k]})} style={{padding:10,border:selSheets[s.k]?"2px solid "+s.c:"1px solid "+T.border,borderRadius:8,cursor:"pointer",background:selSheets[s.k]?s.c+"11":"transparent"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-            <input type="checkbox" checked={selSheets[s.k]} onChange={()=>{}}/>
-            <div style={{fontSize:11,fontWeight:700,color:s.c}}>{s.l}</div>
-          </div>
-          <div style={{fontSize:20,fontWeight:800,color:s.c}}>{s.n}</div>
-          <div style={{fontSize:10,color:T.muted}}>nuevos {s.d>0&&<span style={{color:T.yellow}}>· {s.d} dup</span>}</div>
-        </div>)}
-      </div>
-      {totalNuevos>0?
-        <button onClick={importar} style={{...sB,background:T.green,fontSize:14,fontWeight:800}}>📊 Importar {totalNuevos} movimientos nuevos</button>
-        :
-        <div style={{padding:14,textAlign:"center",background:"rgba(76,175,80,.05)",border:"1px dashed "+T.green+"55",borderRadius:8,fontSize:12,color:T.green}}>✅ Todo está al día — no hay movimientos nuevos</div>
-      }
+      {/* Diagnóstico técnico (colapsable) */}
+      {debug&&<details style={{marginTop:8,fontSize:10}}>
+        <summary style={{cursor:"pointer",color:T.muted}}>🔍 Detalles técnicos de lo que se leyó</summary>
+        <div style={{padding:8,background:"rgba(0,0,0,.2)",borderRadius:6,marginTop:6,color:T.muted}}>
+          <div>INGRESOS: {debug.rawIng} filas{debug.errorsBySheet.INGRESOS?<span style={{color:T.red}}> · {debug.errorsBySheet.INGRESOS}</span>:""}</div>
+          <div>GASTOS: {debug.rawGas} filas{debug.errorsBySheet.GASTOS?<span style={{color:T.red}}> · {debug.errorsBySheet.GASTOS}</span>:""}</div>
+          <div>NOMINA: {debug.rawNom} filas{debug.errorsBySheet.NOMINA?<span style={{color:T.red}}> · {debug.errorsBySheet.NOMINA}</span>:""}</div>
+          {debug.headersGas.length>0&&<div style={{marginTop:4}}>Columnas GASTOS: <code style={{color:T.gold}}>{debug.headersGas.join(" | ")}</code></div>}
+          <div style={{marginTop:6,fontSize:9,color:T.dim}}>Hashes ya importados: {yaImportados.size}</div>
+        </div>
+      </details>}
     </div>}
-    <div style={{fontSize:9,color:T.dim,textAlign:"center",marginTop:12,lineHeight:1.5}}>💡 Tip: Si quieres que el taller no edite ciertas columnas, en el Sheet → Datos → Proteger rangos.<br/>El sistema lee las hojas con nombre exacto: <b>INGRESOS</b>, <b>GASTOS</b>, <b>NOMINA</b>.</div>
+    <div style={{fontSize:9,color:T.dim,textAlign:"center",marginTop:12,lineHeight:1.5}}>💡 Para repartir gastos generales/herramientas entre obras, usa <b>Finanzas → ⋯ → 🧮 Prorratear gasto</b> DESPUÉS de importar.</div>
   </div>;
 }
 
