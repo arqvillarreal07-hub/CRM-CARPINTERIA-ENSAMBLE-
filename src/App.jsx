@@ -2291,23 +2291,45 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,c
       "¿Los MONTOS están correctos? Aceptar = se guardan en el sistema.";
     if(!confirm(msg2)){show("❌ Importación cancelada");return;}
     // === PASO 4: GUARDADO con await + verificación ===
-    console.log("[GoogleSheets Sync] Importando muestra:",limpios.slice(0,3));
+    console.log("[GoogleSheets Sync] PRE-import — primeros 3 movs a guardar:",limpios.slice(0,3));
+    console.log("[GoogleSheets Sync] PRE-import — movs en sistema antes:",movs.length);
+    const movsAntes=movs.length;
+    let finalLen=0;
     try{
       await setMovs(prev=>{
         const final=[...prev,...limpios];
-        console.log("[GoogleSheets Sync] Total movs después:",final.length,"- últimos 3:",final.slice(-3).map(m=>m.desc+"="+m.monto));
+        finalLen=final.length;
+        console.log("[GoogleSheets Sync] Total movs después:",final.length,"- últimos 3:",final.slice(-3).map(m=>m.desc+"="+m.egr+"/"+m.ing+" cat="+m.cat));
         return final;
       });
       _lastWrite.current["movs"]=Date.now()+30000; // 30s de cooldown extra
     }catch(e){
       console.error("Error en setMovs:",e);
-      show("❌ Error guardando: "+(e.message||e));
+      alert("❌ Error guardando:\n"+(e.message||e));
       return;
     }
     // === PASO 5: Registrar el lote para que puedas deshacer si algo salió mal ===
-    // NOTA: la prevención de re-import es contra movs[] EN VIVO (sheetHash se guarda en cada mov).
-    // Si borras un mov de la papelera, vuelve a aparecer como "nuevo" en el siguiente sync.
     try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,count:limpios.length,tipo:"Google Sheets",timestamp:Date.now()}));}catch{}
+    // === PASO 6: ALERT FINAL DE VERIFICACIÓN — Miguel debe confirmar que ve el resultado ===
+    const fechas=limpios.map(m=>m.fecha).sort();
+    const primera=fechas[0]||"?";const ultima=fechas[fechas.length-1]||"?";
+    const ingCount=limpios.filter(m=>m.t==="ing").length;
+    const egrCount=limpios.filter(m=>m.t==="egr").length;
+    const nominaCount=limpios.filter(m=>m.cat==="Nómina").length;
+    alert(
+      "✅ IMPORTADO CON ÉXITO\n\n"+
+      "• "+limpios.length+" movimientos guardados\n"+
+      "• "+ingCount+" ingresos · "+egrCount+" egresos\n"+
+      "• "+nominaCount+" son nóminas (cat: Nómina)\n"+
+      "• Total: $"+sumaFinal.toLocaleString("es-MX",{minimumFractionDigits:2})+"\n"+
+      "• Fechas: "+primera+" → "+ultima+"\n\n"+
+      "📊 Antes había "+movsAntes+" movs · ahora "+finalLen+" (debió subir +"+limpios.length+")\n\n"+
+      "VERIFICA AHORA en Finanzas:\n"+
+      "1. Quita TODOS los filtros (✗ Limpiar todo)\n"+
+      "2. Click pestaña '📅 Nóminas'\n"+
+      "3. Debes ver "+nominaCount+" nuevas con fechas entre "+primera+" y "+ultima+"\n\n"+
+      "Si NO las ves → ALGO falló, avisa con un screenshot."
+    );
     show("✅ "+limpios.length+" importados · $"+sumaFinal.toLocaleString("es-MX"));
     cm();
   };
