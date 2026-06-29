@@ -2015,7 +2015,7 @@ const esPalabraProrrateo=(s)=>{
   const lim=String(s).toLowerCase().trim().replace(/\s*\(.*?\)\s*/g,"").trim();
   return /^(herramienta|herramientas|general|sin\s*obra|repartir|prorratear|dividir|compartido|compartidos|todas?|todos|all|taller)$/.test(lim);
 };
-function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
+function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,cm,_lastWrite}){
   const[sheetId,setSheetId]=useState(()=>{try{return localStorage.getItem("ev_sheetId")||SHEET_ID_DEFAULT;}catch{return SHEET_ID_DEFAULT;}});
   const[loading,setLoading]=useState(false);
   const[err,setErr]=useState("");
@@ -2330,6 +2330,29 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
     <button onClick={cargarSheet} disabled={loading} style={{...sB,background:loading?T.muted:T.blue,opacity:loading?.6:1,cursor:loading?"wait":"pointer"}}>{loading?"⏳ Leyendo Sheet...":"🔄 Conectar y leer Sheet"}</button>
     {err&&<div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"55",borderRadius:7,fontSize:11,color:T.red,marginTop:10,whiteSpace:"pre-line"}}>⚠️ {err}</div>}
     {rows.length>0&&<div style={{marginTop:14}}>
+      {/* Detector y limpiador de movs basura (import anterior con monto pero sin ing/egr) */}
+      {(()=>{
+        // Movs basura = origen GoogleSheets + tiene monto > 0 pero ing y egr son 0/undefined
+        // Esos son los movs que aparecen como "Ya en sistema" pero en la tabla se ven como $0
+        const basura=movs.filter(m=>m.origen==="GoogleSheets"&&Number(m.monto||0)>0&&Number(m.ing||0)===0&&Number(m.egr||0)===0);
+        if(basura.length===0)return null;
+        return <div style={{padding:"12px 14px",background:"linear-gradient(135deg,rgba(255,213,79,.12),rgba(231,76,60,.06))",border:"2px solid "+T.yellow+"77",borderRadius:8,marginBottom:10}}>
+          <div style={{fontSize:12,fontWeight:800,color:T.yellow,marginBottom:4}}>⚠️ Detecté {basura.length} movs basura del import anterior</div>
+          <div style={{fontSize:11,color:T.muted,marginBottom:8,lineHeight:1.5}}>
+            Esos movs se guardaron con el bug viejo: tienen <code>monto</code> pero les falta <code>ing/egr</code>, por eso en la tabla aparecen como <b style={{color:T.red}}>$0</b>. Y como están en el sistema, ahora bloquean la re-importación como "Ya en sistema". <b>Bórralos para volver a importar limpio:</b>
+          </div>
+          <button onClick={()=>{
+            if(!confirm("¿Mandar a Papelera "+basura.length+" movs basura?\n\nSon los que aparecen como $0 en la tabla. Se pueden recuperar de la Papelera por 30 días si te equivocas.\n\nDespués de limpiarlos, vuelve a 'Conectar y leer Sheet' y los verás como NUEVOS para re-importar."))return;
+            basura.forEach(m=>enviarAPapelera("mov",m,(m.desc||"")+" (movs basura import GS)"));
+            const idsBasura=new Set(basura.map(m=>m.id));
+            setMovs(prev=>prev.filter(m=>!idsBasura.has(m.id)));
+            _lastWrite.current["movs"]=Date.now()+30000;
+            show("🧹 "+basura.length+" movs basura → Papelera. Ahora dale 'Conectar y leer Sheet' otra vez.");
+            // Resetear el preview para forzar re-lectura
+            setRows([]);setSelRows(new Set());setDebug(null);
+          }} style={{padding:"10px 16px",borderRadius:7,border:"none",background:T.red,color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>🧹 Limpiar {basura.length} movs basura</button>
+        </div>;
+      })()}
       {/* Filtros por status — clickeables */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
         <div onClick={()=>setFiltroStatus("todos")} style={{padding:8,border:filtroStatus==="todos"?"2px solid "+T.gold:"1px solid "+T.border,borderRadius:7,cursor:"pointer",textAlign:"center"}}>
@@ -4526,6 +4549,7 @@ export default function App(){
         obras={obras}
         movs={movs}
         setMovs={setMovs}
+        enviarAPapelera={enviarAPapelera}
         user={user}
         td={td}
         show={show}
