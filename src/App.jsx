@@ -2033,11 +2033,13 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,c
   // Detección de duplicados EN TIEMPO REAL contra movs[] actual. Si borras un mov, vuelve a aparecer como "nuevo".
   // Buscamos por sheetHash (si fue importado de Sheet) Y por similitud (fecha+monto+desc+obra)
   const calcHash=mov=>[mov.t,mov.fecha,norm(mov.desc),norm(mov.obra||""),Math.round(Number(mov.monto)*100)/100].join("|");
-  const esDuplicadoSistema=mov=>{
-    // Match 1: por sheetHash exacto (movimientos previamente importados del Sheet)
-    if(movs.some(m=>m.sheetHash===mov._hash))return true;
-    // Match 2: por similitud fecha+monto+desc — el sistema usa m.ing/m.egr, no m.monto
-    return movs.some(m=>{
+  // Busca el mov del sistema que match con una fila del Sheet (para diagnóstico forense)
+  const findMovEnSistema=mov=>{
+    // Prioridad 1: match por sheetHash exacto
+    const porHash=movs.find(m=>m.sheetHash===mov._hash);
+    if(porHash)return porHash;
+    // Prioridad 2: match por similitud
+    return movs.find(m=>{
       const montoM=Number(m.ing||0)>0?Number(m.ing):Number(m.egr||m.monto||0);
       return m.t===mov.t
         &&m.fecha===mov.fecha
@@ -2046,6 +2048,7 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,c
         &&norm(m.obra||"")===norm(mov.obra||"");
     });
   };
+  const esDuplicadoSistema=mov=>!!findMovEnSistema(mov);
   // Parser de monto BLINDADO: maneja "9,300.00", "9.300,00", "$9300", "9300", " 9300 "
   const parseMonto=s=>{
     if(s===null||s===undefined||s==="")return 0;
@@ -2394,6 +2397,51 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,c
         </div>
         <button onClick={importar} disabled={seleccionadasValidas.length===0} style={{padding:"10px 18px",borderRadius:8,border:"none",background:seleccionadasValidas.length>0?T.green:T.muted,color:"#fff",fontWeight:800,fontSize:13,cursor:seleccionadasValidas.length>0?"pointer":"not-allowed",opacity:seleccionadasValidas.length>0?1:.5}}>📊 IMPORTAR {seleccionadasValidas.length}</button>
       </div>
+      {/* === PANEL FORENSE: cuando el filtro está en "duplicado" === */}
+      {filtroStatus==="duplicado"&&stats.duplicado>0&&(()=>{
+        const duplicados=rows.filter(r=>r._status==="duplicado");
+        // Recopilar info de los movs reales del sistema
+        const detalle=duplicados.map(r=>{
+          const m=findMovEnSistema(r);
+          return {r,m};
+        });
+        // ¿Cuántos tienen monto $0 en el sistema (basura)?
+        const conMontoCero=detalle.filter(d=>d.m&&Number(d.m.ing||0)===0&&Number(d.m.egr||0)===0&&Number(d.m.monto||0)===0);
+        const conMontoOK=detalle.filter(d=>d.m&&(Number(d.m.ing||0)>0||Number(d.m.egr||0)>0));
+        const conMontoSoloMonto=detalle.filter(d=>d.m&&Number(d.m.ing||0)===0&&Number(d.m.egr||0)===0&&Number(d.m.monto||0)>0);
+        return <div style={{padding:"12px 14px",background:"rgba(255,213,79,.08)",border:"1px solid "+T.yellow+"55",borderRadius:8,marginBottom:10,fontSize:11,lineHeight:1.6}}>
+          <div style={{color:T.yellow,fontWeight:800,marginBottom:6,fontSize:12}}>🔬 Análisis forense de los {duplicados.length} "Ya en sistema"</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:8}}>
+            <div style={{padding:8,background:"rgba(76,175,80,.06)",borderRadius:6,borderLeft:"3px solid "+T.green}}>
+              <div style={{fontSize:18,fontWeight:800,color:T.green}}>{conMontoOK.length}</div>
+              <div style={{fontSize:10,color:T.muted}}>✅ OK · tienen ing/egr correcto</div>
+            </div>
+            <div style={{padding:8,background:"rgba(255,213,79,.06)",borderRadius:6,borderLeft:"3px solid "+T.yellow}}>
+              <div style={{fontSize:18,fontWeight:800,color:T.yellow}}>{conMontoSoloMonto.length}</div>
+              <div style={{fontSize:10,color:T.muted}}>⚠ Basura · solo tienen monto, sin ing/egr</div>
+            </div>
+            <div style={{padding:8,background:"rgba(231,76,60,.06)",borderRadius:6,borderLeft:"3px solid "+T.red}}>
+              <div style={{fontSize:18,fontWeight:800,color:T.red}}>{conMontoCero.length}</div>
+              <div style={{fontSize:10,color:T.muted}}>💥 Vacíos · sin monto, ing ni egr</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {(conMontoSoloMonto.length+conMontoCero.length)>0&&<button onClick={()=>{
+              const toClean=[...conMontoSoloMonto,...conMontoCero].map(d=>d.m);
+              if(!confirm("¿Mandar a Papelera "+toClean.length+" movs basura del sistema?\n\nSon los que NO tienen ing/egr correcto (aparecen como $0 en la tabla de Finanzas).\n\nDespués de borrarlos, vuelve a 'Conectar y leer Sheet' y los verás como NUEVOS para re-importar."))return;
+              toClean.forEach(m=>enviarAPapelera("mov",m,(m.desc||"")+" (basura GS)"));
+              const ids=new Set(toClean.map(m=>m.id));
+              setMovs(prev=>prev.filter(m=>!ids.has(m.id)));
+              _lastWrite.current["movs"]=Date.now()+30000;
+              show("🧹 "+toClean.length+" movs basura → Papelera. Vuelve a leer el Sheet.");
+              setRows([]);setSelRows(new Set());setDebug(null);
+            }} style={{padding:"8px 12px",borderRadius:6,border:"none",background:T.red,color:"#fff",fontSize:11,fontWeight:800,cursor:"pointer"}}>🧹 Borrar {conMontoSoloMonto.length+conMontoCero.length} basura</button>}
+            {conMontoOK.length>0&&<div style={{padding:"8px 12px",background:"rgba(76,175,80,.08)",borderRadius:6,color:T.green,fontSize:10}}>
+              ℹ️ Los {conMontoOK.length} OK ya están bien en Finanzas. Si no los ves, quita filtros y revisa.
+            </div>}
+          </div>
+        </div>;
+      })()}
       {/* Tabla DETALLADA — fila por fila */}
       <div style={{maxHeight:420,overflowY:"auto",border:"1px solid "+T.border,borderRadius:8,marginBottom:10}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
@@ -2413,6 +2461,8 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,c
             {rowsVisibles.map((r,i)=>{
               const cfg=STATUS_CFG[r._status];
               const seleccionable=r._status==="nuevo";
+              const movSis=r._status==="duplicado"?findMovEnSistema(r):null;
+              const movSisMonto=movSis?(Number(movSis.ing||0)>0?Number(movSis.ing):Number(movSis.egr||movSis.monto||0)):0;
               return <tr key={r.id} onClick={()=>seleccionable&&toggleRow(r.id)} style={{background:i%2?"rgba(255,255,255,.02)":"transparent",borderLeft:"3px solid "+cfg.c+"77",cursor:seleccionable?"pointer":"default",opacity:seleccionable?1:.55}}>
                 <td style={{padding:5,textAlign:"center"}}><input type="checkbox" checked={selRows.has(r.id)} disabled={!seleccionable} onChange={()=>{}} onClick={e=>e.stopPropagation()}/></td>
                 <td style={{padding:5,color:cfg.c,fontWeight:700,whiteSpace:"nowrap"}}>{cfg.ic} {cfg.l}</td>
@@ -2423,6 +2473,10 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,c
                 <td style={{padding:5,color:T.gold,fontSize:9,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.obra}>{r.obra||"—"}</td>
                 <td style={{padding:5,textAlign:"right",fontWeight:700,whiteSpace:"nowrap"}}>
                   {r.monto>0?<span style={{color:r.t==="ing"?T.green:T.red}}>${r.monto.toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>:<span style={{color:T.red}} title={"Sheet decía: '"+r._montoRaw+"'"}>$0 ⚠</span>}
+                  {/* Cuando es duplicado, mostrar lo que tiene el sistema lado a lado */}
+                  {movSis&&<div style={{fontSize:9,color:movSisMonto>0?T.green:T.red,marginTop:2,fontWeight:600}} title={"Sistema id="+movSis.id+" cat="+movSis.cat+" ing="+(movSis.ing||0)+" egr="+(movSis.egr||0)+" monto="+(movSis.monto||0)}>
+                    Sistema: {movSisMonto>0?"$"+movSisMonto.toLocaleString("es-MX"):"$0 ⚠"}
+                  </div>}
                 </td>
               </tr>;
             })}
