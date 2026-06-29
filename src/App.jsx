@@ -2194,31 +2194,71 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
     else seleccionables.forEach(r=>s.add(r.id));
     setSelRows(s);
   };
-  const importar=()=>{
+  const importar=async()=>{
     if(seleccionadasValidas.length===0){show("⚠️ No hay filas válidas seleccionadas");return;}
-    const totalMonto=seleccionadasValidas.reduce((s,r)=>s+r.monto,0);
-    const msg="VERIFICA antes de confirmar:\n\n"+
+    const totalMonto=seleccionadasValidas.reduce((s,r)=>s+Number(r.monto),0);
+    // === PASO 1: CONFIRMACIÓN INICIAL ===
+    const msg1="VERIFICA antes de confirmar:\n\n"+
       "• "+seleccionadasValidas.length+" movimientos\n"+
       "• "+seleccionadasValidas.filter(r=>r.t==="ing").length+" ingresos\n"+
       "• "+seleccionadasValidas.filter(r=>r.t==="egr").length+" egresos\n"+
       "• Total: $"+totalMonto.toLocaleString("es-MX",{minimumFractionDigits:2})+"\n\n"+
       "Estas filas NUNCA se podrán volver a importar (hash guardado).";
-    if(!confirm(msg))return;
+    if(!confirm(msg1))return;
+    // === PASO 2: CONSTRUCCIÓN EXPLÍCITA (sin spread, forzando Number) ===
     const loteId="GS"+Date.now();
-    const limpios=seleccionadasValidas.map(r=>{
-      const {_status,_sheetSrc,_sheetRow,_montoRaw,_errores,_hash,...clean}=r;
-      return {...clean,loteImport:loteId,sheetHash:_hash};
+    const limpios=seleccionadasValidas.map((r,idx)=>{
+      const montoNum=Number(r.monto);
+      if(isNaN(montoNum)||montoNum<=0){
+        console.error("Mov con monto inválido:",r);
+      }
+      return {
+        id:"GS"+Date.now()+"_"+idx+"_"+Math.random().toString(36).slice(2,6),
+        t:String(r.t),
+        fecha:String(r.fecha),
+        desc:String(r.desc||""),
+        obra:String(r.obra||""),
+        prov:String(r.prov||""),
+        cat:String(r.cat||""),
+        monto:montoNum,
+        user:String(r.user||""),
+        status:"aprobado",
+        origen:"GoogleSheets",
+        creadoFecha:String(r.creadoFecha||td()),
+        loteImport:loteId,
+        sheetHash:String(r._hash||"")
+      };
     });
-    setMovs(prev=>[...prev,...limpios]);
-    _lastWrite.current["movs"]=Date.now()+15000;
-    // GUARDAR hashes — cero re-importaciones de por vida
+    // === PASO 3: PREVIEW EXPLÍCITO de lo que se va a guardar ===
+    const muestra=limpios.slice(0,5).map(m=>"  • "+m.fecha+" | "+(m.t==="ing"?"INGRESO":"EGRESO")+" | "+m.desc.slice(0,30)+" | "+(m.obra||"(sin obra)")+" | $"+m.monto.toLocaleString("es-MX",{minimumFractionDigits:2})).join("\n");
+    const sumaFinal=limpios.reduce((s,m)=>s+m.monto,0);
+    const msg2="ÚLTIMA VERIFICACIÓN — primeros "+Math.min(5,limpios.length)+" movimientos a guardar:\n\n"+muestra+"\n"+
+      (limpios.length>5?"  ... y "+(limpios.length-5)+" más\n":"")+
+      "\nSUMA TOTAL: $"+sumaFinal.toLocaleString("es-MX",{minimumFractionDigits:2})+"\n\n"+
+      "¿Los MONTOS están correctos? Aceptar = se guardan en el sistema.";
+    if(!confirm(msg2)){show("❌ Importación cancelada");return;}
+    // === PASO 4: GUARDADO con await + verificación ===
+    console.log("[GoogleSheets Sync] Importando muestra:",limpios.slice(0,3));
+    try{
+      await setMovs(prev=>{
+        const final=[...prev,...limpios];
+        console.log("[GoogleSheets Sync] Total movs después:",final.length,"- últimos 3:",final.slice(-3).map(m=>m.desc+"="+m.monto));
+        return final;
+      });
+      _lastWrite.current["movs"]=Date.now()+30000; // 30s de cooldown extra
+    }catch(e){
+      console.error("Error en setMovs:",e);
+      show("❌ Error guardando: "+(e.message||e));
+      return;
+    }
+    // === PASO 5: Guardar hashes en localStorage para NUNCA re-importar ===
     try{
       const previos=new Set(JSON.parse(localStorage.getItem("ev_sheetsHashesImportados")||"[]"));
       seleccionadasValidas.forEach(r=>previos.add(r._hash));
       localStorage.setItem("ev_sheetsHashesImportados",JSON.stringify([...previos]));
     }catch(e){console.warn("No pude guardar hashes",e);}
     try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,count:limpios.length,tipo:"Google Sheets",timestamp:Date.now()}));}catch{}
-    show("✅ "+limpios.length+" importados · $"+totalMonto.toLocaleString("es-MX"));
+    show("✅ "+limpios.length+" importados · $"+sumaFinal.toLocaleString("es-MX"));
     cm();
   };
   const STATUS_CFG={
