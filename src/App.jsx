@@ -2163,9 +2163,24 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
         const empleado=getCol(r,"nombre","Nombre","NOMBRE","empleado","Empleado","EMPLEADO");
         if(esSepSemana(empleado)){
           const txt=empleado.toLowerCase();
-          let m=txt.match(/(\d{1,2})\s*al\s*\d{1,2}\s*de\s*(\w+)\s*(\d{4})/);
-          if(!m)m=txt.match(/(\d{1,2})\s*de\s*(\w+)\s*al\s*\d{1,2}\s*de\s*\w+\s*(\d{4})/);
-          if(m){const d=m[1].padStart(2,"0");const mes=MESES[m[2]]||"01";fechaSemanaActual=m[3]+"-"+mes+"-"+d;}
+          // Detección AGRESIVA de "día + mes": funciona con o sin año, con o sin "de", con o sin "al"
+          // Casos cubiertos:
+          //   "22 al 28 de Mayo 2026"          → 22 mayo 2026
+          //   "29 de Mayo al 4 de Junio 2026"  → 29 mayo 2026
+          //   "8 DE JUNIO AL 12DE JUNIO"        → 8 junio (sin año → infiero del año previo o actual)
+          //   "15 DE JUNIO AL 19 DE JUNIO 2026" → 15 junio 2026
+          const m=txt.match(/(\d{1,2})\s*(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/);
+          if(m){
+            const d=m[1].padStart(2,"0");
+            const mes=MESES[m[2]]||"01";
+            // Año: si lo encuentro lo uso, sino mantengo el año de la fechaSemanaActual previa, sino año actual
+            const yearMatch=txt.match(/\b(20\d{2})\b/);
+            let year;
+            if(yearMatch){year=yearMatch[1];}
+            else if(fechaSemanaActual&&/^\d{4}-/.test(fechaSemanaActual)){year=fechaSemanaActual.slice(0,4);}
+            else{year=String(new Date().getFullYear());}
+            fechaSemanaActual=year+"-"+mes+"-"+d;
+          }
           return;
         }
         const desglose=getCol(r,"dias y obra","días y obra","Dias y obra","Días y obra","DIAS Y OBRA","obras-desglose","Obras-desglose","Desglose","desglose","Detalle","DESGLOSE");
