@@ -1985,6 +1985,14 @@ function parseCSV(csv){
     return row;
   });
 }
+// Palabras que disparan auto-prorrateo entre obras activas (sin importar mayúsculas/paréntesis)
+// Incluye: "general", "GENERAL (sin obra)", "herramienta", "repartir", etc.
+const esPalabraProrrateo=(s)=>{
+  if(!s)return false;
+  // Quita paréntesis y todo lo que tienen adentro: "GENERAL (sin obra)" → "GENERAL"
+  const lim=String(s).toLowerCase().trim().replace(/\s*\(.*?\)\s*/g,"").trim();
+  return /^(herramienta|herramientas|general|sin\s*obra|repartir|prorratear|dividir|compartido|compartidos|todas?|todos|all|taller)$/.test(lim);
+};
 function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
   const[sheetId,setSheetId]=useState(()=>{try{return localStorage.getItem("ev_sheetId")||SHEET_ID_DEFAULT;}catch{return SHEET_ID_DEFAULT;}});
   const[loading,setLoading]=useState(false);
@@ -2005,6 +2013,32 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
       norm(m.desc)===norm(nuevoMov.desc)
     );
   };
+  // Helper: lee de un row con cualquier capitalización del nombre de columna
+  const getCol=(row,...names)=>{
+    for(const n of names){
+      // Caso exacto
+      if(row[n]!==undefined&&row[n]!=="")return row[n];
+      // Caso case-insensitive
+      const lk=Object.keys(row).find(k=>k.toLowerCase().trim()===n.toLowerCase().trim());
+      if(lk&&row[lk]!=="")return row[lk];
+    }
+    return "";
+  };
+  // Helper: convertir fecha DD/MM/YYYY o D/M/YYYY → YYYY-MM-DD, dejar tal cual si ya es ISO
+  const fixFecha=(f)=>{
+    if(!f)return "";
+    const s=String(f).trim();
+    if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);
+    const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if(m){const d=m[1].padStart(2,"0");const mm=m[2].padStart(2,"0");let y=m[3];if(y.length===2)y="20"+y;return y+"-"+mm+"-"+d;}
+    return s.slice(0,10);
+  };
+  // Helper: detectar si un row de nómina es separador de semana o vacío
+  const esSepSemana=(empleado)=>{
+    if(!empleado)return true;
+    const e=empleado.trim().toUpperCase();
+    return /SEMANA\s*\d|TOTAL:|🟡|🟢|🔵|🟠|🔴/i.test(e);
+  };
   const cargarSheet=async()=>{
     const id=extractId(sheetId);
     if(!id||id.length<20){setErr("ID de Sheet inválido");return;}
@@ -2019,51 +2053,109 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
         return parseCSV(text);
       };
       const [ingRows,gasRows,nomRows]=await Promise.all([
-        fetchSheet("INGRESOS").catch(()=>[]),
-        fetchSheet("GASTOS").catch(()=>[]),
-        fetchSheet("NOMINA").catch(()=>[])
+        fetchSheet("INGRESOS").catch(e=>{console.warn("INGRESOS:",e);return [];}),
+        fetchSheet("GASTOS").catch(e=>{console.warn("GASTOS:",e);return [];}),
+        fetchSheet("NOMINA").catch(e=>{console.warn("NOMINA:",e);return [];})
       ]);
-      // Parsear ingresos
+      // Debug: guardar headers para diagnóstico
+      const headersIng=ingRows[0]?Object.keys(ingRows[0]):[];
+      const headersGas=gasRows[0]?Object.keys(gasRows[0]):[];
+      const headersNom=nomRows[0]?Object.keys(nomRows[0]):[];
+      // Parsear ingresos — acepta: fecha/Fecha, descripcion/Descripción/Concepto, obra/Obra, total/Total/Monto/Ingreso
       const ingresos=ingRows.map(r=>{
-        const fecha=(r["Fecha"]||r["FECHA"]||r["fecha"]||"").slice(0,10);
-        const desc=r["Concepto"]||r["CONCEPTO"]||r["Descripción"]||r["Descripcion"]||"";
-        const obra=r["Obra"]||r["OBRA"]||"";
-        const cliente=r["Cliente"]||r["CLIENTE"]||"";
-        const montoStr=r["Monto"]||r["MONTO"]||r["Ingreso"]||"0";
+        const fecha=fixFecha(getCol(r,"fecha","Fecha","FECHA"));
+        const desc=getCol(r,"descripcion","descripción","Descripción","Descripcion","Concepto","concepto","CONCEPTO");
+        const obra=getCol(r,"obra","Obra","OBRA");
+        const cliente=getCol(r,"cliente","Cliente","CLIENTE");
+        const montoStr=getCol(r,"total","Total","TOTAL","monto","Monto","MONTO","ingreso","Ingreso","INGRESO")||"0";
         const monto=Number(String(montoStr).replace(/[^0-9.-]/g,""))||0;
         if(!desc||monto<=0)return null;
-        return {id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"ing",fecha,desc,obra,prov:cliente,monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()};
+        return {id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"ing",fecha:fecha||td(),desc,obra,prov:cliente,monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()};
       }).filter(Boolean);
-      // Parsear gastos
-      const gastos=gasRows.map(r=>{
-        const fecha=(r["Fecha"]||r["FECHA"]||"").slice(0,10);
-        const desc=r["Concepto"]||r["CONCEPTO"]||r["Descripción"]||"";
-        const obra=r["Obra"]||r["OBRA"]||"";
-        const prov=r["Proveedor"]||r["PROVEEDOR"]||"";
-        const cat=r["Categoría"]||r["Categoria"]||r["CATEGORÍA"]||r["CATEGORIA"]||"";
-        const montoStr=r["Monto"]||r["MONTO"]||r["Egreso"]||"0";
+      // Obras activas para el auto-prorrateo (status en proceso)
+      const obrasActivas=obras.filter(o=>{
+        const st=(o.status||"").toLowerCase();const fs=(o.fase||"").toLowerCase();
+        if(st==="terminada"||st==="cancelada"||st==="pausada")return false;
+        if(fs==="terminada"||fs==="entregada"||fs==="cancelada")return false;
+        return true;
+      });
+      // Parsear gastos — con detección de palabras mágicas para auto-prorrateo
+      let gastosAutoProrrateados=0;
+      const gastos=[];
+      gasRows.forEach(r=>{
+        const fecha=fixFecha(getCol(r,"fecha","Fecha","FECHA"));
+        const desc=getCol(r,"descripcion","descripción","Descripción","Descripcion","Concepto","concepto","CONCEPTO");
+        const obra=getCol(r,"obra","Obra","OBRA");
+        const prov=getCol(r,"proveedor","Proveedor","PROVEEDOR");
+        const cat=getCol(r,"categoría","Categoría","Categoria","categoria","CATEGORÍA","CATEGORIA");
+        const montoStr=getCol(r,"total","Total","TOTAL","monto","Monto","MONTO","egreso","Egreso","EGRESO")||"0";
         const monto=Number(String(montoStr).replace(/[^0-9.-]/g,""))||0;
-        if(!desc||monto<=0)return null;
-        return {id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha,desc,obra,prov,cat,monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()};
-      }).filter(Boolean);
-      // Parsear nómina: detectar desglose en "Obras-desglose" o similar
-      // Formato: "3 dias OBRA1 ($800), 2 dias OBRA2 ($500)"
-      const nominaRaw=nomRows.map(r=>{
-        const fecha=(r["Fecha"]||r["FECHA"]||"").slice(0,10);
-        const empleado=r["Empleado"]||r["EMPLEADO"]||r["Nombre"]||"";
-        const desglose=r["Obras-desglose"]||r["Desglose"]||r["Detalle"]||r["DESGLOSE"]||"";
-        const totalStr=r["Total"]||r["TOTAL"]||r["Monto"]||"0";
+        if(!desc||monto<=0)return;
+        // ¿Es "general", "herramienta" u otro gasto compartido que hay que prorratear?
+        const esCompartido=esPalabraProrrateo(obra)||esPalabraProrrateo(cat);
+        if(esCompartido&&obrasActivas.length>0){
+          // Repartir por igual entre obras activas
+          const N=obrasActivas.length;
+          const parteBase=Math.round((monto/N)*100)/100;
+          let acumulado=0;
+          const loteId="HER"+Date.now()+Math.random().toString(36).slice(2,5);
+          obrasActivas.forEach((ob,i)=>{
+            // El último ajusta para cuadrar exacto
+            const parte=i===N-1?Math.round((monto-acumulado)*100)/100:parteBase;
+            acumulado+=parte;
+            // Detectar etiqueta para el icono y categoría
+          const obraLow=String(obra||"").toLowerCase();
+          const esHerramientaTxt=/herramienta/i.test(obraLow);
+          const icono=esHerramientaTxt?"🔧":"📂";
+          const catFinal=cat||(esHerramientaTxt?"Herramientas":"Gastos generales");
+          gastos.push({
+              id:"GS"+Date.now()+Math.random().toString(36).slice(2,7)+"_"+i,
+              t:"egr",fecha:fecha||td(),
+              desc:icono+" "+desc+" (compartido — "+Math.round(100/N)+"%)",
+              obra:ob.nombre,
+              prov:prov||"Compartido",
+              cat:catFinal,
+              monto:parte,
+              user:user.nombre,status:"aprobado",origen:"GoogleSheets",
+              prorrateoLote:loteId,prorrateoOrigen:desc,
+              creadoFecha:td()
+            });
+          });
+          gastosAutoProrrateados++;
+        }else{
+          gastos.push({id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha:fecha||td(),desc,obra,prov,cat,monto,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()});
+        }
+      });
+      // Parsear nómina — saltar filas separadoras de semana
+      // Columnas: nombre, puesto/cargo, sueldo base, extras, dias y obra, total
+      // Detectar fecha de semana de la fila separadora más reciente
+      let fechaSemanaActual=td();
+      const nominaRaw=[];
+      nomRows.forEach(r=>{
+        const empleado=getCol(r,"nombre","Nombre","NOMBRE","empleado","Empleado","EMPLEADO");
+        // Si es separador de semana, intentar extraer fecha de inicio
+        if(esSepSemana(empleado)){
+          // Buscar formato "22 al 28 de Mayo 2026" o "15 DE JUNIO AL 19 DE JUNIO 2026"
+          const MESES={enero:"01",febrero:"02",marzo:"03",abril:"04",mayo:"05",junio:"06",julio:"07",agosto:"08",septiembre:"09",octubre:"10",noviembre:"11",diciembre:"12"};
+          const txt=empleado.toLowerCase();
+          // Patrón 1: "22 al 28 de mayo 2026"
+          let m=txt.match(/(\d{1,2})\s*al\s*\d{1,2}\s*de\s*(\w+)\s*(\d{4})/);
+          if(!m)m=txt.match(/(\d{1,2})\s*de\s*(\w+)\s*al\s*\d{1,2}\s*de\s*\w+\s*(\d{4})/);
+          if(m){const d=m[1].padStart(2,"0");const mes=MESES[m[2]]||"01";const y=m[3];fechaSemanaActual=y+"-"+mes+"-"+d;}
+          return;
+        }
+        const desglose=getCol(r,"dias y obra","días y obra","Dias y obra","Días y obra","DIAS Y OBRA","obras-desglose","Obras-desglose","Desglose","desglose","Detalle","DESGLOSE");
+        const totalStr=getCol(r,"total","Total","TOTAL","monto","Monto")||"0";
         const total=Number(String(totalStr).replace(/[^0-9.-]/g,""))||0;
-        if(!empleado||total<=0)return null;
-        return {fecha,empleado,desglose,total};
-      }).filter(Boolean);
-      // Desglosar nómina por obra
+        if(!empleado.trim()||total<=0)return;
+        nominaRaw.push({fecha:fechaSemanaActual,empleado:empleado.trim(),desglose,total});
+      });
+      // Desglosar nómina por obra (regex tolerante a # y números)
       const nomina=[];
       const reN=/(\d+)\s*d[ií]as?\s+([^()\$]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
       nominaRaw.forEach(n=>{
         const matches=[...n.desglose.matchAll(reN)];
         if(matches.length===0){
-          // Sin desglose, todo va sin obra
           nomina.push({id:"GS"+Date.now()+Math.random().toString(36).slice(2,7),t:"egr",fecha:n.fecha,desc:"Nómina "+n.empleado,obra:"",prov:n.empleado,cat:"Nómina",monto:n.total,user:user.nombre,status:"aprobado",origen:"GoogleSheets",creadoFecha:td()});
         }else{
           matches.forEach(m=>{
@@ -2074,7 +2166,16 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
       });
       // Marcar duplicados
       const marcar=arr=>arr.map(m=>({...m,_dup:esDuplicado(m)}));
-      setData({ingresos:marcar(ingresos),gastos:marcar(gastos),nomina:marcar(nomina)});
+      setData({
+        ingresos:marcar(ingresos),
+        gastos:marcar(gastos),
+        nomina:marcar(nomina),
+        _debug:{
+          rawIng:ingRows.length,rawGas:gasRows.length,rawNom:nomRows.length,
+          headersIng,headersGas,headersNom,
+          gastosAutoProrrateados,obrasActivasCount:obrasActivas.length
+        }
+      });
       setLoading(false);
     }catch(e){
       setErr(e.message||"No pude leer el Sheet. Verifica que sea público.");
@@ -2118,6 +2219,18 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
     <button onClick={cargarSheet} disabled={loading} style={{...sB,background:loading?T.muted:T.blue,opacity:loading?.6:1,cursor:loading?"wait":"pointer"}}>{loading?"⏳ Leyendo Sheet...":"🔄 Conectar y leer Sheet"}</button>
     {err&&<div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"55",borderRadius:7,fontSize:11,color:T.red,marginTop:10}}>⚠️ {err}<div style={{fontSize:10,color:T.muted,marginTop:4}}>Tip: Abre el Sheet → "Compartir" (arriba derecha) → cambia "Restringido" por "Cualquier persona con el enlace"</div></div>}
     {data&&<div style={{marginTop:14}}>
+      {/* Banner auto-prorrateo */}
+      {data._debug.gastosAutoProrrateados>0&&<div style={{padding:"10px 12px",background:"linear-gradient(135deg,rgba(201,149,107,.12),rgba(76,175,80,.06))",border:"1px solid "+T.gold+"55",borderRadius:8,fontSize:11,color:T.muted,marginBottom:10,lineHeight:1.5}}>
+        <div style={{color:T.gold,fontWeight:700,marginBottom:3,fontSize:12}}>🧮 Auto-prorrateo aplicado</div>
+        Detecté <b style={{color:T.gold}}>{data._debug.gastosAutoProrrateados}</b> gasto(s) con obra "general" o "herramienta" → los repartí automáticamente <b>por igual</b> entre las <b>{data._debug.obrasActivasCount}</b> obras activas.
+      </div>}
+      {/* Panel de diagnóstico */}
+      <div style={{padding:"8px 10px",background:"rgba(66,165,245,.06)",border:"1px solid "+T.blue+"33",borderRadius:7,fontSize:10,color:T.muted,marginBottom:10,lineHeight:1.6}}>
+        <div style={{color:T.blue,fontWeight:700,marginBottom:4}}>🔍 Diagnóstico de lectura:</div>
+        <div>📈 INGRESOS: leí <b style={{color:T.text}}>{data._debug.rawIng}</b> fila(s) — columnas detectadas: <code style={{color:T.gold}}>{data._debug.headersIng.join(", ")||"(ninguna)"}</code></div>
+        <div>📉 GASTOS: leí <b style={{color:T.text}}>{data._debug.rawGas}</b> fila(s) — columnas detectadas: <code style={{color:T.gold}}>{data._debug.headersGas.join(", ")||"(ninguna)"}</code></div>
+        <div>👷 NOMINA: leí <b style={{color:T.text}}>{data._debug.rawNom}</b> fila(s) — columnas detectadas: <code style={{color:T.gold}}>{data._debug.headersNom.join(", ")||"(ninguna)"}</code></div>
+      </div>
       <div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:8,letterSpacing:1}}>📋 Encontré en el Sheet:</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
         {[
