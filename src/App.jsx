@@ -2045,18 +2045,32 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
     setLoading(true);setErr("");setData(null);
     try{localStorage.setItem("ev_sheetId",id);}catch{}
     try{
+      // Errores por hoja (se exponen al usuario)
+      const errorsBySheet={};
       const fetchSheet=async(sheetName)=>{
         const url="https://docs.google.com/spreadsheets/d/"+id+"/gviz/tq?tqx=out:csv&sheet="+encodeURIComponent(sheetName);
-        const r=await fetch(url);
-        if(!r.ok)throw new Error("HTTP "+r.status+" en hoja '"+sheetName+"'. ¿El Sheet está público ('cualquiera con el link')?");
-        const text=await r.text();
-        return parseCSV(text);
+        try{
+          const r=await fetch(url);
+          if(!r.ok){errorsBySheet[sheetName]="HTTP "+r.status+(r.status===404?" (¿la hoja '"+sheetName+"' existe con ese nombre exacto?)":(r.status===403||r.status===401)?" (Sheet privado — ponlo público)":"");return [];}
+          const text=await r.text();
+          // Detectar si Google devolvió HTML en lugar de CSV (Sheet privado redirige)
+          if(text.trim().startsWith("<")||text.includes("<html")){errorsBySheet[sheetName]="Google devolvió HTML — el Sheet NO está público todavía";return [];}
+          return parseCSV(text);
+        }catch(e){
+          errorsBySheet[sheetName]="Error de red: "+(e.message||e);
+          return [];
+        }
       };
       const [ingRows,gasRows,nomRows]=await Promise.all([
-        fetchSheet("INGRESOS").catch(e=>{console.warn("INGRESOS:",e);return [];}),
-        fetchSheet("GASTOS").catch(e=>{console.warn("GASTOS:",e);return [];}),
-        fetchSheet("NOMINA").catch(e=>{console.warn("NOMINA:",e);return [];})
+        fetchSheet("INGRESOS"),
+        fetchSheet("GASTOS"),
+        fetchSheet("NOMINA")
       ]);
+      // Si TODAS las hojas fallaron, lanzar el error agregado
+      if(ingRows.length===0&&gasRows.length===0&&nomRows.length===0&&Object.keys(errorsBySheet).length>0){
+        const msg="No pude leer ninguna hoja:\n"+Object.entries(errorsBySheet).map(([k,v])=>"• "+k+": "+v).join("\n");
+        throw new Error(msg);
+      }
       // Debug: guardar headers para diagnóstico
       const headersIng=ingRows[0]?Object.keys(ingRows[0]):[];
       const headersGas=gasRows[0]?Object.keys(gasRows[0]):[];
@@ -2173,7 +2187,9 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
         _debug:{
           rawIng:ingRows.length,rawGas:gasRows.length,rawNom:nomRows.length,
           headersIng,headersGas,headersNom,
-          gastosAutoProrrateados,obrasActivasCount:obrasActivas.length
+          gastosAutoProrrateados,obrasActivasCount:obrasActivas.length,
+          errorsBySheet,
+          sampleIng:ingRows.slice(0,2),sampleGas:gasRows.slice(0,2),sampleNom:nomRows.slice(0,2)
         }
       });
       setLoading(false);
@@ -2224,12 +2240,23 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
         <div style={{color:T.gold,fontWeight:700,marginBottom:3,fontSize:12}}>🧮 Auto-prorrateo aplicado</div>
         Detecté <b style={{color:T.gold}}>{data._debug.gastosAutoProrrateados}</b> gasto(s) con obra "general" o "herramienta" → los repartí automáticamente <b>por igual</b> entre las <b>{data._debug.obrasActivasCount}</b> obras activas.
       </div>}
-      {/* Panel de diagnóstico */}
-      <div style={{padding:"8px 10px",background:"rgba(66,165,245,.06)",border:"1px solid "+T.blue+"33",borderRadius:7,fontSize:10,color:T.muted,marginBottom:10,lineHeight:1.6}}>
-        <div style={{color:T.blue,fontWeight:700,marginBottom:4}}>🔍 Diagnóstico de lectura:</div>
-        <div>📈 INGRESOS: leí <b style={{color:T.text}}>{data._debug.rawIng}</b> fila(s) — columnas detectadas: <code style={{color:T.gold}}>{data._debug.headersIng.join(", ")||"(ninguna)"}</code></div>
-        <div>📉 GASTOS: leí <b style={{color:T.text}}>{data._debug.rawGas}</b> fila(s) — columnas detectadas: <code style={{color:T.gold}}>{data._debug.headersGas.join(", ")||"(ninguna)"}</code></div>
-        <div>👷 NOMINA: leí <b style={{color:T.text}}>{data._debug.rawNom}</b> fila(s) — columnas detectadas: <code style={{color:T.gold}}>{data._debug.headersNom.join(", ")||"(ninguna)"}</code></div>
+      {/* Panel de diagnóstico DETALLADO */}
+      <div style={{padding:"10px 12px",background:"rgba(66,165,245,.06)",border:"1px solid "+T.blue+"55",borderRadius:8,fontSize:11,color:T.muted,marginBottom:10,lineHeight:1.7}}>
+        <div style={{color:T.blue,fontWeight:800,marginBottom:6,fontSize:12}}>🔍 DIAGNÓSTICO DETALLADO</div>
+        {[
+          {n:"INGRESOS",ic:"📈",raw:data._debug.rawIng,h:data._debug.headersIng,err:data._debug.errorsBySheet?.INGRESOS,sample:data._debug.sampleIng,parsed:data.ingresos.length},
+          {n:"GASTOS",ic:"📉",raw:data._debug.rawGas,h:data._debug.headersGas,err:data._debug.errorsBySheet?.GASTOS,sample:data._debug.sampleGas,parsed:data.gastos.length},
+          {n:"NOMINA",ic:"👷",raw:data._debug.rawNom,h:data._debug.headersNom,err:data._debug.errorsBySheet?.NOMINA,sample:data._debug.sampleNom,parsed:data.nomina.length}
+        ].map(s=><div key={s.n} style={{padding:"6px 8px",background:s.err?"rgba(231,76,60,.10)":(s.raw>0?"rgba(76,175,80,.04)":"rgba(255,213,79,.05)"),borderRadius:6,marginBottom:4,borderLeft:"3px solid "+(s.err?T.red:s.raw>0?T.green:T.yellow)}}>
+          <div style={{fontWeight:700,color:s.err?T.red:T.text}}>{s.ic} Hoja "{s.n}": {s.err?<span style={{color:T.red}}>❌ {s.err}</span>:<span style={{color:T.green}}>✓ leí {s.raw} fila(s) → parseé {s.parsed} válida(s)</span>}</div>
+          {s.h.length>0&&<div style={{fontSize:9,marginTop:2}}>Columnas: <code style={{color:T.gold}}>{s.h.join(" | ")}</code></div>}
+          {s.sample&&s.sample.length>0&&<details style={{marginTop:2,fontSize:9}}><summary style={{cursor:"pointer",color:T.muted}}>Ver primera fila cruda ↓</summary><pre style={{margin:"4px 0 0",padding:6,background:"rgba(0,0,0,.3)",borderRadius:4,fontSize:9,overflowX:"auto",maxHeight:80}}>{JSON.stringify(s.sample[0],null,2)}</pre></details>}
+        </div>)}
+        {data._debug.rawIng===0&&data._debug.rawGas===0&&data._debug.rawNom===0&&<div style={{padding:8,background:"rgba(231,76,60,.15)",borderRadius:6,marginTop:4,color:T.red,fontWeight:700}}>
+          🚨 No leí NADA de las 3 hojas. Causa más probable:<br/>
+          1️⃣ El Sheet NO está en "cualquier persona con el enlace" → Abre tu Sheet → botón "Compartir" → cambia "Restringido" por "Cualquier persona con el enlace"<br/>
+          2️⃣ Los nombres de las hojas son distintos a INGRESOS / GASTOS / NOMINA (revisa las pestañas abajo del Sheet)
+        </div>}
       </div>
       <div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:8,letterSpacing:1}}>📋 Encontré en el Sheet:</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
