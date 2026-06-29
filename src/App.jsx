@@ -2353,6 +2353,18 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,c
       <b style={{color:T.yellow}}>⚠️ El Sheet DEBE estar público:</b> Compartir → "Cualquier persona con el enlace" → <b>Lector</b>. Hojas leídas: <b>INGRESOS, GASTOS, NOMINA</b>.
     </div>
     <button onClick={cargarSheet} disabled={loading} style={{...sB,background:loading?T.muted:T.blue,opacity:loading?.6:1,cursor:loading?"wait":"pointer"}}>{loading?"⏳ Leyendo Sheet...":"🔄 Conectar y leer Sheet"}</button>
+    {/* Botón RESET TOTAL — limpia todos los imports de Google Sheets para empezar de cero */}
+    {(()=>{const totalGS=movs.filter(m=>m.origen==="GoogleSheets").length;if(totalGS===0)return null;return <button onClick={()=>{
+      if(!confirm("🚨 RESET COMPLETO\n\nVa a mandar a Papelera TODOS los "+totalGS+" movimientos que vinieron de Google Sheets (sin importar su estado).\n\nDespués vas a poder importar todo desde cero con el formato correcto.\n\n¿Continuar?"))return;
+      if(!confirm("¿100% seguro? Esto borra "+totalGS+" movs."))return;
+      const aBorrar=movs.filter(m=>m.origen==="GoogleSheets");
+      aBorrar.forEach(m=>enviarAPapelera("mov",m,"RESET de imports Google Sheets"));
+      const ids=new Set(aBorrar.map(m=>m.id));
+      setMovs(prev=>prev.filter(m=>!ids.has(m.id)));
+      _lastWrite.current["movs"]=Date.now()+30000;
+      show("🚨 "+aBorrar.length+" movs de Google Sheets → Papelera. Listo para empezar limpio.");
+      setRows([]);setSelRows(new Set());setDebug(null);
+    }} style={{...sB,background:"#3a1010",color:T.red,border:"1px solid "+T.red+"55",marginTop:6,fontSize:11}}>🚨 RESET TOTAL: borrar los {totalGS} imports anteriores de Google Sheets</button>;})()}
     {err&&<div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"55",borderRadius:7,fontSize:11,color:T.red,marginTop:10,whiteSpace:"pre-line"}}>⚠️ {err}</div>}
     {rows.length>0&&<div style={{marginTop:14}}>
       {/* Detector y limpiador de movs basura (import anterior con monto pero sin ing/egr) */}
