@@ -2014,14 +2014,15 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
   const esDuplicadoSistema=mov=>{
     // Match 1: por sheetHash exacto (movimientos previamente importados del Sheet)
     if(movs.some(m=>m.sheetHash===mov._hash))return true;
-    // Match 2: por similitud fecha+monto+desc (movs creados manualmente)
-    return movs.some(m=>
-      m.t===mov.t
-      &&m.fecha===mov.fecha
-      &&Math.abs(Number(m.monto)-Number(mov.monto))<0.5
-      &&norm(m.desc)===norm(mov.desc)
-      &&norm(m.obra||"")===norm(mov.obra||"")
-    );
+    // Match 2: por similitud fecha+monto+desc — el sistema usa m.ing/m.egr, no m.monto
+    return movs.some(m=>{
+      const montoM=Number(m.ing||0)>0?Number(m.ing):Number(m.egr||m.monto||0);
+      return m.t===mov.t
+        &&m.fecha===mov.fecha
+        &&Math.abs(montoM-Number(mov.monto))<0.5
+        &&norm(m.desc)===norm(mov.desc)
+        &&norm(m.obra||"")===norm(mov.obra||"");
+    });
   };
   // Parser de monto BLINDADO: maneja "9,300.00", "9.300,00", "$9300", "9300", " 9300 "
   const parseMonto=s=>{
@@ -2215,22 +2216,27 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,user,td,show,cm,_lastWrite}){
       "• Total: $"+totalMonto.toLocaleString("es-MX",{minimumFractionDigits:2})+"\n\n"+
       "Estas filas NUNCA se podrán volver a importar (hash guardado).";
     if(!confirm(msg1))return;
-    // === PASO 2: CONSTRUCCIÓN EXPLÍCITA (sin spread, forzando Number) ===
+    // === PASO 2: CONSTRUCCIÓN EXPLÍCITA — usa ing/egr como el resto del sistema ===
+    // IMPORTANTE: El sistema usa campos m.ing y m.egr para los montos (NO m.monto).
+    // Mantenemos m.monto también para retrocompatibilidad con vistas que lo usan.
     const loteId="GS"+Date.now();
     const limpios=seleccionadasValidas.map((r,idx)=>{
       const montoNum=Number(r.monto);
       if(isNaN(montoNum)||montoNum<=0){
         console.error("Mov con monto inválido:",r);
       }
+      const esIng=r.t==="ing";
       return {
         id:"GS"+Date.now()+"_"+idx+"_"+Math.random().toString(36).slice(2,6),
         t:String(r.t),
         fecha:String(r.fecha),
         desc:String(r.desc||""),
-        obra:String(r.obra||""),
         prov:String(r.prov||""),
+        obra:String(r.obra||""),
         cat:String(r.cat||""),
-        monto:montoNum,
+        ing:esIng?montoNum:0,      // ← CAMPO CRÍTICO para que aparezca en la tabla
+        egr:esIng?0:montoNum,      // ← CAMPO CRÍTICO para que aparezca en la tabla
+        monto:montoNum,             // ← retrocompatibilidad con Finanzas filtradas
         user:String(r.user||""),
         status:"aprobado",
         origen:"GoogleSheets",
