@@ -1966,22 +1966,44 @@ function ProrratearGastoForm({obras,movs,setMovs,enviarAPapelera,user,td,show,cm
 // Lee directo del Google Sheet del taller (modo "cualquiera con el link puede ver")
 // El equipo del taller llena INGRESOS, GASTOS, NOMINA en el Sheet; aquí se importan en 1 click
 const SHEET_ID_DEFAULT="1Y93GJJNBVz91P9DxKlKVCgW6AmVuc_GZE7p8kpCOxbo";
-function parseCSVLine(line){
-  const result=[];let current="";let inQ=false;
-  for(let i=0;i<line.length;i++){const c=line[i];
-    if(c==='"'){if(inQ&&line[i+1]==='"'){current+='"';i++;}else inQ=!inQ;}
-    else if(c===","&&!inQ){result.push(current);current="";}
-    else current+=c;
-  }
-  result.push(current);return result;
-}
+// Parser CSV BLINDADO: respeta saltos de línea dentro de comillas (ej: descripciones multilínea).
+// Lee carácter por carácter, NO hace split por \n primero (eso rompía filas multilínea).
 function parseCSV(csv){
-  const lines=csv.split(/\r?\n/).filter(l=>l.trim());
-  if(lines.length<2)return [];
-  const headers=parseCSVLine(lines[0]).map(h=>h.trim());
-  return lines.slice(1).map(line=>{
-    const vals=parseCSVLine(line);const row={};
-    headers.forEach((h,i)=>row[h]=(vals[i]||"").trim());
+  const rows=[];
+  let current=[];
+  let field="";
+  let inQ=false;
+  for(let i=0;i<csv.length;i++){
+    const c=csv[i];
+    const next=csv[i+1];
+    if(c==='"'){
+      // Escape de comillas dobles ("") dentro de un campo
+      if(inQ&&next==='"'){field+='"';i++;}
+      else{inQ=!inQ;}
+    }else if(c===","&&!inQ){
+      current.push(field);field="";
+    }else if((c==="\n"||c==="\r")&&!inQ){
+      // Final de fila (fuera de comillas)
+      if(c==="\r"&&next==="\n")i++; // tragar \r\n
+      current.push(field);
+      // Solo agregar si la fila no está completamente vacía
+      if(current.some(v=>v.trim()))rows.push(current);
+      current=[];field="";
+    }else{
+      // Carácter normal — incluye \n dentro de comillas (se preserva como parte del campo)
+      field+=c;
+    }
+  }
+  // Último campo y última fila (si no terminó con \n)
+  if(field!==""||current.length>0){
+    current.push(field);
+    if(current.some(v=>v.trim()))rows.push(current);
+  }
+  if(rows.length<2)return [];
+  const headers=rows[0].map(h=>String(h).trim());
+  return rows.slice(1).map(vals=>{
+    const row={};
+    headers.forEach((h,i)=>row[h]=String(vals[i]||"").trim());
     return row;
   });
 }
