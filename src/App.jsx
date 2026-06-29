@@ -1128,6 +1128,8 @@ function ImportadorMasivoForm({tipo,obras,onImport}){
     const colDesc=findCol(["descripcion","descripción","desc","concepto"]);
     const colObra=findCol(["obra","proyecto"]);
     const colMonto=findCol(["total","monto","ingreso","egreso","gasto"]);
+    const colCat=findCol(["categoria","categoría","cat"]);
+    const colProv=findCol(["proveedor","prov","cliente"]);
     // Función para parsear fecha "22/5/26" → "2026-05-22"
     const parseDate=(s)=>{
     if(!s||!String(s).trim())return "";
@@ -1167,7 +1169,9 @@ function ImportadorMasivoForm({tipo,obras,onImport}){
       const obra=matchObra(obraStr);
       const monto=colMonto>=0?parseMonto(celdas[colMonto]):parseMonto(celdas[celdas.length-1]);
       if(monto>0&&desc){
-        items.push({fecha,desc,obra,monto,obraOrig:obraStr,obraMatch:obraStr&&obra===obraStr?"exacto":obraStr&&obras.find(o=>normSearch(o.nombre).includes(normSearch(obraStr))||normSearch(obraStr).includes(normSearch(o.nombre)))?"fuzzy":obraStr?"sin-match":""});
+        const cat=colCat>=0?celdas[colCat]:"";
+        const prov=colProv>=0?celdas[colProv]:"";
+        items.push({fecha,desc,obra,monto,cat,prov,obraOrig:obraStr,obraMatch:obraStr&&obra===obraStr?"exacto":obraStr&&obras.find(o=>normSearch(o.nombre).includes(normSearch(obraStr))||normSearch(obraStr).includes(normSearch(o.nombre)))?"fuzzy":obraStr?"sin-match":""});
       }
     }
     setParseado(items);
@@ -4562,10 +4566,13 @@ export default function App(){
           desc:it.desc,
           prov:it.prov||"",
           obra:it.obra||"",
-          cat:tipo==="ing"?"":"Material",
+          // Respeta la categoría del pegado si viene (ej: "Nómina"), sino default
+          cat:it.cat||(tipo==="ing"?"":"Material"),
           ing:tipo==="ing"?Number(it.monto):0,
           egr:tipo==="ing"?0:Number(it.monto),
+          monto:Number(it.monto), // ← para compat con vistas que leen m.monto
           user:user.nombre,
+          status:"aprobado",
           id:baseId+i+1,
           importadoEl:td(),
           loteImport:loteId
