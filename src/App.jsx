@@ -3818,7 +3818,18 @@ export default function App(){
                     </div>
                   </td>
                   {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.prov||"-"}</td>}
-                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:m.obra?T.gold:T.dim}}>{m.obra||"-"}</span></td>}
+                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,whiteSpace:"nowrap"}} title="Click para cambiar la obra"><select value={m.obra||""} onClick={e=>e.stopPropagation()} onChange={e=>{
+                    const nueva=e.target.value;
+                    if(nueva===m.obra)return;
+                    // Solo permite obras del catálogo. Si es "" queda como "sin obra"
+                    setMovs(prev=>prev.map(x=>x.id===m.id?{...x,obra:nueva}:x));
+                    show("✓ Obra actualizada: "+(nueva||"sin obra"));
+                  }} style={{background:m.obra?"transparent":"rgba(255,213,79,.06)",border:"1px solid transparent",color:m.obra?T.gold:T.yellow,fontSize:11,cursor:"pointer",width:"100%",padding:"1px 2px",fontWeight:m.obra?400:600,outline:"none"}} onMouseEnter={e=>e.target.style.border="1px solid "+T.gold+"44"} onMouseLeave={e=>e.target.style.border="1px solid transparent"}>
+                    <option value="" style={{background:"#1a1a1a"}}>— sin obra —</option>
+                    {obras.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(o=><option key={o.id} value={o.nombre} style={{background:"#1a1a1a"}}>{o.nombre}</option>)}
+                    {/* Si el mov tiene una obra que ya no existe en obras[], la mostramos como "fantasma" para no perderla */}
+                    {m.obra&&!obras.some(o=>normSearch(o.nombre)===normSearch(m.obra))&&<option value={m.obra} style={{background:"#2a1a1a",color:T.red}}>⚠️ {m.obra} (fantasma)</option>}
+                  </select></td>}
                   <td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
                     {isP&&user.rol==="admin"?<div style={{display:"flex",gap:2,justifyContent:"center"}}>
                       <button onClick={e=>{e.stopPropagation();setCaja(caja.map(x=>x.id===m.cajaId?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:3,padding:"1px 5px",fontSize:10,cursor:"pointer",fontWeight:700}}>✓</button>
@@ -3909,7 +3920,17 @@ export default function App(){
                       </div>
                     </td>
                     {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.resp?<span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:18,height:18,borderRadius:9,background:T.orange+"22",color:T.orange,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800}}>{c.resp.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}</span><span>{c.resp.split(" ")[0]}</span></span>:<span style={{color:T.dim}}>—</span>}</td>}
-                    {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:c.obra&&c.obra!=="General"?T.gold:T.dim}}>{c.obra||"—"}</span></td>}
+                    {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,whiteSpace:"nowrap"}} title="Click para cambiar la obra"><select value={c.obra||""} onClick={e=>e.stopPropagation()} onChange={e=>{
+                      const nueva=e.target.value;
+                      if(nueva===c.obra)return;
+                      setCaja(prev=>prev.map(x=>x.id===c.id?{...x,obra:nueva}:x));
+                      show("✓ Obra actualizada: "+(nueva||"sin obra"));
+                    }} style={{background:c.obra?"transparent":"rgba(255,213,79,.06)",border:"1px solid transparent",color:c.obra&&c.obra!=="General"?T.gold:T.dim,fontSize:11,cursor:"pointer",width:"100%",padding:"1px 2px",outline:"none"}} onMouseEnter={e=>e.target.style.border="1px solid "+T.gold+"44"} onMouseLeave={e=>e.target.style.border="1px solid transparent"}>
+                      <option value="" style={{background:"#1a1a1a"}}>— sin obra —</option>
+                      <option value="General" style={{background:"#1a1a1a"}}>General</option>
+                      {obras.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(o=><option key={o.id} value={o.nombre} style={{background:"#1a1a1a"}}>{o.nombre}</option>)}
+                      {c.obra&&c.obra!=="General"&&!obras.some(o=>normSearch(o.nombre)===normSearch(c.obra))&&<option value={c.obra} style={{background:"#2a1a1a",color:T.red}}>⚠️ {c.obra} (fantasma)</option>}
+                    </select></td>}
                     <td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",textAlign:"center"}}>
                       {isP&&user.rol==="admin"?<div style={{display:"flex",gap:2,justifyContent:"center"}} onClick={e=>e.stopPropagation()}>
                         <button onClick={()=>{setCaja(caja.map(x=>x.id===c.id?{...x,status:"aprobado"}:x));show("✓");}} style={{background:"#0a2e0a",color:T.green,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,cursor:"pointer",fontWeight:700}} title="Aprobar">✓</button>
