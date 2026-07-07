@@ -3184,25 +3184,25 @@ export default function App(){
                 <h2>Resumen General</h2>
                 <table>
                   <tr><td style="width:25%">Total Cotizado</td><td class="r b">${$(obrasRich.reduce((s,o)=>s+(o.cotizado||0),0))}</td>
-                      <td style="width:25%">Total Cobrado</td><td class="r b g">${$(obrasRich.reduce((s,o)=>s+(o.cobrado||0),0))}</td></tr>
-                  <tr><td>Total Gastado</td><td class="r b rr">${$(obrasRich.reduce((s,o)=>s+(o.gastado||0),0))}</td>
+                      <td style="width:25%">Total Cobrado</td><td class="r b g">${$(obrasRich.reduce((s,o)=>s+(o.cob||0),0))}</td></tr>
+                  <tr><td>Total Gastado</td><td class="r b rr">${$(obrasRich.reduce((s,o)=>s+(o.gas||0),0))}</td>
                       <td>Obras Activas</td><td class="r b">${obrasRich.length}</td></tr>
                 </table>
                 <h2>Detalle por Obra</h2>
                 <table>
                   <thead><tr><th>#</th><th>OBRA</th><th>CLIENTE</th><th>FASE</th><th class="r">COTIZADO</th><th class="r">COBRADO</th><th class="r">GASTADO</th><th class="r">MARGEN</th><th class="r">AVANCE</th></tr></thead>
                   <tbody>
-                  ${obrasRich.map((o,i)=>`<tr><td>${i+1}</td><td class="b">${o.nombre}</td><td>${o.cliente||"—"}</td><td>${FASES[o.fase]||o.fase||""}</td><td class="r">${$(o.cotizado||0)}</td><td class="r g">${$(o.cobrado||0)}</td><td class="r rr">${$(o.gastado||0)}</td><td class="r b ${o.margen>=0?"g":"rr"}">${$(o.margen||0)}</td><td class="r">${o.avance||0}%</td></tr>`).join("")}
+                  ${obrasRich.map((o,i)=>`<tr><td>${i+1}</td><td class="b">${o.nombre}</td><td>${o.cliente||"—"}</td><td>${FASES[o.fase]||o.fase||""}</td><td class="r">${$(o.cotizado||0)}</td><td class="r g">${$(o.cob||0)}</td><td class="r rr">${$(o.gas||0)}</td><td class="r b ${o.margen>=0?"g":"rr"}">${$(o.margen||0)}</td><td class="r">${o.avance||0}%</td></tr>`).join("")}
                   </tbody>
                 </table>
                 <h2>Desglose de Gastos por Categoría (por obra)</h2>
-                ${obrasRich.filter(o=>o.gastado>0).map(o=>{
+                ${obrasRich.filter(o=>o.gas>0).map(o=>{
                   const cats=catObra(o.id,o.nombre);
                   if(cats.length===0)return "";
                   return `<div style="margin-bottom:14px"><div style="font-weight:700;color:#1B5E20;margin-bottom:4px">${o.nombre} <span style="color:#666;font-weight:400">— ${o.cliente||"sin cliente"}</span></div>
                   <table class="subtable"><thead><tr><th>CATEGORÍA</th><th class="r">MONTO</th><th class="r">% DE LA OBRA</th></tr></thead><tbody>
-                  ${cats.map(([c,mo])=>`<tr><td>${c}</td><td class="r">${$(mo)}</td><td class="r">${Math.round(mo/o.gastado*100)}%</td></tr>`).join("")}
-                  <tr style="font-weight:700;background:#e8f5e9"><td>TOTAL GASTADO</td><td class="r">${$(o.gastado)}</td><td class="r">100%</td></tr>
+                  ${cats.map(([c,mo])=>`<tr><td>${c}</td><td class="r">${$(mo)}</td><td class="r">${Math.round(mo/o.gas*100)}%</td></tr>`).join("")}
+                  <tr style="font-weight:700;background:#e8f5e9"><td>TOTAL GASTADO</td><td class="r">${$(o.gas)}</td><td class="r">100%</td></tr>
                   </tbody></table></div>`;
                 }).join("")}
                 <div style="margin-top:30px;text-align:center;color:#999;font-size:9px;font-style:italic">— Donde la madera encuentra su forma —</div>
@@ -3229,8 +3229,8 @@ export default function App(){
                 <td style={{padding:"7px 6px",fontWeight:700,fontSize:12}}>{o.nombre}<div style={{fontSize:9,color:FCC[o.fase],fontWeight:600,textTransform:"uppercase"}}>{FASES[o.fase]}</div></td>
                 {D&&<td style={{padding:"7px 6px",fontSize:11,color:T.muted}}>{o.cliente||"—"}</td>}
                 <td style={{padding:"7px 6px",textAlign:"right",fontWeight:700,color:T.gold,whiteSpace:"nowrap"}}>{$(o.cotizado||0)}</td>
-                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:700,color:T.green,whiteSpace:"nowrap"}}>{$(o.cobrado||0)}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{o.cotizado?Math.round((o.cobrado/o.cotizado)*100):0}%</div></td>
-                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:700,color:T.red,whiteSpace:"nowrap"}}>{$(o.gastado||0)}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{o.cotizado?Math.round((o.gastado/o.cotizado)*100):0}%</div></td>
+                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:700,color:T.green,whiteSpace:"nowrap"}}>{$(o.cob||0)}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{o.cotizado?Math.round((o.cob/o.cotizado)*100):0}%</div></td>
+                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:700,color:T.red,whiteSpace:"nowrap"}}>{$(o.gas||0)}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{o.cotizado?Math.round((o.gas/o.cotizado)*100):0}%</div></td>
                 <td style={{padding:"7px 6px",textAlign:"right",fontWeight:800,color:o.margen>=0?T.green:T.red,whiteSpace:"nowrap"}}>{$(o.margen||0)}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{Math.round(o.margenPct||0)}%</div></td>
                 {D&&<td style={{padding:"7px 6px",textAlign:"center"}}><div style={{width:"100%",height:6,background:"#222",borderRadius:3,overflow:"hidden"}}><div style={{width:(o.avance||0)+"%",height:"100%",background:FCC[o.fase]}}/></div><div style={{fontSize:9,color:T.muted,marginTop:2}}>{o.avance||0}%</div></td>}
               </tr>)}
@@ -3238,8 +3238,8 @@ export default function App(){
                 <td style={{padding:"10px 6px",fontWeight:800,fontSize:12,color:T.gold}}>TOTAL ({obrasRich.length})</td>
                 {D&&<td/>}
                 <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,color:T.gold,fontSize:12}}>{$(obrasRich.reduce((s,o)=>s+(o.cotizado||0),0))}</td>
-                <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,color:T.green,fontSize:12}}>{$(obrasRich.reduce((s,o)=>s+(o.cobrado||0),0))}</td>
-                <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,color:T.red,fontSize:12}}>{$(obrasRich.reduce((s,o)=>s+(o.gastado||0),0))}</td>
+                <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,color:T.green,fontSize:12}}>{$(obrasRich.reduce((s,o)=>s+(o.cob||0),0))}</td>
+                <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,color:T.red,fontSize:12}}>{$(obrasRich.reduce((s,o)=>s+(o.gas||0),0))}</td>
                 <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,fontSize:12,color:obrasRich.reduce((s,o)=>s+(o.margen||0),0)>=0?T.green:T.red}}>{$(obrasRich.reduce((s,o)=>s+(o.margen||0),0))}</td>
                 {D&&<td/>}
               </tr>
