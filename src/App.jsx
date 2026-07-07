@@ -2162,52 +2162,74 @@ function GoogleSheetsSyncForm({obras,movs,setMovs,enviarAPapelera,user,td,show,c
           _sheetSrc:"GASTOS",_sheetRow:idx+2,_montoRaw:montoStr
         }));
       });
-      // NOMINA — con desglose
+      // NOMINA — soporta DOS formatos:
+      //   FORMATO NUEVO (recomendado): una fila por (empleado, obra) con columnas: fecha, empleado, puesto, obra, dias, monto
+      //   FORMATO VIEJO (compat): nombre, puesto/cargo, sueldo base, extras, dias y obra (con desglose en la celda), total
       let fechaSemanaActual=td();
       const MESES={enero:"01",febrero:"02",marzo:"03",abril:"04",mayo:"05",junio:"06",julio:"07",agosto:"08",septiembre:"09",octubre:"10",noviembre:"11",diciembre:"12"};
       const reN=/(\d+)\s*d[ií]as?\s+([^()\$]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
+      // Detectar qué formato usa el Sheet mirando los headers
+      const nomHeaders=nomRows[0]?Object.keys(nomRows[0]).map(h=>h.toLowerCase().trim()):[];
+      const esFormatoNuevo=nomHeaders.some(h=>h==="empleado"||h==="dias"||h==="días")&&nomHeaders.some(h=>h==="obra");
       nomRows.forEach((r,idx)=>{
-        const empleado=getCol(r,"nombre","Nombre","NOMBRE","empleado","Empleado","EMPLEADO");
-        if(esSepSemana(empleado)){
-          const txt=empleado.toLowerCase();
-          // Detección AGRESIVA de "día + mes": funciona con o sin año, con o sin "de", con o sin "al"
-          // Casos cubiertos:
-          //   "22 al 28 de Mayo 2026"          → 22 mayo 2026
-          //   "29 de Mayo al 4 de Junio 2026"  → 29 mayo 2026
-          //   "8 DE JUNIO AL 12DE JUNIO"        → 8 junio (sin año → infiero del año previo o actual)
-          //   "15 DE JUNIO AL 19 DE JUNIO 2026" → 15 junio 2026
+        // ── Detección de fila separadora de semana (común a ambos formatos) ──
+        const primerCampo=getCol(r,"fecha","Fecha","FECHA","nombre","Nombre","empleado","Empleado");
+        if(esSepSemana(primerCampo)){
+          const txt=primerCampo.toLowerCase();
           const m=txt.match(/(\d{1,2})\s*(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/);
           if(m){
-            const d=m[1].padStart(2,"0");
-            const mes=MESES[m[2]]||"01";
-            // Año: si lo encuentro lo uso, sino mantengo el año de la fechaSemanaActual previa, sino año actual
+            const d=m[1].padStart(2,"0");const mes=MESES[m[2]]||"01";
             const yearMatch=txt.match(/\b(20\d{2})\b/);
             let year;
-            if(yearMatch){year=yearMatch[1];}
-            else if(fechaSemanaActual&&/^\d{4}-/.test(fechaSemanaActual)){year=fechaSemanaActual.slice(0,4);}
-            else{year=String(new Date().getFullYear());}
+            if(yearMatch)year=yearMatch[1];
+            else if(fechaSemanaActual&&/^\d{4}-/.test(fechaSemanaActual))year=fechaSemanaActual.slice(0,4);
+            else year=String(new Date().getFullYear());
             fechaSemanaActual=year+"-"+mes+"-"+d;
           }
           return;
         }
-        const desglose=getCol(r,"dias y obra","días y obra","Dias y obra","Días y obra","DIAS Y OBRA","obras-desglose","Obras-desglose","Desglose","desglose","Detalle","DESGLOSE");
-        const totalStr=getCol(r,"total","Total","TOTAL","monto","Monto");
-        const total=parseMonto(totalStr);
-        if(!empleado.trim()||total<=0)return;
-        const matches=[...desglose.matchAll(reN)];
-        if(matches.length===0){
+        if(esFormatoNuevo){
+          // ═══ FORMATO NUEVO ═══ una fila = un (empleado, obra)
+          const fechaCell=fixFecha(getCol(r,"fecha","Fecha","FECHA"));
+          const empleado=getCol(r,"empleado","Empleado","nombre","Nombre");
+          const puesto=getCol(r,"puesto","Puesto","puesto/cargo","cargo","Cargo");
+          const obraD=getCol(r,"obra","Obra","OBRA");
+          const dias=Number(getCol(r,"dias","días","Dias","Días","DIAS"))||0;
+          const montoStr=getCol(r,"monto","Monto","MONTO","total","Total","TOTAL");
+          const montoD=parseMonto(montoStr);
+          if(!empleado.trim()||montoD<=0)return;
+          const fechaFinal=fechaCell||fechaSemanaActual||td();
           todasFilas.push(construirMov({
-            t:"egr",fecha:fechaSemanaActual,desc:"Nómina "+empleado.trim(),obra:"",prov:empleado.trim(),cat:"Nómina",monto:total,
-            _sheetSrc:"NOMINA",_sheetRow:idx+2,_montoRaw:totalStr
+            t:"egr",fecha:fechaFinal,
+            desc:"Nómina "+empleado.trim()+(dias>0?" — "+dias+" día"+(dias!==1?"s":""):""),
+            obra:obraD.trim(),
+            prov:empleado.trim()+(puesto?" ("+puesto+")":""),
+            cat:"Nómina",
+            monto:montoD,
+            _sheetSrc:"NOMINA",_sheetRow:idx+2,_montoRaw:montoStr
           }));
         }else{
-          matches.forEach((mt,subIdx)=>{
-            const dias=Number(mt[1]);const obraD=mt[2].trim();const montoD=parseMonto(mt[3]);
+          // ═══ FORMATO VIEJO ═══ una fila = un empleado con desglose en una celda
+          const empleado=getCol(r,"nombre","Nombre","NOMBRE","empleado","Empleado","EMPLEADO");
+          const desglose=getCol(r,"dias y obra","días y obra","Dias y obra","Días y obra","DIAS Y OBRA","obras-desglose","Obras-desglose","Desglose","desglose","Detalle","DESGLOSE");
+          const totalStr=getCol(r,"total","Total","TOTAL","monto","Monto");
+          const total=parseMonto(totalStr);
+          if(!empleado.trim()||total<=0)return;
+          const matches=[...desglose.matchAll(reN)];
+          if(matches.length===0){
             todasFilas.push(construirMov({
-              t:"egr",fecha:fechaSemanaActual,desc:"Nómina "+empleado.trim()+" — "+dias+" día"+(dias!==1?"s":""),obra:obraD,prov:empleado.trim(),cat:"Nómina",monto:montoD,
-              _sheetSrc:"NOMINA",_sheetRow:idx+2+"."+(subIdx+1),_montoRaw:mt[3]
+              t:"egr",fecha:fechaSemanaActual,desc:"Nómina "+empleado.trim(),obra:"",prov:empleado.trim(),cat:"Nómina",monto:total,
+              _sheetSrc:"NOMINA",_sheetRow:idx+2,_montoRaw:totalStr
             }));
-          });
+          }else{
+            matches.forEach((mt,subIdx)=>{
+              const dias=Number(mt[1]);const obraD=mt[2].trim();const montoD=parseMonto(mt[3]);
+              todasFilas.push(construirMov({
+                t:"egr",fecha:fechaSemanaActual,desc:"Nómina "+empleado.trim()+" — "+dias+" día"+(dias!==1?"s":""),obra:obraD,prov:empleado.trim(),cat:"Nómina",monto:montoD,
+                _sheetSrc:"NOMINA",_sheetRow:idx+2+"."+(subIdx+1),_montoRaw:mt[3]
+              }));
+            });
+          }
         }
       });
       setRows(todasFilas);
