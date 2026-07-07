@@ -3147,54 +3147,105 @@ export default function App(){
             </div>)}
           </div>}
         </Card>}
-        {/* DISECCIÓN MENSUAL */}
+        {/* ═══ TABLA DE OBRAS ═══ Vista clara y descargable */}
         <Card>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div style={{fontSize:11,color:T.gold,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>📊 Disección · 12 meses</div>
-            <div style={{display:"flex",gap:10,fontSize:10}}>
-              <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,background:T.green,borderRadius:2,display:"inline-block"}}/>Ingresos</span>
-              <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,background:"#e91e63",borderRadius:2,display:"inline-block"}}/>Egresos</span>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:12,color:T.gold,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>🏗️ Reporte por Obra · {obrasRich.length} activas</div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>{
+                // Generar PDF ejecutivo para el encargado del taller
+                const catObra=(obId,obNombre)=>{
+                  const cats={};
+                  movs.filter(m=>m.egr>0&&sameObra(m.obra,obNombre)).forEach(m=>{const c=m.cat||"Sin cat";cats[c]=(cats[c]||0)+m.egr;});
+                  caja.filter(c=>sameObra(c.obra,obNombre)&&c.status!=="rechazado").forEach(c=>{cats["Caja Chica"]=(cats["Caja Chica"]||0)+c.monto;});
+                  return Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+                };
+                const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte de Obras - Ensamble Villarreal</title><style>
+                  body{font-family:Arial,sans-serif;color:#222;margin:0;padding:20px;font-size:11px}
+                  h1{color:#1B5E20;margin:0;font-size:20px}
+                  h2{color:#8B6914;font-size:14px;margin:20px 0 8px;border-bottom:2px solid #C9956B;padding-bottom:4px}
+                  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+                  th{background:#1B5E20;color:#fff;padding:8px;text-align:left;font-size:10px;text-transform:uppercase}
+                  td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:11px}
+                  .r{text-align:right}
+                  .b{font-weight:700}
+                  .g{color:#2E7D32}
+                  .rr{color:#C62828}
+                  .subtable{background:#f9f9f9;font-size:10px;margin-left:20px;margin-bottom:8px;width:calc(100% - 20px)}
+                  .subtable th{background:#666;padding:4px 8px}
+                  .subtable td{padding:3px 8px}
+                  .head{display:flex;justify-content:space-between;border-bottom:3px solid #1B5E20;padding-bottom:14px;margin-bottom:16px}
+                  @media print{body{padding:12px}}
+                </style></head><body>
+                <div class="head">
+                  <div><h1>ENSAMBLE VILLARREAL</h1><div style="color:#666;font-size:10px">Carpintería Arquitectónica · Circuito Los Sauces 136, Aguascalientes</div></div>
+                  <div style="text-align:right"><div style="font-size:14px;font-weight:700;color:#1B5E20">REPORTE DE OBRAS</div><div style="font-size:10px;color:#666">Fecha: ${fd(td())}</div></div>
+                </div>
+                <h2>Resumen General</h2>
+                <table>
+                  <tr><td style="width:25%">Total Cotizado</td><td class="r b">${$(obrasRich.reduce((s,o)=>s+(o.cotizado||0),0))}</td>
+                      <td style="width:25%">Total Cobrado</td><td class="r b g">${$(obrasRich.reduce((s,o)=>s+(o.cobrado||0),0))}</td></tr>
+                  <tr><td>Total Gastado</td><td class="r b rr">${$(obrasRich.reduce((s,o)=>s+(o.gastado||0),0))}</td>
+                      <td>Obras Activas</td><td class="r b">${obrasRich.length}</td></tr>
+                </table>
+                <h2>Detalle por Obra</h2>
+                <table>
+                  <thead><tr><th>#</th><th>OBRA</th><th>CLIENTE</th><th>FASE</th><th class="r">COTIZADO</th><th class="r">COBRADO</th><th class="r">GASTADO</th><th class="r">MARGEN</th><th class="r">AVANCE</th></tr></thead>
+                  <tbody>
+                  ${obrasRich.map((o,i)=>`<tr><td>${i+1}</td><td class="b">${o.nombre}</td><td>${o.cliente||"—"}</td><td>${FASES[o.fase]||o.fase||""}</td><td class="r">${$(o.cotizado||0)}</td><td class="r g">${$(o.cobrado||0)}</td><td class="r rr">${$(o.gastado||0)}</td><td class="r b ${o.margen>=0?"g":"rr"}">${$(o.margen||0)}</td><td class="r">${o.avance||0}%</td></tr>`).join("")}
+                  </tbody>
+                </table>
+                <h2>Desglose de Gastos por Categoría (por obra)</h2>
+                ${obrasRich.filter(o=>o.gastado>0).map(o=>{
+                  const cats=catObra(o.id,o.nombre);
+                  if(cats.length===0)return "";
+                  return `<div style="margin-bottom:14px"><div style="font-weight:700;color:#1B5E20;margin-bottom:4px">${o.nombre} <span style="color:#666;font-weight:400">— ${o.cliente||"sin cliente"}</span></div>
+                  <table class="subtable"><thead><tr><th>CATEGORÍA</th><th class="r">MONTO</th><th class="r">% DE LA OBRA</th></tr></thead><tbody>
+                  ${cats.map(([c,mo])=>`<tr><td>${c}</td><td class="r">${$(mo)}</td><td class="r">${Math.round(mo/o.gastado*100)}%</td></tr>`).join("")}
+                  <tr style="font-weight:700;background:#e8f5e9"><td>TOTAL GASTADO</td><td class="r">${$(o.gastado)}</td><td class="r">100%</td></tr>
+                  </tbody></table></div>`;
+                }).join("")}
+                <div style="margin-top:30px;text-align:center;color:#999;font-size:9px;font-style:italic">— Donde la madera encuentra su forma —</div>
+                </body></html>`;
+                const w=window.open("","","width=1000,height=800");
+                w.document.write(html);w.document.close();
+                setTimeout(()=>w.print(),300);
+              }} style={{padding:"7px 14px",borderRadius:6,border:"1px solid "+T.gold+"66",background:"linear-gradient(135deg,rgba(201,149,107,.15),rgba(201,149,107,.05))",color:T.gold,fontSize:11,fontWeight:800,cursor:"pointer"}}>📄 PDF para taller</button>
+              <button onClick={()=>go("obras")} style={{background:"transparent",border:"1px solid "+T.border,color:T.muted,fontSize:11,cursor:"pointer",padding:"7px 12px",borderRadius:6}}>Ver todas →</button>
             </div>
           </div>
-          <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}><div style={{minWidth:520}}><MonthlyBars data={monthly}/></div></div>
+          {obrasRich.length>0?<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:D?600:400}}>
+            <thead style={{position:"sticky",top:0,background:"#1a1a1a"}}><tr>
+              <th style={{padding:"8px 6px",textAlign:"left",color:T.gold,fontSize:10,borderBottom:"2px solid "+T.gold+"33"}}>OBRA</th>
+              {D&&<th style={{padding:"8px 6px",textAlign:"left",color:T.gold,fontSize:10,borderBottom:"2px solid "+T.gold+"33"}}>CLIENTE</th>}
+              <th style={{padding:"8px 6px",textAlign:"right",color:T.gold,fontSize:10,borderBottom:"2px solid "+T.gold+"33"}}>COTIZADO</th>
+              <th style={{padding:"8px 6px",textAlign:"right",color:T.gold,fontSize:10,borderBottom:"2px solid "+T.gold+"33"}}>COBRADO</th>
+              <th style={{padding:"8px 6px",textAlign:"right",color:T.gold,fontSize:10,borderBottom:"2px solid "+T.gold+"33"}}>GASTADO</th>
+              <th style={{padding:"8px 6px",textAlign:"right",color:T.gold,fontSize:10,borderBottom:"2px solid "+T.gold+"33"}}>MARGEN</th>
+              {D&&<th style={{padding:"8px 6px",textAlign:"center",color:T.gold,fontSize:10,borderBottom:"2px solid "+T.gold+"33"}}>AVANCE</th>}
+            </tr></thead>
+            <tbody>
+              {obrasRich.map((o,i)=><tr key={o.id} onClick={()=>go("obras",o)} style={{cursor:"pointer",background:i%2?"rgba(255,255,255,.02)":"transparent",borderLeft:"3px solid "+o.sem}} onMouseEnter={e=>e.currentTarget.style.background="rgba(201,149,107,.08)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.02)":"transparent"}>
+                <td style={{padding:"7px 6px",fontWeight:700,fontSize:12}}>{o.nombre}<div style={{fontSize:9,color:FCC[o.fase],fontWeight:600,textTransform:"uppercase"}}>{FASES[o.fase]}</div></td>
+                {D&&<td style={{padding:"7px 6px",fontSize:11,color:T.muted}}>{o.cliente||"—"}</td>}
+                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:700,color:T.gold,whiteSpace:"nowrap"}}>{$(o.cotizado||0)}</td>
+                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:700,color:T.green,whiteSpace:"nowrap"}}>{$(o.cobrado||0)}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{o.cotizado?Math.round((o.cobrado/o.cotizado)*100):0}%</div></td>
+                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:700,color:T.red,whiteSpace:"nowrap"}}>{$(o.gastado||0)}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{o.cotizado?Math.round((o.gastado/o.cotizado)*100):0}%</div></td>
+                <td style={{padding:"7px 6px",textAlign:"right",fontWeight:800,color:o.margen>=0?T.green:T.red,whiteSpace:"nowrap"}}>{$(o.margen||0)}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{Math.round(o.margenPct||0)}%</div></td>
+                {D&&<td style={{padding:"7px 6px",textAlign:"center"}}><div style={{width:"100%",height:6,background:"#222",borderRadius:3,overflow:"hidden"}}><div style={{width:(o.avance||0)+"%",height:"100%",background:FCC[o.fase]}}/></div><div style={{fontSize:9,color:T.muted,marginTop:2}}>{o.avance||0}%</div></td>}
+              </tr>)}
+              <tr style={{borderTop:"2px solid "+T.gold,background:"rgba(201,149,107,.06)"}}>
+                <td style={{padding:"10px 6px",fontWeight:800,fontSize:12,color:T.gold}}>TOTAL ({obrasRich.length})</td>
+                {D&&<td/>}
+                <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,color:T.gold,fontSize:12}}>{$(obrasRich.reduce((s,o)=>s+(o.cotizado||0),0))}</td>
+                <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,color:T.green,fontSize:12}}>{$(obrasRich.reduce((s,o)=>s+(o.cobrado||0),0))}</td>
+                <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,color:T.red,fontSize:12}}>{$(obrasRich.reduce((s,o)=>s+(o.gastado||0),0))}</td>
+                <td style={{padding:"10px 6px",textAlign:"right",fontWeight:800,fontSize:12,color:obrasRich.reduce((s,o)=>s+(o.margen||0),0)>=0?T.green:T.red}}>{$(obrasRich.reduce((s,o)=>s+(o.margen||0),0))}</td>
+                {D&&<td/>}
+              </tr>
+            </tbody>
+          </table></div>:<div style={{textAlign:"center",padding:30,color:T.muted}}>Sin obras activas</div>}
         </Card>
-        {/* DONUT + OBRAS */}
-        <div style={{display:"grid",gridTemplateColumns:D?"1fr 1fr":"1fr",gap:8}}>
-          <Card>
-            <div style={{fontSize:11,color:T.gold,fontWeight:800,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>🥧 A dónde va el dinero</div>
-            {catData.length>0?<div style={{display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}>
-              <div style={{flex:"0 0 auto"}}><Donut data={catData} size={D?160:130} thickness={20} centerLabel={"100%"} centerSub="gasto"/></div>
-              <div style={{flex:"1 1 140px",display:"grid",gap:4}}>
-                {catData.map((c,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,padding:"3px 0"}}>
-                  <span style={{display:"flex",alignItems:"center",gap:6,color:T.text}}><span style={{width:9,height:9,background:c.color,borderRadius:2}}/>{c.label}</span>
-                  <span style={{color:T.muted,fontWeight:700}}>{Math.round((c.value/totCat)*100)}%</span>
-                </div>)}
-              </div>
-            </div>:<div style={{textAlign:"center",padding:30,color:T.muted}}>Sin datos de gasto aún</div>}
-          </Card>
-          <Card>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={{fontSize:11,color:T.gold,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>🏗️ Obras activas · {obrasRich.length}</div>
-              <button onClick={()=>go("obras")} style={{background:"transparent",border:"none",color:T.muted,fontSize:10,cursor:"pointer"}}>Ver todas →</button>
-            </div>
-            {obrasRich.length>0?<div style={{display:"grid",gap:8}}>{obrasRich.slice(0,5).map(o=><div key={o.id} onClick={()=>go("obras",o)} style={{padding:10,background:"rgba(255,255,255,.02)",border:"1px solid "+T.border,borderLeft:"3px solid "+o.sem,borderRadius:8,cursor:"pointer"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                <div style={{fontWeight:700,fontSize:12,flex:1}}>{o.nombre}</div>
-                <span style={{fontSize:9,background:FCC[o.fase]+"33",color:FCC[o.fase],padding:"2px 6px",borderRadius:6,fontWeight:700}}>{FASES[o.fase]}</span>
-              </div>
-              <div style={{fontSize:10,color:T.muted,marginBottom:6}}>{o.cliente} · {$(o.cotizado)}</div>
-              <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                <div style={{flex:1}}>
-                  <Bar v={o.avance||0} mx={100} c={FCC[o.fase]} h={5}/>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:T.muted,marginTop:3}}>
-                    <span>Avance {o.avance||0}%</span>
-                    <span style={{color:o.margen>=0?T.green:T.red,fontWeight:700}}>Margen {$(o.margen)} ({Math.round(o.margenPct)}%)</span>
-                  </div>
-                </div>
-              </div>
-            </div>)}</div>:<div style={{textAlign:"center",padding:20,color:T.muted}}>Sin proyectos activos</div>}
-          </Card>
-        </div>
         {/* RANKINGS */}
         {obrasRich.length>0&&<Card>
           <div style={{fontSize:11,color:T.gold,fontWeight:800,letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>🏆 Top obras</div>
