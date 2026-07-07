@@ -4171,12 +4171,20 @@ export default function App(){
         <span style={{color:T.blue,fontSize:20,fontWeight:800}}>→</span>
       </div>
       {/* BOTÓN NUEVO: Normalizar nombres de obras (fuzzy match automático) */}
-      <div onClick={()=>om("normalizarObras")} style={{background:"linear-gradient(135deg,rgba(76,175,80,.15),rgba(201,149,107,.08))",border:"2px solid "+T.green+"77",borderRadius:10,padding:"14px 18px",marginBottom:14,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,boxShadow:"0 2px 12px rgba(76,175,80,.15)"}}>
+      <div onClick={()=>om("normalizarObras")} style={{background:"linear-gradient(135deg,rgba(76,175,80,.15),rgba(201,149,107,.08))",border:"2px solid "+T.green+"77",borderRadius:10,padding:"14px 18px",marginBottom:10,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,boxShadow:"0 2px 12px rgba(76,175,80,.15)"}}>
         <div>
-          <div style={{fontSize:14,color:T.green,fontWeight:800}}>🪄 Normalizar nombres de obras <span style={{background:T.green+"33",color:T.green,fontSize:9,padding:"2px 6px",borderRadius:6,marginLeft:4}}>NUEVO</span></div>
-          <div style={{fontSize:11,color:T.muted,marginTop:3}}>Detecta TODAS las variantes de nombre (CORAL/coral/Coral 39/CORAL#39) y las reemplaza en bulk con la versión oficial del catálogo. 1 click, adiós fantasmas.</div>
+          <div style={{fontSize:14,color:T.green,fontWeight:800}}>🪄 1. Normalizar nombres de obras EN MOVS <span style={{background:T.green+"33",color:T.green,fontSize:9,padding:"2px 6px",borderRadius:6,marginLeft:4}}>PASO 1</span></div>
+          <div style={{fontSize:11,color:T.muted,marginTop:3}}>Detecta variantes de nombre en tus movimientos (CORAL/coral) y las reemplaza con la versión oficial.</div>
         </div>
         <span style={{color:T.green,fontSize:20,fontWeight:800}}>→</span>
+      </div>
+      {/* BOTÓN NUEVO: Fusionar obras duplicadas EN EL CATÁLOGO */}
+      <div onClick={()=>om("fusionarDuplicadasCatalogo")} style={{background:"linear-gradient(135deg,rgba(171,71,188,.15),rgba(66,165,245,.08))",border:"2px solid "+T.purple+"77",borderRadius:10,padding:"14px 18px",marginBottom:14,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,boxShadow:"0 2px 12px rgba(171,71,188,.15)"}}>
+        <div>
+          <div style={{fontSize:14,color:T.purple,fontWeight:800}}>🔗 2. Fusionar obras DUPLICADAS del catálogo <span style={{background:T.purple+"33",color:T.purple,fontSize:9,padding:"2px 6px",borderRadius:6,marginLeft:4}}>PASO 2</span></div>
+          <div style={{fontSize:11,color:T.muted,marginTop:3}}>Detecta obras REPETIDAS en tu catálogo (ej. "JACARANDA 29 #1" y "JACARANDA 29 #1 (copia)") y las junta en una sola.</div>
+        </div>
+        <span style={{color:T.purple,fontSize:20,fontWeight:800}}>→</span>
       </div>
       <AuditoriaSistemaView obras={obras} movs={movs} caja={caja}
         onCrearObraFantasma={(nombreFantasma)=>{
@@ -4716,43 +4724,144 @@ export default function App(){
         _lastWrite={_lastWrite}
       />
     </ModalW>}
+    {modal==="fusionarDuplicadasCatalogo"&&<ModalW title="🔗 Fusionar obras duplicadas del catálogo" onClose={cm}>
+      {(()=>{
+        // Encuentra grupos de obras con nombres similares (mismo nombre base)
+        const cleanLettersOnly=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z]/g,"");
+        const nums=s=>{const m=String(s||"").match(/\d+/g);return m?m.sort().join(","):"";};
+        // Quitar sufijos como "(copia)", "(2)", " copy"
+        const cleanForCompare=s=>{
+          let x=String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+          x=x.replace(/\(copia\d*\)/g,"").replace(/\(copy\d*\)/g,"").replace(/\(\d+\)/g,"").replace(/copia\d*/gi,"").replace(/copy\d*/gi,"");
+          return x.replace(/[^a-z0-9]/g,"");
+        };
+        // Agrupar por cleanForCompare
+        const grupos=new Map();
+        obras.forEach(o=>{
+          const k=cleanForCompare(o.nombre);
+          if(!k)return;
+          if(!grupos.has(k))grupos.set(k,[]);
+          grupos.get(k).push(o);
+        });
+        // Filtrar solo grupos con 2+ obras
+        const duplicados=[...grupos.values()].filter(g=>g.length>=2);
+        // Ordenar cada grupo: prioridad = obra con más movs / mayor cotizado
+        duplicados.forEach(g=>{
+          g.forEach(o=>{
+            o._movs=movs.filter(m=>m.obra===o.nombre).length+caja.filter(c=>c.obra===o.nombre).length;
+            o._cotizado=o.cotizado||0;
+          });
+          g.sort((a,b)=>b._movs-a._movs||b._cotizado-a._cotizado||a.nombre.localeCompare(b.nombre));
+        });
+        return <div>
+          <div style={{background:"rgba(171,71,188,.08)",border:"1px solid "+T.purple+"44",borderRadius:8,padding:12,marginBottom:12,fontSize:11,color:T.muted,lineHeight:1.5}}>
+            <div style={{color:T.purple,fontWeight:700,marginBottom:4,fontSize:12}}>🔗 ¿Cómo funciona?</div>
+            Encontré <b>{duplicados.length}</b> grupo(s) de obras duplicadas en tu catálogo. Para cada grupo, la de más arriba (con más movs / cotizado más alto) queda como la "PRINCIPAL" y las demás se fusionan en ella:
+            <ul style={{margin:"6px 0 0",paddingLeft:20,lineHeight:1.6}}>
+              <li>Todos los movs y caja chica de las duplicadas se pasan a la principal</li>
+              <li>Las obras duplicadas se mandan a Papelera (recuperables 30 días)</li>
+              <li>Los datos (cliente, cotizado, docs) de la principal se mantienen</li>
+            </ul>
+          </div>
+          {duplicados.length===0?<div style={{padding:30,textAlign:"center",color:T.green,fontSize:14}}>✅ ¡Sin duplicadas! Tu catálogo está limpio.</div>:<>
+            <div style={{maxHeight:380,overflowY:"auto",border:"1px solid "+T.border,borderRadius:8,marginBottom:10}}>
+              {duplicados.map((grupo,gi)=><div key={gi} style={{padding:10,borderBottom:"1px solid #2a2a2a"}}>
+                <div style={{fontSize:11,color:T.purple,fontWeight:700,marginBottom:6}}>GRUPO {gi+1} — {grupo.length} obras similares</div>
+                {grupo.map((o,i)=><div key={o.id} style={{padding:"6px 8px",background:i===0?"rgba(76,175,80,.08)":"rgba(255,152,0,.05)",border:"1px solid "+(i===0?T.green+"33":T.orange+"33"),borderRadius:6,marginBottom:4,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:4}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,color:i===0?T.green:T.orange,fontSize:12}}>{i===0?"✅ PRINCIPAL":"🗑 Se fusiona"} · {o.nombre}</div>
+                    <div style={{fontSize:10,color:T.muted}}>{o.cliente||"sin cliente"} · Cotizado {$(o._cotizado)} · {o._movs} movs</div>
+                  </div>
+                </div>)}
+              </div>)}
+            </div>
+            <button onClick={()=>{
+              if(!confirm("¿FUSIONAR "+duplicados.length+" grupo(s) de obras duplicadas?\n\nLa primera de cada grupo (más movs) queda como PRINCIPAL.\nLas demás se mandan a Papelera y sus movs se transfieren.\n\nNo se pueden deshacer las transferencias, pero puedes recuperar las obras de Papelera.")) return;
+              let obrasBorradas=0, movsTransferidos=0, cajaTransferidos=0;
+              let newObras=[...obras];
+              let newMovs=[...movs];
+              let newCaja=[...caja];
+              duplicados.forEach(grupo=>{
+                const principal=grupo[0];
+                const secundarias=grupo.slice(1);
+                secundarias.forEach(sec=>{
+                  // Transferir movs
+                  newMovs=newMovs.map(m=>{
+                    if(m.obra===sec.nombre){movsTransferidos++;return {...m,obra:principal.nombre};}
+                    return m;
+                  });
+                  // Transferir caja
+                  newCaja=newCaja.map(c=>{
+                    if(c.obra===sec.nombre){cajaTransferidos++;return {...c,obra:principal.nombre};}
+                    return c;
+                  });
+                  // Mandar a papelera
+                  enviarAPapelera("obra",sec,"Fusionada con "+principal.nombre);
+                  newObras=newObras.filter(o=>o.id!==sec.id);
+                  obrasBorradas++;
+                });
+              });
+              setObras(newObras);
+              setMovs(newMovs);
+              setCaja(newCaja);
+              _lastWrite.current["obras"]=Date.now()+30000;
+              _lastWrite.current["movs"]=Date.now()+30000;
+              _lastWrite.current["caja"]=Date.now()+30000;
+              show("🔗 "+obrasBorradas+" obras fusionadas · "+(movsTransferidos+cajaTransferidos)+" registros transferidos");
+              cm();
+            }} style={{...sB,background:T.purple,fontSize:14,fontWeight:800}}>🔗 Fusionar todos los grupos</button>
+          </>}
+        </div>;
+      })()}
+    </ModalW>}
     {modal==="normalizarObras"&&<ModalW title="🪄 Normalizar nombres de obras" onClose={cm}>
       {(()=>{
         // Función de similitud: quita todo lo no-alfanumérico y compara
         const cleanForMatch=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
-        // Números en el nombre
-        const nums=s=>{const m=String(s||"").match(/\d+/g);return m?m.sort().join(","):"";};
+        // Solo letras (sin números): para matchear JACARANDAS con JACARANDA 29
+        const cleanLettersOnly=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z]/g,"");
+        // Prefijo común entre dos strings
+        const commonPrefix=(a,b)=>{let i=0;while(i<Math.min(a.length,b.length)&&a[i]===b[i])i++;return i;};
         // Recopilar todas las variantes actuales en movs y caja
-        const variantesMap=new Map(); // nombreExacto → count
+        const variantesMap=new Map();
         movs.forEach(m=>{if(m.obra&&m.obra.trim()){const k=m.obra.trim();variantesMap.set(k,(variantesMap.get(k)||0)+1);}});
         caja.forEach(c=>{if(c.obra&&c.obra.trim()&&c.obra!=="General"){const k=c.obra.trim();variantesMap.set(k,(variantesMap.get(k)||0)+1);}});
         // Para cada variante que NO exista EXACTA en obras[], buscar la mejor coincidencia
         const propuestas=[];
         variantesMap.forEach((count,nombreVariante)=>{
           const existeExacta=obras.some(o=>o.nombre===nombreVariante);
-          if(existeExacta)return; // ya es la oficial
-          // Buscar match: primero por cleanForMatch, luego por números
+          if(existeExacta)return;
           const cleanV=cleanForMatch(nombreVariante);
-          const numsV=nums(nombreVariante);
+          const lettersV=cleanLettersOnly(nombreVariante);
           let best=null;
+          let bestScore=0;
           for(const o of obras){
             const cleanO=cleanForMatch(o.nombre);
-            const numsO=nums(o.nombre);
-            // Match 1: limpieza idéntica (mismo texto sin espacios/símbolos)
-            if(cleanV===cleanO){best={obra:o,confianza:"alta",razon:"mismo nombre sin símbolos"};break;}
-            // Match 2: números idénticos + al menos 4 chars comunes
-            if(numsV&&numsV===numsO&&cleanV.length>=4&&cleanO.length>=4){
-              const comun=cleanV.slice(0,Math.min(cleanV.length,cleanO.length));
-              if(cleanO.startsWith(comun.slice(0,4))||cleanV.startsWith(cleanO.slice(0,4))){
-                best={obra:o,confianza:"alta",razon:"mismo número + prefijo similar"};break;
+            const lettersO=cleanLettersOnly(o.nombre);
+            let score=0; let razon="";
+            // Match 1 (100pts): idénticos sin símbolos → "CORAL#39" = "CORAL #39"
+            if(cleanV===cleanO){score=100;razon="idénticos sin símbolos";}
+            // Match 2 (95pts): letras idénticas → "JACARANDAS" ≈ "JACARANDA" (misma raíz de letras)
+            //   ojo: solo si las letras (sin números) son muy similares
+            else if(lettersV&&lettersO){
+              const prefLet=commonPrefix(lettersV,lettersO);
+              const minLetLen=Math.min(lettersV.length,lettersO.length);
+              const maxLetLen=Math.max(lettersV.length,lettersO.length);
+              // Prefijo común >= 60% de la más larga Y >= 5 chars → match seguro
+              if(prefLet>=5&&prefLet/maxLetLen>=0.6){
+                score=95-Math.round((1-prefLet/maxLetLen)*10);
+                razon="mismo nombre base ("+prefLet+" letras iguales)";
+              }
+              // Uno contiene al otro Y >= 5 chars → match
+              else if(minLetLen>=5&&(lettersO.includes(lettersV)||lettersV.includes(lettersO))){
+                score=85;razon="una está contenida en la otra";
+              }
+              // Prefijo común >= 5 chars aunque sea menos del 60%
+              else if(prefLet>=5){
+                score=70+prefLet;razon=prefLet+" letras iguales al inicio";
               }
             }
-            // Match 3: uno contiene al otro (subcadena)
-            if(cleanV.length>=4&&cleanO.length>=4){
-              if(cleanO.includes(cleanV)||cleanV.includes(cleanO)){
-                if(!best)best={obra:o,confianza:"media",razon:"contiene el nombre"};
-              }
-            }
+            if(score>bestScore){bestScore=score;best={obra:o,confianza:score>=90?"alta":score>=75?"media":"baja",razon,score};}
           }
           propuestas.push({variante:nombreVariante,count,sugerido:best});
         });
@@ -4764,74 +4873,73 @@ export default function App(){
             <div style={{color:T.green,fontWeight:700,marginBottom:4,fontSize:12}}>✨ Cómo funciona</div>
             Encontré <b>{propuestas.length}</b> nombres de obra en tus movimientos que NO coinciden exactamente con tu catálogo. Debajo la propuesta: reemplazar cada variante con la obra oficial. Revisa, quita las que no quieras, y aplica todo con 1 click.
           </div>
-          {conMatch.length===0&&sinMatch.length===0?<div style={{padding:30,textAlign:"center",color:T.green,fontSize:14}}>✅ ¡Todo limpio! Todos los movs usan nombres exactos del catálogo.</div>:<>
-            {conMatch.length>0&&<div style={{marginBottom:14}}>
-              <div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:6,letterSpacing:1}}>✅ Con match automático ({conMatch.length})</div>
-              <div style={{maxHeight:280,overflowY:"auto",border:"1px solid "+T.border,borderRadius:8}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                  <thead style={{position:"sticky",top:0,background:"#1a1a1a"}}><tr>
-                    <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10,width:30}}></th>
-                    <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>VARIANTE ACTUAL</th>
-                    <th style={{padding:6,textAlign:"center",color:T.gold,fontSize:10,width:30}}>→</th>
-                    <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>SE CAMBIA A</th>
-                    <th style={{padding:6,textAlign:"right",color:T.gold,fontSize:10,width:60}}>#MOVS</th>
-                  </tr></thead>
-                  <tbody id="propuestas-tbody">
-                    {conMatch.map((p,i)=><tr key={p.variante} style={{background:i%2?"rgba(255,255,255,.02)":"transparent",borderBottom:"1px solid #2a2a2a"}}>
-                      <td style={{padding:5}}><input type="checkbox" defaultChecked data-variante={p.variante} data-destino={p.sugerido.obra.nombre} className="norm-check"/></td>
-                      <td style={{padding:5,color:T.red}}>⚠️ {p.variante}</td>
+          {propuestas.length===0?<div style={{padding:30,textAlign:"center",color:T.green,fontSize:14}}>✅ ¡Todo limpio! Todos los movs usan nombres exactos del catálogo.</div>:<>
+            <div style={{fontSize:11,color:T.gold,fontWeight:700,textTransform:"uppercase",marginBottom:6,letterSpacing:1}}>📋 {propuestas.length} variante(s) detectadas — puedes cambiar la sugerencia con el dropdown</div>
+            <div style={{maxHeight:340,overflowY:"auto",border:"1px solid "+T.border,borderRadius:8,marginBottom:10}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead style={{position:"sticky",top:0,background:"#1a1a1a",zIndex:1}}><tr>
+                  <th style={{padding:6,textAlign:"center",color:T.gold,fontSize:10,width:30}}>✓</th>
+                  <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>VARIANTE ACTUAL</th>
+                  <th style={{padding:6,textAlign:"center",color:T.gold,fontSize:10,width:20}}>→</th>
+                  <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>CAMBIAR A (elige del catálogo)</th>
+                  <th style={{padding:6,textAlign:"right",color:T.gold,fontSize:10,width:60}}>#MOVS</th>
+                </tr></thead>
+                <tbody>
+                  {propuestas.map((p,i)=>{
+                    const suggestedName=p.sugerido?p.sugerido.obra.nombre:"";
+                    const bgColor=p.sugerido?(p.sugerido.confianza==="alta"?"rgba(76,175,80,.05)":p.sugerido.confianza==="media"?"rgba(255,213,79,.05)":"rgba(255,152,0,.05)"):"rgba(231,76,60,.05)";
+                    return <tr key={p.variante} style={{background:bgColor,borderBottom:"1px solid #2a2a2a"}}>
+                      <td style={{padding:5,textAlign:"center"}}><input type="checkbox" defaultChecked={!!p.sugerido} data-variante={p.variante} className="norm-check" id={"chk-"+i}/></td>
+                      <td style={{padding:5,color:T.red}}>⚠️ {p.variante}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{p.sugerido?p.sugerido.razon:"sin sugerencia automática"}</div></td>
                       <td style={{padding:5,textAlign:"center",color:T.muted}}>→</td>
-                      <td style={{padding:5,color:T.green,fontWeight:700}}>{p.sugerido.obra.nombre}<div style={{fontSize:9,color:T.muted,fontWeight:400}}>{p.sugerido.razon}</div></td>
+                      <td style={{padding:5}}>
+                        <select defaultValue={suggestedName} id={"sel-"+i} data-variante={p.variante} className="norm-select" style={{background:"rgba(255,255,255,.04)",border:"1px solid "+T.border,color:suggestedName?T.green:T.yellow,fontSize:11,padding:"4px 8px",width:"100%",cursor:"pointer",fontWeight:700,borderRadius:4}}>
+                          <option value="" style={{background:"#1a1a1a"}}>— NO cambiar (déjala como fantasma) —</option>
+                          {obras.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(o=><option key={o.id} value={o.nombre} style={{background:"#1a1a1a"}}>{o.nombre}{o.cliente?" — "+o.cliente:""}</option>)}
+                        </select>
+                      </td>
                       <td style={{padding:5,textAlign:"right",fontWeight:700}}>{p.count}</td>
-                    </tr>)}
-                  </tbody>
-                </table>
-              </div>
-              <button onClick={()=>{
-                const checks=document.querySelectorAll(".norm-check");
-                const cambios=[];
-                checks.forEach(chk=>{if(chk.checked)cambios.push({de:chk.dataset.variante,a:chk.dataset.destino});});
-                if(cambios.length===0){show("⚠️ No hay nada seleccionado");return;}
-                let totalMovs=0,totalCaja=0;
-                const nuevosMovs=movs.map(m=>{
-                  const c=cambios.find(x=>x.de===m.obra);
-                  if(c){totalMovs++;return {...m,obra:c.a};}
-                  return m;
-                });
-                const nuevosCaja=caja.map(c2=>{
-                  const c=cambios.find(x=>x.de===c2.obra);
-                  if(c){totalCaja++;return {...c2,obra:c.a};}
-                  return c2;
-                });
-                if(!confirm("¿NORMALIZAR "+cambios.length+" variante(s)?\n\nSe cambiarán:\n• "+totalMovs+" movimientos\n• "+totalCaja+" gastos de caja chica\n\nEjemplos:\n"+cambios.slice(0,3).map(c=>"  '"+c.de+"' → '"+c.a+"'").join("\n"))) return;
-                setMovs(nuevosMovs);
-                setCaja(nuevosCaja);
-                _lastWrite.current["movs"]=Date.now()+30000;
-                _lastWrite.current["caja"]=Date.now()+30000;
-                show("🪄 "+cambios.length+" variantes normalizadas · "+(totalMovs+totalCaja)+" registros actualizados");
-                cm();
-              }} style={{...sB,background:T.green,fontSize:14,fontWeight:800,marginTop:10}}>🪄 Aplicar cambios seleccionados</button>
-            </div>}
-            {sinMatch.length>0&&<div>
-              <div style={{fontSize:11,color:T.yellow,fontWeight:700,textTransform:"uppercase",marginBottom:6,letterSpacing:1}}>⚠️ Sin match — no encontré obra similar ({sinMatch.length})</div>
-              <div style={{padding:10,background:"rgba(255,213,79,.04)",border:"1px solid "+T.yellow+"33",borderRadius:8,fontSize:11,color:T.muted,marginBottom:8}}>
-                Estas obras no coinciden con ninguna del catálogo. Créalas como obras nuevas desde "🏗️ Obras → + Nueva Obra", o si son gastos generales/herramientas, usa "🧮 Prorratear gasto".
-              </div>
-              <div style={{maxHeight:180,overflowY:"auto",border:"1px solid "+T.border,borderRadius:8}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                  <thead style={{position:"sticky",top:0,background:"#1a1a1a"}}><tr>
-                    <th style={{padding:6,textAlign:"left",color:T.gold,fontSize:10}}>NOMBRE EN MOVS</th>
-                    <th style={{padding:6,textAlign:"right",color:T.gold,fontSize:10,width:60}}>#MOVS</th>
-                  </tr></thead>
-                  <tbody>
-                    {sinMatch.map((p,i)=><tr key={p.variante} style={{background:i%2?"rgba(255,255,255,.02)":"transparent"}}>
-                      <td style={{padding:5,color:T.yellow}}>{p.variante}</td>
-                      <td style={{padding:5,textAlign:"right"}}>{p.count}</td>
-                    </tr>)}
-                  </tbody>
-                </table>
-              </div>
-            </div>}
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{padding:"8px 10px",background:"rgba(66,165,245,.06)",border:"1px solid "+T.blue+"33",borderRadius:7,fontSize:10,color:T.muted,marginBottom:8,lineHeight:1.5}}>
+              💡 <b>Fondos de color:</b> 🟢 verde = match seguro · 🟡 amarillo = match probable · 🟠 naranja = revisa · 🔴 rojo = sin sugerencia<br/>
+              <b>Cambia el destino con el dropdown</b> si quieres reasignar a otra obra distinta a la sugerida.
+            </div>
+            <button onClick={()=>{
+              const checks=document.querySelectorAll(".norm-check");
+              const cambios=[];
+              checks.forEach((chk,i)=>{
+                if(!chk.checked)return;
+                const sel=document.getElementById("sel-"+i.toString().replace("chk-",""));
+                // usar el id del propio checkbox para encontrar el select
+                const idx=chk.id.replace("chk-","");
+                const selEl=document.getElementById("sel-"+idx);
+                if(!selEl||!selEl.value)return;
+                cambios.push({de:chk.dataset.variante,a:selEl.value});
+              });
+              if(cambios.length===0){show("⚠️ No hay nada para cambiar (destildaste todos o dejaste sin destino)");return;}
+              let totalMovs=0,totalCaja=0;
+              const nuevosMovs=movs.map(m=>{
+                const c=cambios.find(x=>x.de===m.obra);
+                if(c){totalMovs++;return {...m,obra:c.a};}
+                return m;
+              });
+              const nuevosCaja=caja.map(c2=>{
+                const c=cambios.find(x=>x.de===c2.obra);
+                if(c){totalCaja++;return {...c2,obra:c.a};}
+                return c2;
+              });
+              if(!confirm("¿NORMALIZAR "+cambios.length+" variante(s)?\n\nSe cambiarán:\n• "+totalMovs+" movimientos\n• "+totalCaja+" gastos de caja chica\n\nPrimeros 5:\n"+cambios.slice(0,5).map(c=>"  '"+c.de+"' → '"+c.a+"'").join("\n"))) return;
+              setMovs(nuevosMovs);
+              setCaja(nuevosCaja);
+              _lastWrite.current["movs"]=Date.now()+30000;
+              _lastWrite.current["caja"]=Date.now()+30000;
+              show("🪄 "+cambios.length+" variantes normalizadas · "+(totalMovs+totalCaja)+" registros actualizados");
+              cm();
+            }} style={{...sB,background:T.green,fontSize:14,fontWeight:800}}>🪄 Aplicar cambios seleccionados</button>
           </>}
         </div>;
       })()}
