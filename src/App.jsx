@@ -3181,7 +3181,33 @@ export default function App(){
                   <div><h1>ENSAMBLE VILLARREAL</h1><div style="color:#666;font-size:10px">Carpintería Arquitectónica · Circuito Los Sauces 136, Aguascalientes</div></div>
                   <div style="text-align:right"><div style="font-size:14px;font-weight:700;color:#1B5E20">REPORTE DE OBRAS</div><div style="font-size:10px;color:#666">Fecha: ${fd(td())}</div></div>
                 </div>
-                <h2>Resumen General</h2>
+                ${(()=>{
+                  // KPIs GLOBALES (todo el sistema, no solo obras activas)
+                  const tIngGlobal=movs.filter(m=>m.ing>0).reduce((s,m)=>s+m.ing,0);
+                  const tEgrGlobal=movs.filter(m=>m.egr>0).reduce((s,m)=>s+m.egr,0)+caja.filter(c=>c.status!=="rechazado").reduce((s,c)=>s+c.monto,0);
+                  const utilidad=tIngGlobal-tEgrGlobal;
+                  const utilColor=utilidad>=0?"#2E7D32":"#C62828";
+                  return `<div style="background:linear-gradient(135deg,#f5f5dc,#fff);border:2px solid #C9956B;border-radius:8px;padding:14px;margin-bottom:20px">
+                    <div style="font-size:11px;font-weight:800;color:#8B6914;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">💰 Cuánto debe haber en caja</div>
+                    <div style="font-size:32px;font-weight:800;color:${utilColor};margin-bottom:2px">${$(utilidad)}</div>
+                    <div style="font-size:11px;color:#666">Cobrado <b style="color:#2E7D32">${$(tIngGlobal)}</b> − Gastado <b style="color:#C62828">${$(tEgrGlobal)}</b></div>
+                  </div>
+                  <div style="display:flex;gap:10px;margin-bottom:20px">
+                    <div style="flex:1;padding:12px;border:1px solid #ddd;border-radius:6px;text-align:center">
+                      <div style="font-size:9px;color:#666;font-weight:700;text-transform:uppercase">Cobrado · Año</div>
+                      <div style="font-size:20px;font-weight:800;color:#2E7D32;margin-top:2px">${$(tIngGlobal)}</div>
+                    </div>
+                    <div style="flex:1;padding:12px;border:1px solid #ddd;border-radius:6px;text-align:center">
+                      <div style="font-size:9px;color:#666;font-weight:700;text-transform:uppercase">Gastado · Año</div>
+                      <div style="font-size:20px;font-weight:800;color:#C62828;margin-top:2px">${$(tEgrGlobal)}</div>
+                    </div>
+                    <div style="flex:1;padding:12px;border:1px solid #ddd;border-radius:6px;text-align:center">
+                      <div style="font-size:9px;color:#666;font-weight:700;text-transform:uppercase">Utilidad · Año</div>
+                      <div style="font-size:20px;font-weight:800;color:${utilColor};margin-top:2px">${$(utilidad)}</div>
+                    </div>
+                  </div>`;
+                })()}
+                <h2>Resumen de Obras Activas</h2>
                 <table>
                   <tr><td style="width:25%">Total Cotizado</td><td class="r b">${$(obrasRich.reduce((s,o)=>s+(o.cotizado||0),0))}</td>
                       <td style="width:25%">Total Cobrado</td><td class="r b g">${$(obrasRich.reduce((s,o)=>s+(o.cob||0),0))}</td></tr>
@@ -3193,6 +3219,14 @@ export default function App(){
                   <thead><tr><th>#</th><th>OBRA</th><th>CLIENTE</th><th>FASE</th><th class="r">COTIZADO</th><th class="r">COBRADO</th><th class="r">GASTADO</th><th class="r">MARGEN</th><th class="r">AVANCE</th></tr></thead>
                   <tbody>
                   ${obrasRich.map((o,i)=>`<tr><td>${i+1}</td><td class="b">${o.nombre}</td><td>${o.cliente||"—"}</td><td>${FASES[o.fase]||o.fase||""}</td><td class="r">${$(o.cotizado||0)}</td><td class="r g">${$(o.cob||0)}</td><td class="r rr">${$(o.gas||0)}</td><td class="r b ${o.margen>=0?"g":"rr"}">${$(o.margen||0)}</td><td class="r">${o.avance||0}%</td></tr>`).join("")}
+                  <tr style="font-weight:800;background:#e8f5e9;border-top:2px solid #1B5E20">
+                    <td colspan="4">TOTAL (${obrasRich.length} obras)</td>
+                    <td class="r">${$(obrasRich.reduce((s,o)=>s+(o.cotizado||0),0))}</td>
+                    <td class="r g">${$(obrasRich.reduce((s,o)=>s+(o.cob||0),0))}</td>
+                    <td class="r rr">${$(obrasRich.reduce((s,o)=>s+(o.gas||0),0))}</td>
+                    <td class="r ${obrasRich.reduce((s,o)=>s+(o.margen||0),0)>=0?"g":"rr"}">${$(obrasRich.reduce((s,o)=>s+(o.margen||0),0))}</td>
+                    <td class="r">—</td>
+                  </tr>
                   </tbody>
                 </table>
                 <h2>Desglose de Gastos por Categoría (por obra)</h2>
