@@ -1818,14 +1818,15 @@ function ProrratearGastoForm({obras,movs,setMovs,enviarAPapelera,user,td,show,cm
   // ── Acción: redistribuir gastos sueltos existentes ──
   const redistribuirSueltos=()=>{
     if(selMovsSueltos.size===0){show("⚠️ Selecciona gastos a redistribuir");return;}
-    if(reparto.length===0){show("⚠️ Selecciona al menos una obra destino");return;}
-    if(!confirm("¿Redistribuir "+selMovsSueltos.size+" gasto(s) por $"+totalSueltos.toLocaleString("es-MX")+" entre "+reparto.length+" obras?\n\nLos originales irán a la Papelera, se crearán nuevos por obra.")) return;
+    // FIX: usar repartoSueltos (basado en el total de gastos sueltos), NO reparto (basado en el formulario "Nuevo gasto")
+    if(repartoSueltos.length===0){show("⚠️ Selecciona al menos una obra destino");return;}
+    if(!confirm("¿Redistribuir "+selMovsSueltos.size+" gasto(s) por $"+totalSueltos.toLocaleString("es-MX")+" entre "+repartoSueltos.length+" obras?\n\nLos originales irán a la Papelera, se crearán nuevos por obra.")) return;
     // 1) Mandar a papelera los originales seleccionados
     const aBorrar=movs.filter(m=>selMovsSueltos.has(m.id));
     aBorrar.forEach(m=>enviarAPapelera("mov",m,"Redistribuido por prorrateo"));
     // 2) Crear nuevos egresos por cada obra destino, agrupando todos los gastos sueltos
     const loteId="PRR"+Date.now();
-    const nuevos=reparto.map((r,i)=>({
+    const nuevos=repartoSueltos.map((r,i)=>({
       id:"M"+Date.now()+"_"+i+Math.random().toString(36).slice(2,5),
       t:"egr",
       fecha:td(),
