@@ -1759,7 +1759,9 @@ function ProrratearGastoForm({obras,movs,setMovs,enviarAPapelera,user,td,show,cm
     });
   },[movs,obrasNorm]);
   const[selMovsSueltos,setSelMovsSueltos]=useState(()=>new Set());
-  const totalSueltos=[...selMovsSueltos].reduce((s,id)=>{const m=movs.find(x=>x.id===id);return s+(m?m.monto:0);},0);
+  // Helper para leer el monto REAL del mov (usa egr/ing/monto en orden de prioridad)
+  const getMovMonto=m=>Number(m?.egr||0)>0?Number(m.egr):Number(m?.ing||0)>0?Number(m.ing):Number(m?.monto||0);
+  const totalSueltos=[...selMovsSueltos].reduce((s,id)=>{const m=movs.find(x=>x.id===id);return s+(m?getMovMonto(m):0);},0);
   // Obras incluidas en el reparto
   const obrasIncluidas=obrasActivas.filter(o=>obrasSel.has(o.id));
   // Calcular reparto según método
@@ -1831,7 +1833,9 @@ function ProrratearGastoForm({obras,movs,setMovs,enviarAPapelera,user,td,show,cm
       prov:"Prorrateo Taller",
       obra:r.obra.nombre,
       cat:"Gastos generales",
-      monto:r.parte,
+      ing:0,            // ← para que la tabla lo lea
+      egr:r.parte,      // ← CRÍTICO: el sistema muestra m.egr en la columna
+      monto:r.parte,    // ← retrocompat
       user:user.nombre,
       status:"aprobado",
       prorrateoLote:loteId,
@@ -1891,7 +1895,7 @@ function ProrratearGastoForm({obras,movs,setMovs,enviarAPapelera,user,td,show,cm
                 <td style={{padding:6,color:T.muted}}>{m.fecha}</td>
                 <td style={{padding:6}}>{m.desc}</td>
                 <td style={{padding:6,color:T.yellow}}>{m.obra||"(sin obra)"}</td>
-                <td style={{padding:6,textAlign:"right",fontWeight:700,color:T.red}}>${m.monto.toLocaleString("es-MX")}</td>
+                <td style={{padding:6,textAlign:"right",fontWeight:700,color:T.red}}>${getMovMonto(m).toLocaleString("es-MX")}</td>
               </tr>)}
             </tbody>
           </table>}
