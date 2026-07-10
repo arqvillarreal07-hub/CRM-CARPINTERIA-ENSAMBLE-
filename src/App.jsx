@@ -669,52 +669,77 @@ function ImportadorViernesForm({obras,movs,onImport}){
     }
     return {items:result,celdasParsed,headers,colDesc,colObra,colMonto,omitidas,sep};
   };
-  // Parser NÓMINA: parsea "X dias OBRA ($Y)" en columna "dias y obra"
+  // Parser NÓMINA — soporta DOS formatos:
+  //   FORMATO NUEVO (recomendado): columnas fecha, empleado, puesto, obra, dias, monto — una fila = un (empleado, obra)
+  //   FORMATO VIEJO: columnas nombre, puesto, sueldo, extras, "dias y obra" (con desglose), total
   const parsearNomina=(txt)=>{
     if(!txt.trim())return [];
     const lineas=txt.split("\n").filter(l=>l.trim());
     const sep=lineas[0].includes("\t")?"\t":",";
     const primera=lineas[0].split(sep).map(c=>c.trim().toLowerCase());
-    const haySSHeader=primera.some(c=>["nombre","cargo","puesto","sueldo","dias y obra","extras","total"].includes(c)||primera.some(p=>p.includes("dias")));
+    const haySSHeader=primera.some(c=>["nombre","empleado","cargo","puesto","sueldo","dias y obra","extras","total","obra","dias","monto"].includes(c));
     const startIdx=haySSHeader?1:0;
     const headers=haySSHeader?primera:["nombre","cargo","sueldo","extras","dias","total"];
-    const findCol=(opts)=>{for(const o of opts){const i=headers.findIndex(h=>h.includes(o));if(i>=0)return i;}return -1;};
-    const colNombre=findCol(["nombre"]);
+    const findCol=(opts)=>{for(const o of opts){const i=headers.findIndex(h=>h===o||h.includes(o));if(i>=0)return i;}return -1;};
+    const colFecha=findCol(["fecha"]);
+    const colNombre=findCol(["empleado","nombre"]);
     const colCargo=findCol(["cargo","puesto"]);
-    const colSueldo=findCol(["sueldo"]);
-    const colExtras=findCol(["extras"]);
-    const colDiasObra=findCol(["dias y obra","obra dias","dias obra","obra"]);
+    const colObraSola=findCol(["obra"]);
+    const colDiasSola=findCol(["dias","días"]);
+    const colMontoSola=findCol(["monto"]);
     const colTotal=findCol(["total"]);
+    const colDiasObra=findCol(["dias y obra","obra dias","dias obra"]);
+    const colExtras=findCol(["extras"]);
+    // Detectar formato: si hay obra+dias como columnas separadas (Y no hay dias-y-obra), es formato nuevo
+    const esFormatoNuevo=colObraSola>=0&&colDiasSola>=0&&(colMontoSola>=0||colTotal>=0)&&colDiasObra<0;
     const result=[];
-    // Regex: "3 dias tamarindos ($2400)" → grupo 1=3, grupo 2=tamarindos, grupo 3=2400
-    // Regex acepta: letras, números, #, espacios en el nombre de la obra (ej "TAMARINDOS #1", "CORAL #39", "Casa 25", etc)
     const reDiasObra=/(\d+)\s*d[ií]as?\s+([^()$]+?)\s*\(\$?\s*([\d,]+(?:\.\d+)?)\s*\)/gi;
     for(let i=startIdx;i<lineas.length;i++){
       const celdas=lineas[i].split(sep).map(c=>c.trim().replace(/^"|"$/g,""));
       if(celdas.every(c=>!c))continue;
       const nombre=colNombre>=0?celdas[colNombre]:celdas[0];
       const cargo=colCargo>=0?celdas[colCargo]:"";
-      const total=colTotal>=0?parseMonto(celdas[colTotal]):0;
-      const extras=colExtras>=0?parseMonto(celdas[colExtras]):0;
-      const diasObraStr=colDiasObra>=0?celdas[colDiasObra]:"";
-      if(!nombre||total===0)continue;
-      // Parsear cada "X dias OBRA ($Y)" del campo diasObraStr
-      const partes=[];let m;reDiasObra.lastIndex=0;
-      while((m=reDiasObra.exec(diasObraStr))!==null){
-        partes.push({dias:Number(m[1]),obra:m[2].trim(),monto:parseMonto(m[3])});
-      }
-      if(partes.length===0){
-        // No pudo parsear partes → crear un egreso "general" con el total
-        result.push({tipo:"egr",fecha:fechaSem,desc:"Nómina "+nombre+(cargo?" ("+cargo+")":""),obra:"",monto:total,obraOrig:"",obraMatch:"",cat:"Nómina",fuente:"💼 Nómina"});
-      }else{
-        // Crear UN egreso por cada parte (obra + dias)
-        partes.forEach(p=>{
-          const obraMatcheada=matchObra(p.obra);
-          result.push({tipo:"egr",fecha:fechaSem,desc:"Nómina "+nombre+" — "+p.dias+" día"+(p.dias!==1?"s":""),obra:obraMatcheada,monto:p.monto,obraOrig:p.obra,obraMatch:p.obra&&obraMatcheada===p.obra?"exacto":p.obra&&obras.find(o=>normSearch(o.nombre).includes(normSearch(p.obra))||normSearch(p.obra).includes(normSearch(o.nombre)))?"fuzzy":p.obra?"sin-match":"",cat:"Nómina",fuente:"💼 Nómina "+nombre});
+      if(!nombre)continue;
+      if(esFormatoNuevo){
+        // ═══ FORMATO NUEVO ═══ una fila = un (empleado, obra)
+        const fechaCell=colFecha>=0?parseDate(celdas[colFecha]):"";
+        const obraStr=colObraSola>=0?celdas[colObraSola]:"";
+        const dias=colDiasSola>=0?Number(celdas[colDiasSola])||0:0;
+        const montoStr=colMontoSola>=0?celdas[colMontoSola]:(colTotal>=0?celdas[colTotal]:"");
+        const monto=parseMonto(montoStr);
+        if(monto<=0)continue;
+        const obraMatcheada=matchObra(obraStr);
+        result.push({
+          tipo:"egr",
+          fecha:fechaCell||fechaSem,
+          desc:"Nómina "+nombre.trim()+(dias>0?" — "+dias+" día"+(dias!==1?"s":""):"")+(cargo?" ("+cargo+")":""),
+          obra:obraMatcheada,
+          monto,
+          obraOrig:obraStr,
+          obraMatch:obraStr&&obraMatcheada===obraStr?"exacto":obraStr&&obras.find(o=>normSearch(o.nombre).includes(normSearch(obraStr))||normSearch(obraStr).includes(normSearch(o.nombre)))?"fuzzy":obraStr?"sin-match":"",
+          cat:"Nómina",
+          fuente:"💼 Nómina "+nombre
         });
-        // Si hay extras, agregar como egreso aparte
-        if(extras>0){
-          result.push({tipo:"egr",fecha:fechaSem,desc:"Extras nómina "+nombre,obra:"",monto:extras,obraOrig:"",obraMatch:"",cat:"Nómina",fuente:"💼 Extras "+nombre});
+      }else{
+        // ═══ FORMATO VIEJO ═══ desglose en una celda
+        const total=colTotal>=0?parseMonto(celdas[colTotal]):0;
+        const extras=colExtras>=0?parseMonto(celdas[colExtras]):0;
+        const diasObraStr=colDiasObra>=0?celdas[colDiasObra]:"";
+        if(total===0)continue;
+        const partes=[];let m;reDiasObra.lastIndex=0;
+        while((m=reDiasObra.exec(diasObraStr))!==null){
+          partes.push({dias:Number(m[1]),obra:m[2].trim(),monto:parseMonto(m[3])});
+        }
+        if(partes.length===0){
+          result.push({tipo:"egr",fecha:fechaSem,desc:"Nómina "+nombre+(cargo?" ("+cargo+")":""),obra:"",monto:total,obraOrig:"",obraMatch:"",cat:"Nómina",fuente:"💼 Nómina"});
+        }else{
+          partes.forEach(p=>{
+            const obraMatcheada=matchObra(p.obra);
+            result.push({tipo:"egr",fecha:fechaSem,desc:"Nómina "+nombre+" — "+p.dias+" día"+(p.dias!==1?"s":""),obra:obraMatcheada,monto:p.monto,obraOrig:p.obra,obraMatch:p.obra&&obraMatcheada===p.obra?"exacto":p.obra&&obras.find(o=>normSearch(o.nombre).includes(normSearch(p.obra))||normSearch(p.obra).includes(normSearch(o.nombre)))?"fuzzy":p.obra?"sin-match":"",cat:"Nómina",fuente:"💼 Nómina "+nombre});
+          });
+          if(extras>0){
+            result.push({tipo:"egr",fecha:fechaSem,desc:"Extras nómina "+nombre,obra:"",monto:extras,obraOrig:"",obraMatch:"",cat:"Nómina",fuente:"💼 Extras "+nombre});
+          }
         }
       }
     }
@@ -922,13 +947,57 @@ function ImportadorViernesForm({obras,movs,onImport}){
           </tbody>
         </table>
       </div>
+      {/* ═══ RESUMEN CON TOTALES POR SECCIÓN ═══ */}
+      {(()=>{
+        const ingItems=itemsValid.filter(it=>it.tipo==="ing");
+        const egrOtros=itemsValid.filter(it=>it.tipo==="egr"&&it.cat!=="Nómina");
+        const nomItems=itemsValid.filter(it=>it.tipo==="egr"&&it.cat==="Nómina");
+        const totIngS=ingItems.reduce((s,it)=>s+Number(it.monto),0);
+        const totEgrS=egrOtros.reduce((s,it)=>s+Number(it.monto),0);
+        const totNomS=nomItems.reduce((s,it)=>s+Number(it.monto),0);
+        return <div style={{background:"rgba(255,255,255,.03)",border:"1px solid "+T.gold+"55",borderRadius:10,padding:12,marginBottom:10}}>
+          <div style={{fontSize:11,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>📊 Resumen — Verifica los totales antes de importar</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
+            <div style={{padding:10,background:"rgba(76,175,80,.08)",border:"1px solid "+T.green+"33",borderRadius:7,textAlign:"center"}}>
+              <div style={{fontSize:9,color:T.green,fontWeight:700,textTransform:"uppercase"}}>📈 Ingresos</div>
+              <div style={{fontSize:18,fontWeight:800,color:T.green,marginTop:2}}>{$(totIngS)}</div>
+              <div style={{fontSize:10,color:T.muted}}>{ingItems.length} mov(s)</div>
+            </div>
+            <div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"33",borderRadius:7,textAlign:"center"}}>
+              <div style={{fontSize:9,color:T.red,fontWeight:700,textTransform:"uppercase"}}>📉 Gastos</div>
+              <div style={{fontSize:18,fontWeight:800,color:T.red,marginTop:2}}>{$(totEgrS)}</div>
+              <div style={{fontSize:10,color:T.muted}}>{egrOtros.length} mov(s)</div>
+            </div>
+            <div style={{padding:10,background:"rgba(171,71,188,.08)",border:"1px solid "+T.purple+"33",borderRadius:7,textAlign:"center"}}>
+              <div style={{fontSize:9,color:T.purple,fontWeight:700,textTransform:"uppercase"}}>💼 Nómina</div>
+              <div style={{fontSize:18,fontWeight:800,color:T.purple,marginTop:2}}>{$(totNomS)}</div>
+              <div style={{fontSize:10,color:T.muted}}>{nomItems.length} mov(s)</div>
+            </div>
+          </div>
+          <div style={{padding:"8px 10px",background:"rgba(201,149,107,.06)",borderRadius:6,fontSize:11,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{color:T.gold,fontWeight:700}}>TOTAL A IMPORTAR</span>
+            <span style={{fontSize:14,fontWeight:800,color:T.gold}}>{itemsValid.length} movs · {$(totIngS+totEgrS+totNomS)}</span>
+          </div>
+          {nDup>0&&<div style={{marginTop:6,fontSize:10,color:T.yellow,textAlign:"center"}}>⚠️ {nDup} duplicado(s) se omitirán</div>}
+        </div>;
+      })()}
       <button onClick={()=>{
         const valid=items.filter(it=>!it.duplicado&&Number(it.monto)>0&&it.desc);
         if(valid.length===0){alert("No hay items válidos para importar");return;}
         if(bloquearImport){if(!confirm("⚠️ HAY ERRORES en la validación (score "+score+"%).\n\nSe recomienda corregir antes de importar.\n\n¿Importar de todas formas? (No recomendado)"))return;}
-        if(!confirm("¿Importar "+valid.length+" movimientos del viernes "+fechaSem+"?\n\nScore: "+score+"%\nIngresos: "+$(totIng)+"\nEgresos: "+$(totEgr)+(nDup>0?"\n\n("+nDup+" duplicados omitidos)":"")))return;
+        const nomC=valid.filter(v=>v.cat==="Nómina").length;
+        const ingC=valid.filter(v=>v.tipo==="ing").length;
+        const egrC=valid.filter(v=>v.tipo==="egr"&&v.cat!=="Nómina").length;
+        if(!confirm("¿Importar "+valid.length+" movimientos del viernes "+fechaSem+"?\n\n"+
+          "• "+ingC+" ingresos: "+$(totIng)+"\n"+
+          "• "+egrC+" gastos: "+$(totEgr-valid.filter(v=>v.cat==="Nómina").reduce((s,v)=>s+Number(v.monto),0))+"\n"+
+          "• "+nomC+" nómina: "+$(valid.filter(v=>v.cat==="Nómina").reduce((s,v)=>s+Number(v.monto),0))+"\n\n"+
+          "TOTAL: "+$(totIng+totEgr)+"\n"+
+          (nDup>0?"\n("+nDup+" duplicados omitidos)":"")+
+          "\nScore de confianza: "+score+"%"
+        ))return;
         onImport(valid);
-      }} style={{...sB,background:bloquearImport?"linear-gradient(135deg,"+T.red+","+T.orange+")":"linear-gradient(135deg,"+colorScore+","+T.orange+")",marginTop:12,fontSize:14}}>{bloquearImport?"⚠️":"💾"} Importar {itemsValid.length} movs del viernes {bloquearImport&&"(con errores)"}</button>
+      }} style={{...sB,background:bloquearImport?"linear-gradient(135deg,"+T.red+","+T.orange+")":"linear-gradient(135deg,"+T.green+","+T.gold+")",marginTop:6,fontSize:15,fontWeight:800,padding:"14px",boxShadow:"0 4px 14px rgba(76,175,80,.25)"}}>{bloquearImport?"⚠️ IMPORTAR CON ERRORES":"💾 IMPORTAR "+itemsValid.length+" MOVIMIENTOS"}</button>
     </div>;
     })()}
   </div>;
