@@ -933,12 +933,14 @@ function ImportadorViernesForm({obras,movs,onImport}){
               <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a"}}><input value={it.fecha} onChange={e=>updateItem(idx,"fecha",e.target.value)} type="date" style={{background:"transparent",border:"none",color:T.text,fontSize:10,width:110,outline:"none"}}/></td>
               <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a"}}><input value={it.desc} onChange={e=>updateItem(idx,"desc",e.target.value)} style={{background:"transparent",border:"none",color:T.text,fontSize:11,width:"100%",outline:"none"}}/></td>
               <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a"}}>
-                <select value={it.obra} onChange={e=>updateItem(idx,"obra",e.target.value)} style={{background:it.obraMatch==="sin-match"?"rgba(231,76,60,.1)":it.obraMatch==="fuzzy"?"rgba(255,213,79,.06)":"transparent",border:"none",color:it.obraMatch==="sin-match"?T.red:T.text,fontSize:10,width:"100%",outline:"none"}}>
+                <select value={it.obra} onChange={e=>updateItem(idx,"obra",e.target.value)} style={{background:it.obraMatch==="sin-match"?"rgba(231,76,60,.1)":it.obraMatch==="fuzzy"?"rgba(255,213,79,.06)":"transparent",border:"none",color:it.obraMatch==="sin-match"?T.yellow:T.text,fontSize:10,width:"100%",outline:"none",fontWeight:it.obraMatch==="sin-match"?700:400}}>
                   <option value="">— sin obra —</option>
                   {obras.map(o=><option key={o.id} value={o.nombre}>{o.nombre}</option>)}
+                  {/* Si el mov tiene obra que NO existe en el catálogo, la mostramos como opción con marca */}
+                  {it.obra&&!obras.some(o=>o.nombre===it.obra)&&<option value={it.obra} style={{background:"#3a2a10",color:"#FFD54F"}}>⚠️ {it.obra} (nueva)</option>}
                 </select>
                 {it.obraMatch==="fuzzy"&&<div style={{fontSize:8,color:T.yellow}}>≈ "{it.obraOrig}"</div>}
-                {it.obraMatch==="sin-match"&&<div style={{fontSize:8,color:T.red}}>⚠️ "{it.obraOrig}" no existe</div>}
+                {it.obraMatch==="sin-match"&&<div style={{fontSize:8,color:T.yellow}}>⚠️ "{it.obraOrig}" no está en catálogo</div>}
               </td>
               <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a",textAlign:"right"}}>{it.tipo==="ing"?<input value={it.monto} onChange={e=>updateItem(idx,"monto",e.target.value)} type="number" style={{background:"transparent",border:"none",color:T.green,fontWeight:800,fontSize:11,width:80,textAlign:"right",outline:"none"}}/>:"-"}</td>
               <td style={{padding:"4px 6px",borderRight:"1px solid #2a2a2a",textAlign:"right"}}>{it.tipo==="egr"?<input value={it.monto} onChange={e=>updateItem(idx,"monto",e.target.value)} type="number" style={{background:"transparent",border:"none",color:T.red,fontWeight:800,fontSize:11,width:80,textAlign:"right",outline:"none"}}/>:"-"}</td>
@@ -947,7 +949,7 @@ function ImportadorViernesForm({obras,movs,onImport}){
           </tbody>
         </table>
       </div>
-      {/* ═══ RESUMEN CON TOTALES POR SECCIÓN ═══ */}
+      {/* ═══ RESUMEN CON TOTALES POR SECCIÓN + CUADRE ═══ */}
       {(()=>{
         const ingItems=itemsValid.filter(it=>it.tipo==="ing");
         const egrOtros=itemsValid.filter(it=>it.tipo==="egr"&&it.cat!=="Nómina");
@@ -955,29 +957,48 @@ function ImportadorViernesForm({obras,movs,onImport}){
         const totIngS=ingItems.reduce((s,it)=>s+Number(it.monto),0);
         const totEgrS=egrOtros.reduce((s,it)=>s+Number(it.monto),0);
         const totNomS=nomItems.reduce((s,it)=>s+Number(it.monto),0);
-        return <div style={{background:"rgba(255,255,255,.03)",border:"1px solid "+T.gold+"55",borderRadius:10,padding:12,marginBottom:10}}>
-          <div style={{fontSize:11,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>📊 Resumen — Verifica los totales antes de importar</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:8}}>
-            <div style={{padding:10,background:"rgba(76,175,80,.08)",border:"1px solid "+T.green+"33",borderRadius:7,textAlign:"center"}}>
-              <div style={{fontSize:9,color:T.green,fontWeight:700,textTransform:"uppercase"}}>📈 Ingresos</div>
-              <div style={{fontSize:18,fontWeight:800,color:T.green,marginTop:2}}>{$(totIngS)}</div>
-              <div style={{fontSize:10,color:T.muted}}>{ingItems.length} mov(s)</div>
+        const totalGeneral=totIngS+totEgrS+totNomS;
+        const totalEgresoConNom=totEgrS+totNomS;
+        // Obras fantasma en el import (no existen en catálogo)
+        const obrasFantasma=[...new Set(itemsValid.filter(it=>it.obraMatch==="sin-match").map(it=>it.obra))].filter(Boolean);
+        return <div style={{background:"rgba(255,255,255,.03)",border:"2px solid "+T.gold+"55",borderRadius:10,padding:14,marginBottom:10}}>
+          <div style={{fontSize:12,color:T.gold,fontWeight:800,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>📊 Verifica los totales — deben cuadrar con lo del taller</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:10}}>
+            <div style={{padding:12,background:"rgba(76,175,80,.10)",border:"1px solid "+T.green+"44",borderRadius:7,textAlign:"center"}}>
+              <div style={{fontSize:10,color:T.green,fontWeight:800,textTransform:"uppercase",letterSpacing:.5}}>📈 Ingresos</div>
+              <div style={{fontSize:22,fontWeight:800,color:T.green,marginTop:4}}>{$(totIngS)}</div>
+              <div style={{fontSize:10,color:T.muted,marginTop:2}}>{ingItems.length} movimientos</div>
             </div>
-            <div style={{padding:10,background:"rgba(231,76,60,.08)",border:"1px solid "+T.red+"33",borderRadius:7,textAlign:"center"}}>
-              <div style={{fontSize:9,color:T.red,fontWeight:700,textTransform:"uppercase"}}>📉 Gastos</div>
-              <div style={{fontSize:18,fontWeight:800,color:T.red,marginTop:2}}>{$(totEgrS)}</div>
-              <div style={{fontSize:10,color:T.muted}}>{egrOtros.length} mov(s)</div>
+            <div style={{padding:12,background:"rgba(231,76,60,.10)",border:"1px solid "+T.red+"44",borderRadius:7,textAlign:"center"}}>
+              <div style={{fontSize:10,color:T.red,fontWeight:800,textTransform:"uppercase",letterSpacing:.5}}>📉 Gastos (sin nómina)</div>
+              <div style={{fontSize:22,fontWeight:800,color:T.red,marginTop:4}}>{$(totEgrS)}</div>
+              <div style={{fontSize:10,color:T.muted,marginTop:2}}>{egrOtros.length} movimientos</div>
             </div>
-            <div style={{padding:10,background:"rgba(171,71,188,.08)",border:"1px solid "+T.purple+"33",borderRadius:7,textAlign:"center"}}>
-              <div style={{fontSize:9,color:T.purple,fontWeight:700,textTransform:"uppercase"}}>💼 Nómina</div>
-              <div style={{fontSize:18,fontWeight:800,color:T.purple,marginTop:2}}>{$(totNomS)}</div>
-              <div style={{fontSize:10,color:T.muted}}>{nomItems.length} mov(s)</div>
+            <div style={{padding:12,background:"rgba(171,71,188,.10)",border:"1px solid "+T.purple+"44",borderRadius:7,textAlign:"center"}}>
+              <div style={{fontSize:10,color:T.purple,fontWeight:800,textTransform:"uppercase",letterSpacing:.5}}>💼 Nómina</div>
+              <div style={{fontSize:22,fontWeight:800,color:T.purple,marginTop:4}}>{$(totNomS)}</div>
+              <div style={{fontSize:10,color:T.muted,marginTop:2}}>{nomItems.length} movimientos</div>
             </div>
           </div>
-          <div style={{padding:"8px 10px",background:"rgba(201,149,107,.06)",borderRadius:6,fontSize:11,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{color:T.gold,fontWeight:700}}>TOTAL A IMPORTAR</span>
-            <span style={{fontSize:14,fontWeight:800,color:T.gold}}>{itemsValid.length} movs · {$(totIngS+totEgrS+totNomS)}</span>
+          {/* Total egreso combinado */}
+          <div style={{padding:"10px 14px",background:"rgba(231,76,60,.06)",border:"1px solid "+T.red+"33",borderRadius:6,marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{color:T.red,fontWeight:700,fontSize:12}}>TOTAL EGRESO (gastos + nómina)</span>
+            <span style={{fontSize:16,fontWeight:800,color:T.red}}>{$(totalEgresoConNom)}</span>
           </div>
+          {/* Total general */}
+          <div style={{padding:"12px 14px",background:"linear-gradient(135deg,rgba(201,149,107,.15),rgba(201,149,107,.05))",border:"1px solid "+T.gold+"55",borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{color:T.gold,fontWeight:800,fontSize:12}}>💰 SUMA A IMPORTAR</div>
+              <div style={{fontSize:10,color:T.muted,marginTop:2}}>{itemsValid.length} movimientos · fecha semana: {fechaSem}</div>
+            </div>
+            <span style={{fontSize:20,fontWeight:800,color:T.gold}}>{$(totalGeneral)}</span>
+          </div>
+          {/* Obras fantasma advertencia */}
+          {obrasFantasma.length>0&&<div style={{marginTop:8,padding:"8px 10px",background:"rgba(255,213,79,.06)",border:"1px solid "+T.yellow+"55",borderRadius:6,fontSize:11}}>
+            <div style={{color:T.yellow,fontWeight:700,marginBottom:2}}>⚠️ {obrasFantasma.length} obra(s) NO están en tu catálogo:</div>
+            <div style={{fontSize:10,color:T.muted}}>{obrasFantasma.slice(0,6).join(" · ")}{obrasFantasma.length>6?" · +"+(obrasFantasma.length-6)+" más":""}</div>
+            <div style={{fontSize:10,color:T.muted,marginTop:4}}>Si son <b>HERRAMIENTA / GENERAL / TALLER</b> → después las prorrateas con "🧮 Prorratear gasto". Si son obras reales → crea la obra primero o cámbiala en el dropdown de cada fila.</div>
+          </div>}
           {nDup>0&&<div style={{marginTop:6,fontSize:10,color:T.yellow,textAlign:"center"}}>⚠️ {nDup} duplicado(s) se omitirán</div>}
         </div>;
       })()}
