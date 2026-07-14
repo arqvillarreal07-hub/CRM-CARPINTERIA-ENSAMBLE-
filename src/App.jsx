@@ -55,6 +55,32 @@ const _saveListeners=new Set();
 const _notifySave=(status,key,err)=>{_saveListeners.forEach(fn=>{try{fn({status,key,err});}catch{}});};
 const _hash=v=>{try{const s=JSON.stringify(v);let h=0;for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return h;}catch{return 0;}};
 
+// === BACKUP AUTOMÁTICO === Guarda snapshot cada vez que hay cambios importantes
+const _saveBackup=(key,value)=>{
+  try{
+    const backups=JSON.parse(localStorage.getItem("ev_backups_"+key)||"[]");
+    const now=Date.now();
+    // Guarda solo si pasaron >5 min desde el último backup de esta key
+    if(backups.length>0&&now-backups[backups.length-1].ts<5*60*1000)return;
+    backups.push({ts:now,value,count:Array.isArray(value)?value.length:0});
+    // Mantener últimos 10 backups por key (rolling window)
+    while(backups.length>10)backups.shift();
+    localStorage.setItem("ev_backups_"+key,JSON.stringify(backups));
+  }catch(e){console.warn("Backup error:",e);}
+};
+// Descargar TODO el localStorage como archivo JSON (para exportar antes de una operación destructiva)
+const _downloadBackup=()=>{
+  try{
+    const b={ts:new Date().toISOString(),data:{}};
+    Object.keys(localStorage).filter(k=>k.startsWith("ev_")&&!k.startsWith("ev_backups_")).forEach(k=>{b.data[k]=localStorage.getItem(k);});
+    const blob=new Blob([JSON.stringify(b,null,2)],{type:"application/json"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+    a.download="ENSAMBLE_BACKUP_"+new Date().toISOString().replace(/[:.]/g,"-")+".json";
+    a.click();
+    return true;
+  }catch(e){console.error("Download backup error:",e);return false;}
+};
+
 // === COLA DE PENDIENTES (persistente en localStorage) ===
 const _getPendientes=()=>{try{return JSON.parse(localStorage.getItem("ev_pendientes")||"{}");}catch{return{};}};
 const _setPendientes=(p)=>{try{localStorage.setItem("ev_pendientes",JSON.stringify(p));}catch{}};
@@ -2823,6 +2849,8 @@ export default function App(){
     set(n);
     _lastWrite.current[key]=Date.now();
     _lastHash.current[key]=_hash(n);
+    // BACKUP AUTOMÁTICO — snapshot rolling cada 5 min por key
+    _saveBackup(key,n);
     // Local sync (sin esperar)
     try{const lite=key==='caja'&&Array.isArray(n)?n.map(c=>c.ticket&&c.ticket.length>500?{...c,ticket:'[nube]'}:c):n;localStorage.setItem('ev_'+key,JSON.stringify(lite));}catch{}
     // Cloud push (devuelve Promise pero no bloqueamos)
@@ -3456,9 +3484,26 @@ export default function App(){
           if(editObraId){
             const _obEdit=obras.find(o=>o.id===editObraId);
             if(_obEdit&&_obEdit.fase&&_obEdit.fase!=="cotizacion")ensureCli(cotNom);
-            setObras(prev=>prev.map(o=>o.id===editObraId?{...o,nombre:cotEmp||cotNom||o.nombre,cliente:cotNom||o.cliente,cotizado:totCot,subtotal:subCot,conIva,partidas:[...cotP],modificadoPor:user.nombre,modificadoFecha:td()}:o));
+            const nombreAnterior=_obEdit?._obEdit?.nombre||_obEdit?.nombre;
+            const nombreNuevo=cotEmp||cotNom||_obEdit?.nombre;
+            // Si el nombre cambia, propagar a TODOS los movs y caja chica que apuntan a la obra vieja
+            let movsCambiados=0,cajaCambiados=0;
+            if(nombreAnterior&&nombreNuevo&&nombreAnterior!==nombreNuevo){
+              const norm=s=>(s||"").toString().toLowerCase().trim().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");
+              const kOld=norm(nombreAnterior);
+              setMovs(prev=>prev.map(m=>{
+                if(norm(m.obra||"")===kOld){movsCambiados++;return {...m,obra:nombreNuevo};}
+                return m;
+              }));
+              setCaja(prev=>prev.map(c=>{
+                if(norm(c.obra||"")===kOld){cajaCambiados++;return {...c,obra:nombreNuevo};}
+                return c;
+              }));
+            }
+            setObras(prev=>prev.map(o=>o.id===editObraId?{...o,nombre:nombreNuevo,cliente:cotNom||o.cliente,cotizado:totCot,subtotal:subCot,conIva,partidas:[...cotP],modificadoPor:user.nombre,modificadoFecha:td()}:o));
             setEditObraId(null);setCotP([]);setCotNom("");setCotEmp("");setConIva(true);
-            show("✓ Cotización actualizada");
+            if(movsCambiados+cajaCambiados>0){show("✓ Actualizada · "+(movsCambiados+cajaCambiados)+" movs reasignados al nombre nuevo");}
+            else show("✓ Cotización actualizada");
           }else{
             const nuevoId="OB"+Date.now()+Math.random().toString(36).slice(2,5);
             setObras(prev=>[...prev,{id:nuevoId,nombre:(cotEmp||cotNom||"Cot")+" #"+cotNum,cliente:cotNom,status:"cotizado",cotizado:totCot,subtotal:subCot,conIva,egreso:0,fase:"cotizacion",avance:0,partidas:[...cotP],extras:[],pagos:[],docs:[],bitacora:[],creadoPor:user.nombre,creadoFecha:td()}]);
@@ -3998,12 +4043,19 @@ export default function App(){
                     </div>
                   </td>
                   {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.prov||"-"}</td>}
-                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,whiteSpace:"nowrap"}} title="Click para cambiar la obra"><select value={m.obra||""} onClick={e=>e.stopPropagation()} onChange={e=>{
+                  {D&&<td style={{padding:"3px 6px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,whiteSpace:"nowrap"}} title="Click para cambiar la obra"><select value={m.obra||""} onClick={e=>e.stopPropagation()} onChange={async e=>{
                     const nueva=e.target.value;
                     if(nueva===m.obra)return;
-                    // Solo permite obras del catálogo. Si es "" queda como "sin obra"
-                    setMovs(prev=>prev.map(x=>x.id===m.id?{...x,obra:nueva}:x));
-                    show("✓ Obra actualizada: "+(nueva||"sin obra"));
+                    // CRÍTICO: cooldown del polling para que la nube no sobreescriba
+                    _lastWrite.current["movs"]=Date.now()+60000;
+                    // Encontrar el mov por id Y por descripción+fecha+monto (por si hay ids duplicados o inconsistentes)
+                    const nuevosMovs=movs.map(x=>{
+                      const matchById=m.id!=null&&x.id===m.id;
+                      const matchByFingerprint=x.fecha===m.fecha&&x.desc===m.desc&&Number(x.egr||x.ing||x.monto||0)===Number(m.egr||m.ing||m.monto||0)&&(x.obra||"")===(m.obra||"");
+                      return (matchById||matchByFingerprint)?{...x,obra:nueva}:x;
+                    });
+                    await setMovs(nuevosMovs);
+                    show("✓ '"+(m.desc||"").slice(0,30)+"': "+(m.obra||"sin obra")+" → "+(nueva||"sin obra"));
                   }} style={{background:m.obra?"transparent":"rgba(255,213,79,.06)",border:"1px solid transparent",color:m.obra?T.gold:T.yellow,fontSize:11,cursor:"pointer",width:"100%",padding:"1px 2px",fontWeight:m.obra?400:600,outline:"none"}} onMouseEnter={e=>e.target.style.border="1px solid "+T.gold+"44"} onMouseLeave={e=>e.target.style.border="1px solid transparent"}>
                     <option value="" style={{background:"#1a1a1a"}}>— sin obra —</option>
                     {obras.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(o=><option key={o.id} value={o.nombre} style={{background:"#1a1a1a"}}>{o.nombre}</option>)}
@@ -4100,11 +4152,13 @@ export default function App(){
                       </div>
                     </td>
                     {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",color:T.muted,fontSize:11,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.resp?<span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:18,height:18,borderRadius:9,background:T.orange+"22",color:T.orange,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800}}>{c.resp.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2)}</span><span>{c.resp.split(" ")[0]}</span></span>:<span style={{color:T.dim}}>—</span>}</td>}
-                    {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,whiteSpace:"nowrap"}} title="Click para cambiar la obra"><select value={c.obra||""} onClick={e=>e.stopPropagation()} onChange={e=>{
+                    {D&&<td style={{padding:"6px 10px",borderRight:"1px solid #2a2a2a",fontSize:11,maxWidth:130,whiteSpace:"nowrap"}} title="Click para cambiar la obra"><select value={c.obra||""} onClick={e=>e.stopPropagation()} onChange={async e=>{
                       const nueva=e.target.value;
                       if(nueva===c.obra)return;
-                      setCaja(prev=>prev.map(x=>x.id===c.id?{...x,obra:nueva}:x));
-                      show("✓ Obra actualizada: "+(nueva||"sin obra"));
+                      _lastWrite.current["caja"]=Date.now()+60000;
+                      const nuevoCaja=caja.map(x=>x.id===c.id?{...x,obra:nueva}:x);
+                      await setCaja(nuevoCaja);
+                      show("✓ '"+(c.concepto||"").slice(0,30)+"': "+(c.obra||"sin obra")+" → "+(nueva||"sin obra"));
                     }} style={{background:c.obra?"transparent":"rgba(255,213,79,.06)",border:"1px solid transparent",color:c.obra&&c.obra!=="General"?T.gold:T.dim,fontSize:11,cursor:"pointer",width:"100%",padding:"1px 2px",outline:"none"}} onMouseEnter={e=>e.target.style.border="1px solid "+T.gold+"44"} onMouseLeave={e=>e.target.style.border="1px solid transparent"}>
                       <option value="" style={{background:"#1a1a1a"}}>— sin obra —</option>
                       <option value="General" style={{background:"#1a1a1a"}}>General</option>
@@ -4341,6 +4395,18 @@ export default function App(){
       <div style={{marginBottom:14}}>
         <div style={{fontSize:18,fontWeight:800}}>🔬 Auditoría del sistema</div>
         <div style={{fontSize:11,color:T.muted,marginTop:2}}>Detecta y arregla inconsistencias en tus datos: obras duplicadas, variantes de nombre, fantasmas.</div>
+      </div>
+      {/* BOTÓN URGENTE: Backup manual */}
+      <div style={{background:"linear-gradient(135deg,rgba(231,76,60,.10),rgba(255,152,0,.06))",border:"2px solid "+T.orange+"77",borderRadius:10,padding:"12px 16px",marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,boxShadow:"0 2px 12px rgba(255,152,0,.15)"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontSize:14,color:T.orange,fontWeight:800}}>💾 Backup manual (descargar JSON)</div>
+          <div style={{fontSize:11,color:T.muted,marginTop:3}}>Descarga TODO tu localStorage como archivo. Hazlo ANTES de cualquier operación arriesgada (import masivo, prorrateo, resincronizar). Si algo sale mal, tienes copia.</div>
+        </div>
+        <button onClick={()=>{
+          const ok=_downloadBackup();
+          if(ok)show("💾 Backup descargado — guárdalo bien");
+          else alert("❌ Error creando backup");
+        }} style={{padding:"10px 18px",borderRadius:8,border:"none",background:T.orange,color:"#111",fontSize:12,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>💾 Descargar backup</button>
       </div>
       {/* Banner urgente: Resincronizar con la nube */}
       <div onClick={()=>om("resincronizar")} style={{background:"linear-gradient(135deg,rgba(66,165,245,.12),rgba(171,71,188,.08))",border:"1px solid "+T.blue+"55",borderRadius:10,padding:"12px 16px",marginBottom:14,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
@@ -4768,31 +4834,60 @@ export default function App(){
       />
     </ModalW>}
     {modal==="importarViernes"&&<ModalW title="📅 Importar Viernes del Taller" onClose={cm}>
-      <ImportadorViernesForm obras={obras} movs={movs} onImport={items=>{
+      <ImportadorViernesForm obras={obras} movs={movs} onImport={async items=>{
         const baseId=movs.length;
         const loteId="viernes-"+Date.now();
-        const nuevos=items.map((it,i)=>({
-          fecha:it.fecha||td(),
-          desc:it.desc,
-          prov:it.prov||"",
-          obra:it.obra||"",
-          cat:it.cat||(it.tipo==="ing"?"":"Material"),
-          ing:it.tipo==="ing"?Number(it.monto):0,
-          egr:it.tipo==="egr"?Number(it.monto):0,
-          user:user.nombre,
-          id:baseId+i+1,
-          importadoEl:td(),
-          importadoViernes:true,
-          loteImport:loteId
-        }));
-        setMovs(prev=>[...prev,...nuevos]);
-        nuevos.forEach(n=>highlightNew("m"+n.id));
-        // Guardar info del último lote para poder deshacer
-        try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,timestamp:Date.now(),tipo:"Viernes del Taller",count:nuevos.length,user:user.nombre}));}catch{}
-        cm();
-        const nIng=items.filter(it=>it.tipo==="ing").length;
-        const nEgr=items.filter(it=>it.tipo==="egr").length;
-        show("✓ Viernes importado: "+nIng+" ingresos + "+nEgr+" egresos (puedes deshacer desde Finanzas)");
+        const nuevos=items.map((it,i)=>{
+          const m=Number(it.monto);
+          return {
+            fecha:it.fecha||td(),
+            desc:it.desc,
+            prov:it.prov||"",
+            obra:it.obra||"",
+            cat:it.cat||(it.tipo==="ing"?"":"Material"),
+            ing:it.tipo==="ing"?m:0,
+            egr:it.tipo==="egr"?m:0,
+            monto:m,               // ← retrocompat con vistas que leen m.monto
+            user:user.nombre,
+            status:"aprobado",
+            id:baseId+i+1,
+            importadoEl:td(),
+            importadoViernes:true,
+            loteImport:loteId
+          };
+        });
+        // === GUARDADO CON CONFIRMACIÓN ===
+        try{
+          const finalMovs=[...movs,...nuevos];
+          await setMovs(finalMovs); // await para que push a Supabase termine
+          _lastWrite.current["movs"]=Date.now()+60000; // 60s cooldown extra
+          nuevos.forEach(n=>highlightNew("m"+n.id));
+          try{localStorage.setItem("ev_ultimoLote",JSON.stringify({loteId,timestamp:Date.now(),tipo:"Viernes del Taller",count:nuevos.length,user:user.nombre}));}catch{}
+          const nIng=items.filter(it=>it.tipo==="ing").length;
+          const nEgr=items.filter(it=>it.tipo==="egr").length;
+          const totIng=items.filter(it=>it.tipo==="ing").reduce((s,it)=>s+Number(it.monto),0);
+          const totEgr=items.filter(it=>it.tipo==="egr").reduce((s,it)=>s+Number(it.monto),0);
+          // Verificación FINAL después del sync
+          setTimeout(()=>{
+            const pendCount=_getPendienteCount();
+            if(pendCount>0){
+              alert("⚠️ IMPORTANTE:\n\n"+nuevos.length+" movimientos GUARDADOS LOCALMENTE pero hay "+pendCount+" pendientes de sincronizar con la nube.\n\nEL SISTEMA REINTENTARÁ AUTOMÁTICAMENTE.\n\nNO cierres esta ventana hasta que el badge naranja de arriba desaparezca.\n\nSi persiste, ve a Sistema → Auditoría → Resincronizar.");
+            }else{
+              alert("✅ IMPORTACIÓN CONFIRMADA\n\n"+
+                "• "+nuevos.length+" movimientos guardados\n"+
+                "• "+nIng+" ingresos: $"+totIng.toLocaleString("es-MX")+"\n"+
+                "• "+nEgr+" egresos: $"+totEgr.toLocaleString("es-MX")+"\n\n"+
+                "☁️ Sincronizados con la nube ✓\n"+
+                "💾 Guardados localmente ✓\n\n"+
+                "Ya puedes cerrar el sistema con seguridad.");
+            }
+          },1500);
+          cm();
+          show("✓ Viernes: "+nIng+" ing + "+nEgr+" egr importados");
+        }catch(e){
+          console.error("Error importando:",e);
+          alert("❌ ERROR al importar:\n\n"+(e.message||e)+"\n\nLos datos NO se guardaron. Intenta de nuevo.");
+        }
       }}/>
     </ModalW>}
     {modal==="importarMasivo"&&<ModalW title={"📊 Importar masivo · "+(md?.tipo==="ing"?"Ingresos":"Egresos")} onClose={cm}>
@@ -5198,6 +5293,20 @@ export default function App(){
   // ═══ MOBILE: Header + Content + Bottom Nav ═══
   return <div style={{fontFamily:"'DM Sans','Segoe UI',system-ui,sans-serif",background:T.bg,color:T.text,minHeight:"100vh",fontSize:13}}>
     <div style={{padding:"10px 16px",background:"#111",borderBottom:"1px solid "+T.border,position:"sticky",top:0,zIndex:100,display:"flex",justifyContent:"space-between",alignItems:"center"}}><BrandFull size="small" color={T.gold}/><div style={{display:"flex",alignItems:"center",gap:8}}><button onClick={()=>setSearchOpen(true)} style={{background:"rgba(255,255,255,.06)",border:"1px solid "+T.border,color:T.muted,width:32,height:32,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,cursor:"pointer"}} title="Buscar (Ctrl+K)">🔍</button>{pendientesCount>0&&<span onClick={()=>{DB.reintentarPendientes().then(()=>{setPendientesCount(_getPendienteCount());show("Reintentado");});}} style={{fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:10,background:"rgba(255,152,0,.18)",color:T.orange,whiteSpace:"nowrap",cursor:"pointer"}} title="Cambios sin sincronizar — click para reintentar">⏳ {pendientesCount} pend.</span>}{saveStatus.state!=="idle"&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10,background:saveStatus.state==="saving"?"rgba(66,165,245,.15)":saveStatus.state==="saved"?"rgba(76,175,80,.15)":"rgba(231,76,60,.18)",color:saveStatus.state==="saving"?T.blue:saveStatus.state==="saved"?T.green:T.red,whiteSpace:"nowrap",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}} title={saveStatus.err||""}>{saveStatus.msg}</span>}{CLOUD&&<span onClick={()=>location.reload()} style={{fontSize:11,color:_syncOk?T.green:T.yellow,cursor:"pointer"}} title={_syncOk?"Nube OK":"Verificando"}>{_syncOk?"☁️":"⏳"}</span>}{pendA>0&&<div onClick={()=>go("auth")} style={{background:T.yellow,color:"#111",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800,cursor:"pointer"}}>{pendA}</div>}<div onClick={()=>setUser(null)} style={{width:28,height:28,borderRadius:14,background:role.color+"22",color:role.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,cursor:"pointer"}}>{user.avatar}</div></div></div>
+    {/* === BANNER GRANDE cuando hay pendientes sin sincronizar === */}
+    {pendientesCount>0&&<div style={{background:"linear-gradient(135deg,rgba(255,152,0,.20),rgba(231,76,60,.10))",borderBottom:"2px solid "+T.orange,padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",position:"sticky",top:52,zIndex:99}}>
+      <div style={{flex:1,minWidth:200}}>
+        <div style={{fontSize:12,fontWeight:800,color:T.orange}}>⚠️ {pendientesCount} cambio(s) sin sincronizar a la nube</div>
+        <div style={{fontSize:10,color:T.muted,marginTop:2}}>Tus datos están seguros LOCALMENTE. Si cierras el navegador ahora, se guardan pero NO se ven en otro dispositivo hasta sincronizar. Click para reintentar YA.</div>
+      </div>
+      <button onClick={async()=>{
+        show("🔄 Reintentando "+pendientesCount+" pendientes...");
+        const ok=await DB.reintentarPendientes();
+        setPendientesCount(_getPendienteCount());
+        if(ok>0)show("✓ "+ok+" sincronizados");
+        else show("⚠️ Aún no se pudieron sincronizar. Reintentaré en 45s.");
+      }} style={{padding:"8px 16px",borderRadius:8,border:"none",background:T.orange,color:"#111",fontSize:12,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>🔄 Sincronizar ahora</button>
+    </div>}
     {content}
     {modals}
     {toast&&<div style={{position:"fixed",top:70,left:"50%",transform:"translateX(-50%)",background:"#1a3a1a",color:T.green,padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,zIndex:2000}}>{toast}</div>}
